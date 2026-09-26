@@ -28,7 +28,9 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 8. **O timing tem dependências sutis de tempo real.** Além de marcar o ritmo dos quadros, `getFrameCount2Ticks()` é usado como acumulador de fase: a animação de aviso (`src/fonthand.c:260`) e a de respawn (`src/mainint.c:2410`) só avançam quando o contador chega a 0. Qualquer mudança no ritmo dos quadros, como interpolação ou rodar acima de 35 Hz, precisa preservar isso.
 9. **Arquivos de usuário ficam fora do diretório de dados.** `tyrian.cfg` e `tyrian.sav` ao lado dos dados do DOS nunca são lidos; o OpenTyrian usa `~/.config/opentyrian`, ou o diretório do executável quando já existe um `opentyrian.cfg` lá (`src/file.c`).
 10. **O padrão de `processorType` é inconsistente.** Sem arquivo de config, o motor usa 3 ("High Detail"), mas `JE_initProcessorType()` documenta o 2 como padrão. Na prática, os níveis 2, 3 e 5 produzem saída idêntica nas demos, porque `smoothScroll` é forçado para true depois.
-11. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
+11. **Mapa dos "smoothies" nos níveis.** Estes efeitos são ligados por eventos de fase (tipo 64): lava (bit 1) em E1/L16 e em várias fases do episódio 4; água (bit 2) em E1/L17 e em muitas do E4; blur (bit 4) e iced blur (bits 3 e 5) só no E4; holofote (bit 6) em E1/L15 e E1/L16; flip vertical (bit 9) em E4/L12 e E4/L13. Os bits 7 e 8 nunca são usados. Uma varredura estática dos níveis não basta, porque eventos de salto (tipo 54) e saltos condicionais (61/66/70/71) pulam parte dos eventos. `tools/scan_smoothies.py` lista os candidatos, e só a execução confirma quais rodam.
+12. **Estrutura dos arquivos `.lvl`.** `lvlPos` guarda duas entradas por fase (`JE_loadMap()` usa `lvlPos[(lvlFileNum-1)*2]`), e a última entrada do episódio 4 é o bloco de itens (`src/episodes.c:87`).
+13. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
 
@@ -88,7 +90,7 @@ tools/regress.sh --update                       # regenera os baselines (só qua
 
 O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignora a config e os saves do usuário, fixa as opções que afetam a saída e troca o relógio real por um relógio virtual, então roda na velocidade máxima e de forma determinística.
 
-**Lacuna conhecida:** `smoothies[]` fica zerado durante todas as 5 demos. Por isso `lava_filter`, `water_filter`, `iced_blur_filter`, `blur_filter` e os dois `starShowVGASpecialCode` (flip vertical e holofote) **não são cobertos** pelo teste. Isso precisa ser resolvido antes de portar esses efeitos para a GPU.
+**Cobertura:** as 5 demos (× 6 níveis de detalhe) nunca ativam `smoothies[]`. Os 5 cenários sintéticos cobrem esses caminhos: água em E4/L9, flip e lava em E4/L12, iced blur em E4/L8, holofote e lava em E1/L16, blur em E4/L19. Nos cenários o jogador é invencível, pela flag `youAreCheating` do próprio motor e só nesse modo, e a entrada fica neutra. Por isso o texto "Cheaters always prosper." aparece nesses baselines, o que é esperado.
 
 ## 5. Riscos
 
@@ -105,7 +107,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 ### Fase 0 — Fundação (visualmente não muda nada)
 - [x] Build local funcionando (macOS, `make`; Homebrew com sdl2-compat sobre SDL3)
 - [x] Teste de regressão: 5 demos × 6 níveis de detalhe, sem janela, hash por quadro de 8 bits + paleta, baselines em `test/regress/`, `make regress` (~26 s)
-- [ ] Cobrir os caminhos que as demos não exercitam (lava, água, blur, iced blur, flip vertical, holofote): cenários sintéticos que iniciam fases específicas com entrada fixa
+- [x] Cobrir os caminhos que as demos não exercitam: 5 cenários sintéticos (`--regress-level=E:L --regress-frames=N`) cobrem lava, água, blur, iced blur, flip vertical e holofote. Total: 52 pares, ~35 s
 - [ ] Backend GPU com a paleta aplicada no shader; saída idêntica ao scaler atual
 - [ ] Modos Classic/Modern como configuração (Modern = Classic por enquanto)
 
@@ -181,3 +183,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-09-26 — Decisão: arte nova só procedural
 - O projeto não terá artista. Arte nova é permitida se for gerada por código, na grade de 320×200 (§7). Com isso, camadas extras de parallax viram viáveis e ficam fora os sprites redesenhados. Não resta nenhuma decisão em aberto.
+
+### 2026-09-26 — Cobertura dos smoothies entregue (Fase 0b)
+- Um agente novo entregou 5 cenários sintéticos que cobrem os 6 caminhos de renderização que as demos não exercitavam; aprovado na primeira revisão. Commit em seguida ao `d09f352`.
+- Verificado pelo coordenador: os 52 pares passam (~34 s), não há caminho fixo nos arquivos, e o scanner roda. O teste negativo (constante alterada em `water_filter`) derruba só os 4 cenários de água.
+- Descobertas em §2 (itens 11–12): mapa de quais fases ligam cada smoothie; os saltos de evento tornam a varredura estática não confiável; `lvlPos` guarda duas entradas por fase. Sem invencibilidade, o jogador morre em 358–1185 quadros, antes da maioria dos eventos.
+- Incidente do coordenador: um `git commit -a` para ajustar o plano publicou o trabalho do agente ainda sem revisão. Desfeito com reset e `--force-with-lease`. Regra adotada: só adicionar arquivos por caminho explícito.
+- Próximo: migração SDL2 → SDL3 (Fase 0c), com um agente novo.
