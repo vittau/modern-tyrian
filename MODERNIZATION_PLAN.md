@@ -25,7 +25,10 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 5. **O playfield visível mede 264×184** (`src/tyrian2.c:106`, copiado de `game_screen` com offset de +24). O resto é HUD, mas parte do HUD é desenhada **dentro** do playfield: dinheiro, vidas e superbombs (`src/mainint.c:2847`).
 6. **O parallax já existe.** São 3 camadas de background com velocidades diferentes, mais um pan horizontal que segue o jogador em 3 velocidades (`src/mainint.c:4443`), starfield e "smoothies" (lava, água, blur). Os mapas têm 336–360 px de largura contra 264 visíveis, então **existe arte original além da borda**.
 7. **Já há iluminação e flash em 8 bits**: um holofote que segue o jogador (`starShowVGASpecialCode == 2`, `src/tyrian2.c:109`), filtros de cor por fase (`JE_filterScreen`) e `fade_white`. O original não tem screen shake.
-8. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
+8. **O timing tem dependências sutis de tempo real.** Além de marcar o ritmo dos quadros, `getFrameCount2Ticks()` é usado como acumulador de fase: a animação de aviso (`src/fonthand.c:260`) e a de respawn (`src/mainint.c:2410`) só avançam quando o contador chega a 0. Qualquer mudança no ritmo dos quadros, como interpolação ou rodar acima de 35 Hz, precisa preservar isso.
+9. **Arquivos de usuário ficam fora do diretório de dados.** `tyrian.cfg` e `tyrian.sav` ao lado dos dados do DOS nunca são lidos; o OpenTyrian usa `~/.config/opentyrian`, ou o diretório do executável quando já existe um `opentyrian.cfg` lá (`src/file.c`).
+10. **O padrão de `processorType` é inconsistente.** Sem arquivo de config, o motor usa 3 ("High Detail"), mas `JE_initProcessorType()` documenta o 2 como padrão. Na prática, os níveis 2, 3 e 5 produzem saída idêntica nas demos, porque `smoothScroll` é forçado para true depois.
+11. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
 
@@ -76,6 +79,17 @@ Peças novas necessárias:
 - O modo Classic tem de produzir exatamente o mesmo framebuffer de 8 bits que o upstream (validado pelo teste de regressão).
 - Efeitos "secundários" (explosões extras, partículas) são puramente visuais; nunca usam `JE_setupExplosion` ou `JE_doSP`.
 
+### Como rodar o teste de regressão
+
+```sh
+make regress TYRIAN_DATA=/caminho/para/Tyrian   # padrão: ./data (baixa com ./get_data.sh)
+tools/regress.sh --update                       # regenera os baselines (só quando a mudança de saída é intencional)
+```
+
+O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignora a config e os saves do usuário, fixa as opções que afetam a saída e troca o relógio real por um relógio virtual, então roda na velocidade máxima e de forma determinística.
+
+**Lacuna conhecida:** `smoothies[]` fica zerado durante todas as 5 demos. Por isso `lava_filter`, `water_filter`, `iced_blur_filter`, `blur_filter` e os dois `starShowVGASpecialCode` (flip vertical e holofote) **não são cobertos** pelo teste. Isso precisa ser resolvido antes de portar esses efeitos para a GPU.
+
 ## 5. Riscos
 
 | Risco | Impacto | Mitigação |
@@ -89,8 +103,9 @@ Peças novas necessárias:
 ## 6. Fases
 
 ### Fase 0 — Fundação (visualmente não muda nada)
-- [ ] Build local funcionando e documentado (macOS)
-- [ ] Teste de regressão: rodar as demos sem janela, com hash do framebuffer 8-bit e do estado por tick; baseline gravado
+- [x] Build local funcionando (macOS, `make`; Homebrew com sdl2-compat sobre SDL3)
+- [x] Teste de regressão: 5 demos × 6 níveis de detalhe, sem janela, hash por quadro de 8 bits + paleta, baselines em `test/regress/`, `make regress` (~26 s)
+- [ ] Cobrir os caminhos que as demos não exercitam (lava, água, blur, iced blur, flip vertical, holofote): cenários sintéticos que iniciam fases específicas com entrada fixa
 - [ ] Backend GPU com a paleta aplicada no shader; saída idêntica ao scaler atual
 - [ ] Modos Classic/Modern como configuração (Modern = Classic por enquanto)
 
@@ -128,6 +143,7 @@ Peças novas necessárias:
 
 - **Branch:** todo o trabalho acontece na branch `modernization` (remote `origin` = `github.com/vittau/modern-tyrian`).
 - **Implementação:** feita por agentes OpenCode (DeepSeek V4.1 Flash) orquestrados pelo Orca, no checkout principal, uma tarefa por vez quando as tarefas mexem nos mesmos arquivos.
+- **Contexto limpo por tarefa:** cada tarefa nova vai para um agente novo (ou com sessão limpa). Só correções pedidas na revisão da *mesma* tarefa voltam para o mesmo agente.
 - **Revisão, commits e pushes:** feitos pelo coordenador (Claude). Os agentes não fazem commit.
 - **Relatórios dos agentes:** cada agente grava descobertas em `.worker-reports/<tarefa>.md` (ignorado localmente via `.git/info/exclude`); o que for relevante é incorporado a este arquivo.
 - **Este arquivo** é atualizado a cada marco: decisões em §7, checklist em §6, descobertas em §2 e entradas no Journal.
@@ -144,3 +160,17 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Descobertas relevantes: o parallax já existe (3 camadas + pan horizontal); há arte de fundo além da borda visível; a lógica roda a ~35 Hz, acoplada ao desenho; `mt_rand` é compartilhado com caminhos de desenho.
 - Plano criado neste arquivo.
 - **Pendente:** decisão do backend (SDL3 × SDL2+OpenGL) e o aval para iniciar a Fase 0.
+
+### 2026-09-26 — Início da Fase 0
+- Decidido: Fase 0 aprovada, backend SDL3, e o fluxo de trabalho de §8 (agentes OpenCode com DeepSeek V4.1 Flash via Orca; o coordenador revisa, faz commit e push).
+- Branch `modernization` criada e publicada em `origin`.
+- Orca run `run_e0cad877e2fd`. Primeira tarefa despachada: teste de regressão headless por demos (task `task_9f4f56a107b2`).
+- Descoberta: o Homebrew desta máquina fornece `sdl2-compat` 2.32 sobre SDL3 3.4.16, ou seja, o build atual já roda sobre SDL3 por meio da camada de compatibilidade. SDL2_net não está instalado, então o build sai sem rede.
+- Descoberta: as demos usam semente fixa (`src/demo.c:42`, `mt_srand(32402394)`), o que as torna candidatas naturais a teste determinístico.
+
+### 2026-09-26 — Teste de regressão entregue (Fase 0a)
+- O agente entregou o harness em duas rodadas; o commit é `682abeb`.
+- Na revisão da 1ª rodada devolvi dois problemas: (1) ele tinha movido `JE_paramCheck()` para antes de `loadConfiguration()`, o que quebrava `--xmas`/`--no-xmas` fora do modo de teste; (2) com `processorType` fixo em 2, lava, água e blend `wild` ficavam de fora. A correção restaurou a ordem original (com um pré-scan dos argumentos) e passou a varrer os níveis de detalhe 1–6.
+- Verificado pelo coordenador: os 30 pares (demo × nível) passam, não sobrou sonda temporária no código, e o teste negativo (1 pixel alterado) falha em todos os pares a partir do quadro 51.
+- Descobertas registradas em §2 (itens 8–10) e §4: o timing depende de `getFrameCount2Ticks()` como acumulador de fase; os arquivos de usuário ficam fora do diretório de dados; o padrão de `processorType` é inconsistente; as demos nunca ativam `smoothies[]`, o que é uma lacuna de cobertura.
+- Próximo: cenários sintéticos para cobrir os smoothies e, depois, a migração para SDL3. Cada tarefa vai para um agente novo.
