@@ -42,7 +42,7 @@ Esforço: P = pequeno, M = médio, G = grande.
 | Bloom e glow | Alta | P→M | A versão simples usa uma máscara pelo nibble de brilho da paleta, o que faz fundos claros brilharem também. A versão boa usa o tag buffer (§4). |
 | Iluminação dinâmica | Média | M/G | Luz aditiva a partir do snapshot de tiros e explosões. A cor da luz pode ser derivada automaticamente da matiz da paleta de cada sprite, sem curadoria manual por arma. Sem normal maps nem profundidade, "interagir com o ambiente" se limita a clarear o albedo. |
 | VFX (faíscas, trilhas, shockwave, distorção) | Alta | M | Os gatilhos são ganchos em `JE_setupExplosion`, disparos e acertos. Há uma decisão estética: partículas em alta resolução ou presas à grade de 320×200. |
-| Parallax e ambiente | Parcial | P (ambiente) / G (camadas) | O parallax já existe. Camadas novas exigem arte nova, o que contradiz a seção "Scope Philosophy". Poeira, névoa e partículas ambiente são baratas. |
+| Parallax e ambiente | Alta (procedural) | P (ambiente) / M (camadas) | O parallax já existe. Camadas novas só procedurais: névoa, poeira, starfields ou derivações dos tiles originais (§7). |
 | Widescreen com playfield fixo | Alta | M | Recortar os 264×184 e redesenhar fora deles o HUD que hoje fica dentro. As laterais podem mostrar, escurecida, a arte original que existe além da borda. Menus, loja e cutscenes (320×200) ficam centralizados com moldura. |
 | HUD expandido | Alta | M | Todo o estado está em globais (`player[]`, armas, escudo, armadura), então é só um desenho novo lendo esses dados. Os modos 2P, arcade e rede multiplicam os layouts. |
 | Controle, remapeamento e autofire | Alta | P/M | Migrar para a API de gamepad do SDL dá mapeamento padrão e hot-plug. O Tyrian já atira segurando o botão, então turbo é trivial. |
@@ -98,7 +98,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 | Trepidação a 35 Hz em telas de 60 Hz | É o que mais "parece antigo" | VRR primeiro; a interpolação fica para a Fase 3. |
 | ~~Mistura de resoluções~~ | — | Resolvido: todos os efeitos ficam na grade de 320×200 (§7). |
 | Divergência do upstream OpenTyrian | Correções do upstream difíceis de trazer | Concentrar as mudanças em módulos novos; tocar o mínimo em `tyrian2.c` e `mainint.c`. |
-| Contradições na proposta: "High-resolution sprites" e camadas de parallax extras exigem arte nova | Escopo | Decidir explicitamente (ver decisões em aberto). |
+| ~~Contradições na proposta (sprites em alta resolução, parallax extra)~~ | — | Resolvido: arte nova só procedural; nada de sprites em alta resolução (§7). |
 
 ## 6. Fases
 
@@ -132,11 +132,11 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 ## 7. Decisões
 
 ### Em aberto
-- **Arte nova:** aceitar alguma (camadas de parallax extras, sprites em alta resolução) ou manter 100% da arte original?
 
 ### Tomadas
 - **2026-09-26 — Fase 0 aprovada; backend = SDL3.** A migração SDL2 → SDL3 (API de GPU/renderer com shaders e API nova de gamepad) foi a recomendação aceita. SDL3 3.4.16 já está instalado via Homebrew.
 - **2026-09-26 — Efeitos na resolução original.** Partículas, luzes, bloom, trilhas e demais VFX são calculados na grade lógica de 320×200 (um valor por pixel do jogo) e ampliados com o mesmo scaling dos sprites. Nenhum efeito é desenhado em resolução de tela. Com isso somem o risco de "mistura de resoluções" (§5) e a decisão estética que estava prevista para a Fase 2.
+- **2026-09-26 — Arte nova só procedural.** O projeto não terá artista. Arte nova é permitida desde que seja gerada por código: ruído, gradientes, derivação/recoloração/composição dos sprites e tiles originais, partículas, shaders. Nada desenhado à mão e nada de sprites redesenhados em alta resolução. Isso resolve a contradição de §5: camadas extras de parallax (névoa, poeira, starfields, versões desfocadas ou escurecidas dos tiles existentes) viram viáveis se forem procedurais, sempre na grade de 320×200.
 - **2026-09-26 — Ordem da Fase 0:** o teste de regressão por demos vem antes da migração para SDL3, porque é a rede de segurança dela.
 
 ## 8. Processo
@@ -177,3 +177,6 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-09-26 — Decisão: efeitos na resolução original
 - O usuário decidiu que os efeitos modernos (VFX, luz, bloom) ficam na mesma resolução do jogo original, a grade de 320×200. Isso foi registrado em §7 e remove um risco de §5.
+
+### 2026-09-26 — Decisão: arte nova só procedural
+- O projeto não terá artista. Arte nova é permitida se for gerada por código, na grade de 320×200 (§7). Com isso, camadas extras de parallax viram viáveis e ficam fora os sprites redesenhados. Não resta nenhuma decisão em aberto.
