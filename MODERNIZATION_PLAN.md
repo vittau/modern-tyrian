@@ -96,7 +96,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 |---|---|---|
 | Quebra de determinismo (demos e netplay) | Alto e silencioso | Teste de regressão por demos em cada mudança; RNG separado para os efeitos. |
 | Trepidação a 35 Hz em telas de 60 Hz | É o que mais "parece antigo" | VRR primeiro; a interpolação fica para a Fase 3. |
-| Mistura de resoluções (efeito em 4K sobre pixel de 320×200) | Perder a identidade visual | Prototipar cedo com opção de efeitos presos à grade; comparar lado a lado. |
+| ~~Mistura de resoluções~~ | — | Resolvido: todos os efeitos ficam na grade de 320×200 (§7). |
 | Divergência do upstream OpenTyrian | Correções do upstream difíceis de trazer | Concentrar as mudanças em módulos novos; tocar o mínimo em `tyrian2.c` e `mainint.c`. |
 | Contradições na proposta: "High-resolution sprites" e camadas de parallax extras exigem arte nova | Escopo | Decidir explicitamente (ver decisões em aberto). |
 
@@ -120,7 +120,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] Snapshot e fila de eventos por tick
 - [ ] Tag buffer nas funções `blit_sprite*`
 - [ ] Luzes dinâmicas, com cor derivada da matiz da paleta
-- [ ] VFX: faíscas, destroços, fumaça, shockwave, trilhas, muzzle flash e impactos
+- [ ] VFX (na grade de 320×200): faíscas, destroços, fumaça, shockwave, trilhas, muzzle flash e impactos
 - [ ] Partículas ambiente (poeira, névoa, energia)
 - [ ] HUD expandido (painéis esquerdo e direito; layouts 1P, 2P, arcade e rede)
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
@@ -132,11 +132,11 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 ## 7. Decisões
 
 ### Em aberto
-- **Estética dos efeitos:** partículas e luzes em alta resolução ou presas à grade de 320×200? (Resolver com protótipo na Fase 2.)
 - **Arte nova:** aceitar alguma (camadas de parallax extras, sprites em alta resolução) ou manter 100% da arte original?
 
 ### Tomadas
 - **2026-09-26 — Fase 0 aprovada; backend = SDL3.** A migração SDL2 → SDL3 (API de GPU/renderer com shaders e API nova de gamepad) foi a recomendação aceita. SDL3 3.4.16 já está instalado via Homebrew.
+- **2026-09-26 — Efeitos na resolução original.** Partículas, luzes, bloom, trilhas e demais VFX são calculados na grade lógica de 320×200 (um valor por pixel do jogo) e ampliados com o mesmo scaling dos sprites. Nenhum efeito é desenhado em resolução de tela. Com isso somem o risco de "mistura de resoluções" (§5) e a decisão estética que estava prevista para a Fase 2.
 - **2026-09-26 — Ordem da Fase 0:** o teste de regressão por demos vem antes da migração para SDL3, porque é a rede de segurança dela.
 
 ## 8. Processo
@@ -174,3 +174,6 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Verificado pelo coordenador: os 30 pares (demo × nível) passam, não sobrou sonda temporária no código, e o teste negativo (1 pixel alterado) falha em todos os pares a partir do quadro 51.
 - Descobertas registradas em §2 (itens 8–10) e §4: o timing depende de `getFrameCount2Ticks()` como acumulador de fase; os arquivos de usuário ficam fora do diretório de dados; o padrão de `processorType` é inconsistente; as demos nunca ativam `smoothies[]`, o que é uma lacuna de cobertura.
 - Próximo: cenários sintéticos para cobrir os smoothies e, depois, a migração para SDL3. Cada tarefa vai para um agente novo.
+
+### 2026-09-26 — Decisão: efeitos na resolução original
+- O usuário decidiu que os efeitos modernos (VFX, luz, bloom) ficam na mesma resolução do jogo original, a grade de 320×200. Isso foi registrado em §7 e remove um risco de §5.
