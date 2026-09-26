@@ -884,8 +884,10 @@ int main(int argc, char *argv[])
 
 	if (regress_active())
 	{
-		// Replay the requested demo directly, skipping intro, title and menus.
-		setDemoNumber(regress_demo);
+		// Replay the requested demo (or start the requested synthetic level)
+		// directly, skipping intro, title and menus.
+		if (regress_demo != 0)
+			setDemoNumber(regress_demo);
 
 		JE_initPlayerData();
 
@@ -893,7 +895,8 @@ int main(int argc, char *argv[])
 
 		JE_main();
 
-		// JE_main() returns once the demo recording has been fully played.
+		// JE_main() returns once playback ends (demo exhausted, scenario frame
+		// cap reached, or level over).
 		regress_finish();
 
 		return EXIT_SUCCESS;

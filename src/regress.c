@@ -19,11 +19,15 @@
 #include "regress.h"
 
 #include "config.h"
+#include "episodes.h"
 #include "joystick.h"
 #include "logging.h"
 #include "loudness.h"
+#include "mtrand.h"
 #include "opentyr.h"
 #include "palette.h"
+#include "player.h"
+#include "varz.h"
 #include "video.h"
 
 #include <assert.h>
@@ -32,7 +36,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+// beginPlayDemo() reseeds with this constant; scenario mode matches it so the
+// two modes share the same deterministic RNG stream shape.
+static const unsigned long scenario_seed = 32402394;
+
 int regress_demo = 0;
+int regress_scenario_episode = 0;
+int regress_scenario_level = 0;
+int regress_frames = 0;
 const char *regress_out_path = NULL;
 int regress_detail = 2;
 
@@ -48,18 +59,29 @@ static unsigned long regress_frame = 0;
 
 bool regress_active(void)
 {
-	return regress_demo != 0;
+	return regress_demo != 0 || regress_scenario_active();
+}
+
+bool regress_scenario_active(void)
+{
+	return regress_scenario_episode != 0;
+}
+
+static bool arg_is_option(const char *arg, const char *option, size_t option_len)
+{
+	return strncmp(arg, option, option_len) == 0 &&
+	       (arg[option_len] == '\0' || arg[option_len] == '=');
 }
 
 bool regress_scan_args(int argc, char *argv[])
 {
-	static const char *const option = "--regress-demo";
-	const size_t option_len = strlen(option);
+	static const char *const demo_option     = "--regress-demo";
+	static const char *const scenario_option = "--regress-level";
 
 	for (int i = 1; i < argc; ++i)
 	{
-		if (strncmp(argv[i], option, option_len) == 0 &&
-		    (argv[i][option_len] == '\0' || argv[i][option_len] == '='))
+		if (arg_is_option(argv[i], demo_option, strlen(demo_option)) ||
+		    arg_is_option(argv[i], scenario_option, strlen(scenario_option)))
 			return true;
 	}
 
@@ -117,6 +139,62 @@ void regress_capture_frame(SDL_Surface *surface)
 
 	fprintf(regress_out, "%lu %016" PRIx64 "\n", regress_frame, hash);
 	regress_frame++;
+
+	if (regress_frames > 0 && regress_frame >= (unsigned long)regress_frames)
+	{
+		// Scenario length cap.  This is the last frame we want, so flush and
+		// leave; there is no clean way to unwind the original in-level loop and
+		// every frame we care about has already been captured.
+		regress_finish();
+		exit(EXIT_SUCCESS);
+	}
+}
+
+void regress_begin_scenario(void)
+{
+	assert(regress_scenario_active());
+
+	// Mirror beginPlayDemo(): restart the RNG at its fixed seed and force the
+	// difficulty, so scenario playback is as reproducible as demo playback.
+	mt_srand(scenario_seed);
+	difficultyLevel = DIFFICULTY_NORMAL;
+
+	// Scenario mode intentionally cannot die before the smoothie event fires.
+	// youAreCheating is the engine's own invincibility flag (the one the
+	// F2+F3+F6 cheat toggles); it only suppresses player death, and only
+	// scenario mode turns it on.  It is set here, not in regress_init(), because
+	// main() resets it to false later; demo mode never reaches here.
+	youAreCheating = true;
+
+	// This selects tyrianN.lvl and loads the item tables (needed for ships[],
+	// shields[] and the weapon fire code).
+	JE_initEpisode(regress_scenario_episode);
+
+	// Fixed level identity.  lvlFileNum is the 1-based index into tyrianN.lvl
+	// (the same field the episode script's "L" line and the demo header set).
+	// levelName/levelSong are arbitrary but must be constant.
+	memset(levelName, 0, sizeof levelName);
+	strncpy(levelName, "SCENARIO", sizeof levelName - 1);
+	lvlFileNum = (JE_byte)regress_scenario_level;
+	initial_episode_num = (JE_byte)regress_scenario_episode;
+	levelSong = 1;
+
+	// Fixed new-game loadout.  This keeps the frame hashes a function of the
+	// engine and the level data only (no user config, no save file, no demo).
+	player[0].items.ship = 1;                     // USP Talon
+	player[0].items.generator = 2;                // Advanced MR-12
+	player[0].items.shield = 4;                   // Gencore High Energy Shield
+	player[0].items.weapon[FRONT_WEAPON].id = 1;  // Pulse Cannon
+	player[0].items.weapon[FRONT_WEAPON].power = 1;
+	player[0].items.weapon[REAR_WEAPON].id = 0;   // None
+	player[0].items.weapon[REAR_WEAPON].power = 1;
+	player[0].items.sidekick[LEFT_SIDEKICK] = 0;  // None
+	player[0].items.sidekick[RIGHT_SIDEKICK] = 0;
+	player[0].items.special = 0;                  // None
+	player[0].items.sidekick_series = 0;
+	player[0].items.sidekick_level = 0;
+	player[0].items.super_arcade_mode = 0;
+	player[0].last_items = player[0].items;
 }
 
 void regress_init(void)
@@ -127,7 +205,7 @@ void regress_init(void)
 	if (SDL_getenv("SDL_AUDIODRIVER") == NULL)
 		SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
 
-	// Demo playback needs neither audio nor joystick input.
+	// Regress playback needs neither audio nor joystick input.
 	audio_disabled = true;
 	ignore_joystick = true;
 
@@ -158,7 +236,7 @@ void regress_init(void)
 
 	if (regress_out_path == NULL)
 	{
-		logFatal("--regress-demo requires --regress-out=FILE.");
+		logFatal("--regress-demo/--regress-level require --regress-out=FILE.");
 		exit(EXIT_FAILURE);
 	}
 

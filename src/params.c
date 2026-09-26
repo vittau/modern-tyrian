@@ -20,6 +20,7 @@
 
 #include "arg_parse.h"
 #include "demo.h"
+#include "episodes.h"
 #include "file.h"
 #include "joystick.h"
 #include "logging.h"
@@ -68,6 +69,8 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 258, 0,   "regress-demo",      true },
 		{ 259, 0,   "regress-out",       true },
 		{ 260, 0,   "regress-detail",    true },
+		{ 261, 0,   "regress-level",     true },
+		{ 262, 0,   "regress-frames",    true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -106,7 +109,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  -p, --net-port=PORT          Set local port to bind (default is 1333)");
 			logInfo("  -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
-			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (with --regress-demo)");
+			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
+			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
+			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			exit(EXIT_SUCCESS);
 			break;
@@ -249,11 +254,46 @@ void JE_paramCheck(int argc, char *argv[])
 			}
 			break;
 		}
+		case 261: // --regress-level=EPISODE:LEVEL
+		{
+			int episode, level;
+			if (sscanf(option.arg, "%d:%d", &episode, &level) == 2 &&
+			    episode >= 1 && episode <= EPISODE_AVAILABLE &&
+			    level >= 1)
+			{
+				regress_scenario_episode = episode;
+				regress_scenario_level = level;
+			}
+			else
+			{
+				logError("%s: regression level must be EPISODE:LEVEL", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		}
+		case 262: // --regress-frames
+		{
+			int temp = atoi(option.arg);
+			if (temp > 0)
+				regress_frames = temp;
+			else
+			{
+				logError("%s: regression frame cap must be positive", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		}
 			
 		default:
 			assert(false);
 			break;
 		}
+	}
+	
+	if (regress_demo != 0 && regress_scenario_episode != 0)
+	{
+		logError("%s: --regress-demo and --regress-level are mutually exclusive", argv[0]);
+		exit(EXIT_FAILURE);
 	}
 	
 	// legacy parameter support

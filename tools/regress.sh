@@ -1,11 +1,16 @@
 #!/bin/bash
-# regress.sh — headless demo regression harness for OpenTyrian.
+# regress.sh — headless regression harness for OpenTyrian.
 #
-# Builds the game, replays each recorded demo (demo.1 .. demo.5) headless at
-# every processor detail level (1 .. 6), and compares the per-frame 8-bit
-# framebuffer hashes against the committed baselines in test/regress/.
+# Builds the game and compares per-frame 8-bit framebuffer hashes against the
+# committed baselines in test/regress/.  Two kinds of cases are run:
 #
-#   tools/regress.sh              build, run all (demo, level) pairs, compare
+#   1. the five recorded demos (demo.1 .. demo.5) at every processor detail
+#      level (1 .. 6), as demoN-dM;
+#   2. synthetic level scenarios that cover render paths the demos never reach
+#      (smoothies[] stays zero for the whole of every demo), as
+#      scenario-<name>-dM.  See SCENARIOS below.
+#
+#   tools/regress.sh              build, run all cases, compare
 #   tools/regress.sh --update     regenerate the baselines from the current tree
 #
 # The Tyrian data directory comes from $TYRIAN_DATA, defaulting to ./data.  If
@@ -26,6 +31,28 @@ BASELINE_DIR="$ROOT/test/regress"
 ACTUAL_DIR="$BASELINE_DIR/actual"
 DEMOS="1 2 3 4 5"
 LEVELS="1 2 3 4 5 6"
+
+# Synthetic scenarios: "name episode:level frame-cap detail...".
+#
+# Each entry starts a level directly (fixed RNG seed, fixed new-game loadout, no
+# input, extra lives via the engine's own youAreCheating flag) and hashes the
+# requested number of frames.  The details listed are exactly the ones where the
+# scenario's covered path is reachable: lava/water need processorType > 2, and
+# blur/iced need processorType > 1.  The six render paths are covered as:
+#
+#   lava_filter            scenario-flip / scenario-spotlight
+#   water_filter           scenario-water
+#   iced_blur_filter       scenario-iced
+#   blur_filter            scenario-blur
+#   starShowVGA code 1     scenario-flip        (vertical flip)
+#   starShowVGA code 2     scenario-spotlight   (player spotlight)
+SCENARIOS=(
+	"water     4:9  1200 3 4 5 6"
+	"flip      4:12 3600 3 4 5 6"
+	"iced      4:8  1200 2 3 4 5 6"
+	"spotlight 1:16 1200 3 4 5 6"
+	"blur      4:19 1200 2 3 4 5 6"
+)
 
 # --- build -------------------------------------------------------------------
 
@@ -52,7 +79,7 @@ if [ ! -f "$DATA_DIR/tyrian1.lvl" ]; then
 	fi
 fi
 
-# --- run ---------------------------------------------------------------------
+# --- helpers -----------------------------------------------------------------
 
 mkdir -p "$BASELINE_DIR"
 rm -rf "$ACTUAL_DIR"
@@ -70,58 +97,84 @@ total_start=$(now)
 failures=0
 pairs=0
 
+# run_case LABEL "$@" -- run the binary and compare/update one baseline.
+# The output file is derived from LABEL.
+run_case() {
+	local label=$1
+	shift
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+	local baseline="$BASELINE_DIR/$label.txt"
+	local start elapsed rc frames hunk first
+
+	start=$(now)
+	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" "$@" \
+		>"$log" 2>&1
+	rc=$?
+	elapsed=$(awk "BEGIN { printf \"%.2f\", $(now) - $start }")
+
+	if [ "$rc" -ne 0 ]; then
+		echo "FAIL $label: exit code $rc (${elapsed}s)"
+		tail -n 5 "$log"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if [ ! -f "$out" ]; then
+		echo "FAIL $label: no output written (${elapsed}s)"
+		failures=$((failures + 1))
+		return
+	fi
+
+	frames=$(wc -l < "$out" | tr -d ' ')
+
+	if [ "$UPDATE" -eq 1 ]; then
+		cp "$out" "$baseline"
+		echo "UPDATE $label: $frames frames, ${elapsed}s"
+		return
+	fi
+
+	if [ ! -f "$baseline" ]; then
+		echo "FAIL $label: missing baseline (run tools/regress.sh --update)"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if cmp -s "$baseline" "$out"; then
+		echo "PASS $label: $frames frames, ${elapsed}s"
+	else
+		# First differing hunk, e.g. "12c12" or "5,7c5,9"; line N is frame N-1.
+		hunk=$(diff "$baseline" "$out" | head -n 1)
+		first=${hunk%%[cad]*}
+		first=${first%%,*}
+		echo "FAIL $label: first differing frame $((first - 1)) (${elapsed}s)"
+		failures=$((failures + 1))
+	fi
+}
+
+# --- demos -------------------------------------------------------------------
+
 for d in $DEMOS; do
 	for m in $LEVELS; do
 		pairs=$((pairs + 1))
-		name="demo$d-d$m"
-		out="$ACTUAL_DIR/$name.txt"
-		log="$ACTUAL_DIR/$name.log"
-		baseline="$BASELINE_DIR/$name.txt"
+		run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+	done
+done
 
-		start=$(now)
-		SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-			"$BIN" --data="$DATA_DIR" --regress-demo="$d" --regress-detail="$m" --regress-out="$out" \
-			>"$log" 2>&1
-		rc=$?
-		elapsed=$(awk "BEGIN { printf \"%.2f\", $(now) - $start }")
+# --- synthetic level scenarios ----------------------------------------------
 
-		if [ "$rc" -ne 0 ]; then
-			echo "FAIL $name (demo $d, detail $m): exit code $rc (${elapsed}s)"
-			tail -n 5 "$log"
-			failures=$((failures + 1))
-			continue
-		fi
-
-		if [ ! -f "$out" ]; then
-			echo "FAIL $name (demo $d, detail $m): no output written (${elapsed}s)"
-			failures=$((failures + 1))
-			continue
-		fi
-
-		frames=$(wc -l < "$out" | tr -d ' ')
-
-		if [ "$UPDATE" -eq 1 ]; then
-			cp "$out" "$baseline"
-			echo "UPDATE $name (demo $d, detail $m): $frames frames, ${elapsed}s"
-			continue
-		fi
-
-		if [ ! -f "$baseline" ]; then
-			echo "FAIL $name (demo $d, detail $m): missing baseline (run tools/regress.sh --update)"
-			failures=$((failures + 1))
-			continue
-		fi
-
-		if cmp -s "$baseline" "$out"; then
-			echo "PASS $name (demo $d, detail $m): $frames frames, ${elapsed}s"
-		else
-			# First differing hunk, e.g. "12c12" or "5,7c5,9"; line N is frame N-1.
-			hunk=$(diff "$baseline" "$out" | head -n 1)
-			first=${hunk%%[cad]*}
-			first=${first%%,*}
-			echo "FAIL $name (demo $d, detail $m): first differing frame $((first - 1)) (${elapsed}s)"
-			failures=$((failures + 1))
-		fi
+for spec in "${SCENARIOS[@]}"; do
+	# shellcheck disable=SC2086
+	set -- $spec
+	sname=$1
+	slvl=$2
+	sframes=$3
+	shift 3
+	for m in "$@"; do
+		pairs=$((pairs + 1))
+		run_case "scenario-$sname-d$m" \
+			--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
 	done
 done
 
@@ -133,9 +186,9 @@ if [ "$UPDATE" -eq 1 ]; then
 fi
 
 if [ "$failures" -eq 0 ]; then
-	echo "All $pairs (demo, detail) pairs passed in ${total}s."
+	echo "All $pairs demo/scenario pairs passed in ${total}s."
 	exit 0
 fi
 
-echo "$failures of $pairs (demo, detail) pairs failed in ${total}s."
+echo "$failures of $pairs demo/scenario pairs failed in ${total}s."
 exit 1

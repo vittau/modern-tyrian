@@ -27,6 +27,7 @@
 #include "memwriter.h"
 #include "mainint.h"
 #include "mtrand.h"
+#include "regress.h"
 #include "varz.h"
 
 bool playDemo = false;
@@ -110,6 +111,12 @@ void beginPlayDemo(void)
 
 bool playDemoKeys(void)
 {
+	// Synthetic scenarios have no recorded input: hold everything neutral and
+	// never end the level from input.  (Strictly scenario-only; demo playback is
+	// untouched.)
+	if (regress_scenario_active())
+		return true;
+
 	while (demoKeysWait == 0)
 	{
 		Uint8 data[3];

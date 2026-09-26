@@ -44,6 +44,7 @@
 #include "pcxload.h"
 #include "pcxmast.h"
 #include "picload.h"
+#include "regress.h"
 #include "shots.h"
 #include "sprite.h"
 #include "vga256d.h"
@@ -2974,7 +2975,10 @@ new_game:
 
 	if (playDemo)
 	{
-		beginPlayDemo();
+		if (regress_scenario_active())
+			regress_begin_scenario();  // synthetic level, no demo file
+		else
+			beginPlayDemo();
 	}
 	else
 	{
