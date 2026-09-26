@@ -82,6 +82,11 @@ void loadPals(void)
 	fileClose(&file);
 }
 
+const Palette *get_active_palette(void)
+{
+	return &palette;
+}
+
 void set_palette(Palette colors, unsigned int first_color, unsigned int last_color)
 {
 	for (uint i = first_color; i <= last_color; ++i)

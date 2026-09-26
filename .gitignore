@@ -34,3 +34,6 @@ tyrian.sav
 
 # Release build scripts output (make_macos.sh, make_linux.sh)
 /build/
+
+# Regression harness scratch outputs
+/test/regress/actual/

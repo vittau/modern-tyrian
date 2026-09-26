@@ -42,6 +42,7 @@
 #include "palette.h"
 #include "params.h"
 #include "picload.h"
+#include "regress.h"
 #include "sprite.h"
 #include "tyrian2.h"
 #include "varz.h"
@@ -774,12 +775,27 @@ int main(int argc, char *argv[])
 
 	atexit(SDL_Quit);
 
-	loadConfiguration();
-	loadSaves();
+	// Detect regress mode before loading configuration so the user's config and
+	// save files can be skipped.  JE_paramCheck() below does the real parsing.
+	bool regress = regress_scan_args(argc, argv);
+
+	if (!regress)
+	{
+		loadConfiguration();
+		loadSaves();
+	}
 
 	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
+
+	if (regress)
+	{
+		// Apply the regress pins after JE_paramCheck() so they win over any
+		// command-line option (including -x/-X, which set xmas).
+		regress_init();
+		xmas = false;
+	}
 
 	if (!findDataFiles())
 	{
@@ -864,6 +880,23 @@ int main(int argc, char *argv[])
 		logFatal("OpenTyrian was compiled without networking support.");
 		return EXIT_FAILURE;
 #endif
+	}
+
+	if (regress_active())
+	{
+		// Replay the requested demo directly, skipping intro, title and menus.
+		setDemoNumber(regress_demo);
+
+		JE_initPlayerData();
+
+		playDemo = true;
+
+		JE_main();
+
+		// JE_main() returns once the demo recording has been fully played.
+		regress_finish();
+
+		return EXIT_SUCCESS;
 	}
 
 	for (; ; )

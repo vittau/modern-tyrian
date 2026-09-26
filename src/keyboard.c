@@ -23,6 +23,7 @@
 #include "network.h"
 #include "nortsong.h"
 #include "opentyr.h"
+#include "regress.h"
 #include "video.h"
 
 #include "SDL.h"
@@ -422,6 +423,13 @@ void waitUntilElapsed(void)
 		if (delay == 0)
 			return;
 
+		if (regress_active())
+		{
+			// Fast-forward the virtual clock instead of sleeping.
+			delayUntilElapsed();
+			return;
+		}
+
 		SDL_Delay(MIN(delay, SDL_POLL_INTERVAL));
 	}
 }
@@ -442,6 +450,13 @@ bool waitUntilHasInputOrElapsed(void)
 		if (delay == 0)
 			return false;
 
+		if (regress_active())
+		{
+			// Fast-forward the virtual clock instead of sleeping.
+			delayUntilElapsed();
+			return false;
+		}
+
 		SDL_Delay(MIN(delay, SDL_POLL_INTERVAL));
 	}
 }
@@ -461,6 +476,13 @@ bool waitUntilGetInputOrElapsed(void)
 		Uint32 delay = getFrameCountTicks();
 		if (delay == 0)
 			return false;
+
+		if (regress_active())
+		{
+			// Fast-forward the virtual clock instead of sleeping.
+			delayUntilElapsed();
+			return false;
+		}
 
 		SDL_Delay(MIN(delay, SDL_POLL_INTERVAL));
 	}

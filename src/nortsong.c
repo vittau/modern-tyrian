@@ -22,6 +22,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "opentyr.h"
+#include "regress.h"
 #include "sndmast.h"
 
 #include "SDL.h"
@@ -57,14 +58,14 @@ void setFrameSpeed(Uint16 speed)  // FKA NortSong.speed and NortSong.setTimerInt
 	frameSpeed = speed;
 	framePeriod = ((Uint64)speed << 10) * 1000 * 88 * 3 / 315000000;
 
-	Uint32 now = SDL_GetTicks() << 10;
+	Uint32 now = regress_clock_ticks10bit();
 	frameCountEnd = now;
 }
 
 void setFrameCount(JE_word frameCount)  // FKA NortSong.frameCount
 {
 	// Keep the partial timer period that has already elapsed.
-	Uint32 now = SDL_GetTicks() << 10;
+	Uint32 now = regress_clock_ticks10bit();
 	Sint32 diff = now - frameCountEnd;
 	if (diff >= framePeriod)
 		frameCountEnd = now - (Uint32)diff % framePeriod;
@@ -77,7 +78,7 @@ void setFrameCount(JE_word frameCount)  // FKA NortSong.frameCount
 void setFrameCount2(JE_word frameCount2)  // FKA NortSong.frameCount2
 {
 	// Keep the partial timer period that has already elapsed.
-	Uint32 now = SDL_GetTicks() << 10;
+	Uint32 now = regress_clock_ticks10bit();
 	Sint32 diff = now - frameCount2End;
 	if (diff >= framePeriod)
 		frameCount2End = now - (Uint32)diff % framePeriod;
@@ -90,7 +91,7 @@ void setFrameCount2(JE_word frameCount2)  // FKA NortSong.frameCount2
 Uint32 getFrameCountTicks(void)
 {
 	const Uint32 half = 1 << 9;
-	Uint32 now = SDL_GetTicks() << 10;
+	Uint32 now = regress_clock_ticks10bit();
 	Sint32 diff = frameCountEnd - now;
 	return diff >= 0 ? ((Uint32)diff + half) >> 10 : 0;
 }
@@ -98,7 +99,7 @@ Uint32 getFrameCountTicks(void)
 Uint32 getFrameCount2Ticks(void)
 {
 	const Uint32 half = 1 << 9;
-	Uint32 now = SDL_GetTicks() << 10;
+	Uint32 now = regress_clock_ticks10bit();
 	Sint32 diff = frameCount2End - now;
 	return diff >= 0 ? ((Uint32)diff + half) >> 10 : 0;
 }
@@ -106,10 +107,19 @@ Uint32 getFrameCount2Ticks(void)
 void delayUntilElapsed(void)
 {
 	const Uint32 half = 1 << 9;
-	Uint32 now = SDL_GetTicks() << 10;
+	Uint32 now = regress_clock_ticks10bit();
 	Sint32 diff = frameCountEnd - now;
-	if (diff >= 0)
-		SDL_Delay(((Uint32)diff + half) >> 10);
+	if (diff < 0)
+		return;
+
+	// In regress mode, fast-forward the virtual clock instead of sleeping.
+	if (regress_active())
+	{
+		regress_clock_advance_to(frameCountEnd);
+		return;
+	}
+
+	SDL_Delay(((Uint32)diff + half) >> 10);
 }
 
 static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *filename, bool trim, SDL_AudioCVT *cvt)

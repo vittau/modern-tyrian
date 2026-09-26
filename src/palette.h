@@ -30,6 +30,8 @@ extern Uint32 rgb_palette[256], yuv_palette[256];
 
 extern Palette colors; // TODO: get rid of this
 
+const Palette *get_active_palette(void); // palette currently presented
+
 void loadPals(void);
 
 void set_palette(Palette colors, unsigned int first_color, unsigned int last_color);

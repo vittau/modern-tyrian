@@ -29,6 +29,8 @@ void beginPlayDemo(void);
 bool playDemoKeys(void);
 void endPlayDemo(void);
 
+void setDemoNumber(unsigned int num); // select which demo beginPlayDemo() will load
+
 void beginRecordDemo(void);
 void recordDemoKeys(void);
 void endRecordDemo(void);

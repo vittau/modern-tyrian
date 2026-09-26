@@ -41,6 +41,12 @@ static Uint16 demoKeysWait;  // FKA Varz.lastMoveWait
 
 static const unsigned long seed = 32402394;
 
+void setDemoNumber(unsigned int num)
+{
+	// beginPlayDemo() pre-increments demoNum, so store num - 1.
+	demoNum = (num > 0) ? (Uint8)(num - 1) : 0;
+}
+
 void beginPlayDemo(void)
 {
 	assert(demoFile.f == NULL);

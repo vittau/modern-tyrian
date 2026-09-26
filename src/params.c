@@ -26,6 +26,7 @@
 #include "loudness.h"
 #include "network.h"
 #include "opentyr.h"
+#include "regress.h"
 #include "xmas.h"
 
 #include <assert.h>
@@ -64,6 +65,10 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 'r', 'r', "record",            false },
 		{ 'l', 'l', "loot",              false },
 		
+		{ 258, 0,   "regress-demo",      true },
+		{ 259, 0,   "regress-out",       true },
+		{ 260, 0,   "regress-detail",    true },
+		
 		{ 0, 0, NULL, false }
 	};
 	
@@ -100,6 +105,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               (1 or 2)");
 			logInfo("  -p, --net-port=PORT          Set local port to bind (default is 1333)");
 			logInfo("  -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)");
+			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
+			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (with --regress-demo)");
+			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -213,6 +221,34 @@ void JE_paramCheck(int argc, char *argv[])
 			// Gives you mucho bucks
 			richMode = true;
 			break;
+			
+		case 258: // --regress-demo
+		{
+			int temp = atoi(option.arg);
+			if (temp >= 1 && temp <= 5)
+				regress_demo = temp;
+			else
+			{
+				logError("%s: regression demo number must be between 1 and 5", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		}
+		case 259: // --regress-out
+			regress_out_path = option.arg;
+			break;
+		case 260: // --regress-detail
+		{
+			int temp = atoi(option.arg);
+			if (temp >= 1 && temp <= 6)
+				regress_detail = temp;
+			else
+			{
+				logError("%s: regression detail level must be between 1 and 6", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		}
 			
 		default:
 			assert(false);

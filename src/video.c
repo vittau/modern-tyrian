@@ -20,6 +20,7 @@
 
 #include "keyboard.h"
 #include "logging.h"
+#include "regress.h"
 #include "video_scale.h"
 
 #include <assert.h>
@@ -377,6 +378,9 @@ static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const
 static void scale_and_flip(SDL_Surface *src_surface)
 {
 	assert(src_surface->format->BitsPerPixel == 8);
+
+	if (regress_active())
+		regress_capture_frame(src_surface);
 
 	// Do software scaling
 	assert(scaler_function != NULL);

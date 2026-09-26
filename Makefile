@@ -173,6 +173,10 @@ clean :
 	rm -f $(RES)
 	rm -f $(TARGET)
 
+.PHONY : regress
+regress :
+	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh
+
 $(TARGET) : $(OBJS) $(RES)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)
 
