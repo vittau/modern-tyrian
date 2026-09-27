@@ -57,13 +57,14 @@ Esforço: P = pequeno, M = médio, G = grande.
 ## 4. Arquitetura
 
 ```text
+(atualizado em 2026-09-27: a camada moderna roda na CPU, ver §7)
 Tick de lógica original (~35 Hz, intocado)
    │  desenha no framebuffer 8-bit 320×200 (como hoje)
    │  + tag buffer 8-bit paralelo (categoria de cada pixel)
    │  + snapshot só-leitura do estado + fila de eventos
    ▼
-Camada moderna (GPU, na taxa do display)
-   ├── paleta aplicada no shader (efeitos 8-bit preservados)
+Camada moderna (CPU, canvas XRGB na grade lógica)
+   ├── paleta aplicada na conversão 8-bit → XRGB (efeitos 8-bit preservados)
    ├── recorte do playfield 264×184 + layout widescreen
    ├── luzes / bloom / VFX / partículas (RNG próprio)
    └── HUD expandido (lê o snapshot)
@@ -114,10 +115,10 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Baseline de áudio offline (`--regress-audio`): 38 efeitos convertidos, as 41 músicas (10 s cada) e uma mixagem fixa. Total: 53 casos, ~37 s
 - [x] Migração SDL2 → SDL3, núcleo: vídeo, eventos, input, áudio e build. Linka só libSDL3, e os 53 baselines passam sem ser regenerados. Rede desligada temporariamente
 - [x] Rede via SDL3_net (handshake validado com dois peers locais; o lock-step em jogo ainda não foi testado)
-- [ ] Migração SDL2 → SDL3: CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows/`visualc`)
+- [x] Migração SDL2 → SDL3: CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows/`visualc`). O macOS foi validado localmente (app universal, frameworks embutidos); Linux e Windows só serão validados quando o GitHub Actions for ligado no fork
 - [x] Pequenos ajustes de áudio pós-SDL3: buffer estático no callback e `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES=1024`
-- [ ] Backend GPU com a paleta aplicada no shader; saída idêntica ao scaler atual
-- [ ] Modos Classic/Modern como configuração (Modern = Classic por enquanto)
+- [ ] ~~Backend GPU com a paleta aplicada no shader~~ → substituído pelo pipeline de composição na CPU (§7)
+- [ ] Pipeline de composição moderna na CPU (canvas XRGB na grade lógica, passes de efeito, upload + escala nearest via SDL_Renderer) e modos Classic/Modern como configuração (Modern = Classic por enquanto), com hash do canvas no harness
 
 ### Fase 1 — Ganhos visíveis e baratos
 - [ ] Correção de PAR (4:3) com integer scaling por eixo
@@ -148,6 +149,7 @@ _(nenhuma)_
 - **2026-09-26 — Fase 0 aprovada; backend = SDL3.** A migração SDL2 → SDL3 (API de GPU/renderer com shaders e API nova de gamepad) foi a recomendação aceita. SDL3 3.4.16 já está instalado via Homebrew.
 - **2026-09-26 — Efeitos na resolução original.** Partículas, luzes, bloom, trilhas e demais VFX são calculados na grade lógica de 320×200 (um valor por pixel do jogo) e ampliados com o mesmo scaling dos sprites. Nenhum efeito é desenhado em resolução de tela. Com isso somem o risco de "mistura de resoluções" (§5) e a decisão estética que estava prevista para a Fase 2.
 - **2026-09-26 — Arte nova só procedural.** O projeto não terá artista. Arte nova é permitida desde que seja gerada por código: ruído, gradientes, derivação/recoloração/composição dos sprites e tiles originais, partículas, shaders. Nada desenhado à mão e nada de sprites redesenhados em alta resolução. Isso resolve a contradição de §5: camadas extras de parallax (névoa, poeira, starfields, versões desfocadas ou escurecidas dos tiles existentes) viram viáveis se forem procedurais, sempre na grade de 320×200.
+- **2026-09-27 — Composição moderna na CPU, sem backend GPU próprio** (decisão técnica do coordenador; pode ser revista). Como todos os efeitos ficam na grade de 320×200, o custo de luz, bloom, partículas e widescreen na CPU é trivial: 64 mil pixels por quadro, bem menos de 1 ms. Fazer na CPU mantém tudo portátil, sem shaders para Metal/Vulkan/D3D, e determinístico, então a saída do modo Modern pode ser coberta por baselines de hash como o resto. O `SDL_Renderer` do SDL3 continua só para subir a textura e escalar com nearest. O modo Classic mantém o caminho atual intacto. Se no futuro algum efeito exigir resolução de tela, reavaliamos.
 - **2026-09-26 — Ordem da Fase 0:** o teste de regressão por demos vem antes da migração para SDL3, porque é a rede de segurança dela.
 
 ## 8. Processo
@@ -218,3 +220,11 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - No mesmo pacote entraram os dois ajustes de áudio pendentes: buffer estático no callback e hint de 1024 frames. Os 53 casos continuam passando.
 - Atenção para a Fase 0c-3b: o `sdl3-net.pc` do Homebrew vem com `prefix=` vazio. Por isso o Makefile pega os caminhos de `sdl3` e só os nomes de biblioteca de `sdl3-net`, o que pode falhar em sistemas com os dois pacotes em prefixos diferentes, como a build estática do Linux.
 - Instalado nesta máquina: `brew install sdl3_net` (3.2.0).
+
+### 2026-09-27 — CI e empacotamento em SDL3 (Fase 0c-3b)
+- Um agente novo migrou `make_macos.sh` (frameworks oficiais SDL3 3.4.16 e SDL3_net 3.2.0, fixados por SHA-256, app universal), `make_linux.sh` (SDL3 estático compilado do código-fonte, fixado e verificado), os 3 workflows, o projeto MSVC e o README. Aprovado na primeira revisão; commit `55baaae`.
+- Validado localmente: o app gerado é universal (x86_64 + arm64), carrega os frameworks de dentro do bundle (nenhum caminho do Homebrew), abre sem janela e chega à tela de título; `codesign --verify` passa; 53/53 no teste de regressão.
+- **Pendente:** o GitHub Actions nunca rodou neste fork (0 runs, o padrão em forks). Linux, Windows e o projeto MSVC só serão validados depois que o dono ligar o Actions. Ponto a acompanhar: se `make debug` linka contra o SDL3 estático no Ubuntu 22.04.
+
+### 2026-09-27 — Decisão: composição moderna na CPU
+- O "backend GPU com paleta no shader" foi substituído por um pipeline de composição na CPU (§7), porque os efeitos ficam na grade de 320×200. A próxima tarefa (Fase 0d) cria esse pipeline e os modos Classic/Modern.
