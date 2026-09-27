@@ -111,8 +111,9 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Teste de regressão: 5 demos × 6 níveis de detalhe, sem janela, hash por quadro de 8 bits + paleta, baselines em `test/regress/`, `make regress` (~26 s)
 - [x] Cobrir os caminhos que as demos não exercitam: 5 cenários sintéticos (`--regress-level=E:L --regress-frames=N`) cobrem lava, água, blur, iced blur, flip vertical e holofote. Total: 52 pares, ~35 s
 - [x] Baseline de áudio offline (`--regress-audio`): 38 efeitos convertidos, as 41 músicas (10 s cada) e uma mixagem fixa. Total: 53 casos, ~37 s
-- [ ] Migração SDL2 → SDL3, núcleo: vídeo, eventos, input, áudio e build; todos os baselines de vídeo e áudio inalterados
+- [x] Migração SDL2 → SDL3, núcleo: vídeo, eventos, input, áudio e build. Linka só libSDL3, e os 53 baselines passam sem ser regenerados. Rede desligada temporariamente
 - [ ] Migração SDL2 → SDL3: rede via SDL3_net, CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows)
+- [ ] Pequenos ajustes de áudio pós-SDL3: buffer estático no callback (hoje é `SDL_malloc` a cada chamada) e hint `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES=1024` para manter a latência do SDL2
 - [ ] Backend GPU com a paleta aplicada no shader; saída idêntica ao scaler atual
 - [ ] Modos Classic/Modern como configuração (Modern = Classic por enquanto)
 
@@ -200,3 +201,11 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Um agente novo entregou `--regress-audio`, aprovado na primeira revisão. O callback de áudio foi extraído sem mudanças para `audio_mix()`, que o harness chama diretamente, sem abrir dispositivo. Os testes negativos (volume, taxa de conversão) quebram exatamente as linhas esperadas.
 - A migração para SDL3 foi dividida em três tarefas sequenciais: (1) baseline de áudio [feito]; (2) núcleo; (3) rede, CI e release.
 - Descobertas em §2 (itens 13–14): o formato do pipeline de áudio, onde fica a única reamostragem, e o fato de os baselines dependerem da libm e toolchain desta máquina.
+
+### 2026-09-27 — Núcleo migrado para SDL3 (Fase 0c-2)
+- Um agente novo portou os 44 arquivos para a API nativa do SDL3, aprovado na primeira revisão. Os 53 baselines passam sem regeneração, inclusive o áudio byte a byte (`SDL_ConvertAudioSamples` produz os mesmos bytes que o `SDL_AudioCVT` do sdl2-compat).
+- Pontos de atenção tratados: checagens de erro invertidas (`bool`), `SDL_GetTicks()` truncado para Uint32, escala nearest explícita, text input por janela, fullscreen desktop via `SDL_DisplayID`, áudio via `SDL_AudioStream`, e drivers headless com os novos nomes (`SDL_VIDEO_DRIVER`/`SDL_AUDIO_DRIVER`).
+- Verificado pelo coordenador com janela real no macOS: a tela de título aparece com pixels nítidos e a paleta correta; o teclado navega nos menus (setas e Enter); Alt+Enter alterna o fullscreen, ida e volta.
+- Ainda não verificado de forma manual: digitação de texto (nome do high score, nome do save), mouse, joystick e o som num dispositivo real.
+- A CI (`.github/workflows`) está quebrada nesta branch até a Fase 0c-3, porque ainda instala SDL2.
+- Próximo: Fase 0c-3, com rede via SDL3_net, CI e scripts de release para SDL3.
