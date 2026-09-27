@@ -129,7 +129,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Correção de PAR (4:3) com integer scaling por eixo: `pixel_aspect` = `original` (1,2) ou `square` (`b1e4313`)
 - [x] Widescreen: `aspect` = 4:3, 16:10, 16:9, 21:9, 32:9 ou auto. O quadro de 320×200 fica centralizado e nunca é ampliado, e as laterais recebem um preenchimento procedural escurecido ("ambilight") tirado das bordas do playfield, sem revelar nada fora dele (`b1e4313`)
 - [ ] HUD que fica dentro do playfield (dinheiro, vidas, superbombs) movido para fora no modo Modern
-- [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Commit `1a33820` na branch local `gamepad`, ainda não integrado a `modernization`
+- [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Integrado a `modernization` no merge `85f741a`
 - [ ] Harness imune a input real: no modo regress, descartar eventos de teclado/mouse/foco e marcar o processo como app de fundo no macOS (ver §2.19)
 - [ ] Bloom simples pela máscara de brilho da paleta
 - [—] ~~Visão estendida~~: descartada pelo usuário depois das medições (§2.20, §7). As laterais ficam só com o preenchimento procedural do widescreen
@@ -266,3 +266,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Na revisão: diff lido, capturas de tela conferidas (4:3 e 16:9, original e square), `make regress` com 66/66 (os 63 antigos com baselines intactos, mais 3 `modern-wide-*` em 16:9) e auditoria GCC 16 limpa. Commit `b1e4313`.
 - Pendências menores anotadas pelo agente: no modo Integer, com PAR 1,2, uma janela pequena (640×400) fica com escala quase quadrada; e a janela ainda segue o tamanho do scaler Classic. Um tamanho de janela padrão próprio do Modern resolveria as duas coisas. Fica para depois.
 - O usuário escolheu desistir da visão estendida (§7). Próximos passos: integrar a branch `gamepad` e deixar o harness imune a input real.
+
+### 2026-09-27 — Gamepad integrado
+- A branch `gamepad` entrou em `modernization` no merge `85f741a`. Os conflitos foram só de adições: as duas seções do README ficaram, e `--selftest-gamepad` virou a opção 269, depois das opções do widescreen (266–268). Depois do merge: build ok, auditoria GCC limpa, `--selftest-gamepad` passou e `make regress` fechou 66/66. A branch local e a ref de proteção foram removidas.
+- Obs.: o projeto do Visual Studio em `visualc/` não lista nem `modern.c` nem `regress.c` (desde a Fase 0), então já não compila sem ajuste. A CI do Windows usa MSYS2 e não é afetada. Fica anotado para uma tarefa de manutenção.
+- Despachado para um agente novo: harness imune a input real (§2.19).
