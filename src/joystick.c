@@ -31,7 +31,7 @@
 #include <string.h>
 
 int joystick_axis_threshold(int j, int value);
-int check_assigned(SDL_Joystick *joystick_handle, const Joystick_assignment assignment[2]);
+static int check_assigned(const Joystick *joy, const Joystick_assignment assignment[2]);
 
 const char *assignment_to_code(const Joystick_assignment *assignment);
 void code_to_assignment(Joystick_assignment *assignment, const char *buffer);
@@ -102,7 +102,7 @@ bool joystick_analog_angle(int j, float *angle)
  * buttons has been pressed or that one of the assigned axes/hats has been moved
  * in the assigned direction
  */
-int check_assigned(SDL_Joystick *joystick_handle, const Joystick_assignment assignment[2])
+static int check_assigned(const Joystick *joy, const Joystick_assignment assignment[2])
 {
 	int result = 0;
 	
@@ -116,18 +116,18 @@ int check_assigned(SDL_Joystick *joystick_handle, const Joystick_assignment assi
 			continue;
 			
 		case AXIS:
-			temp = SDL_GetJoystickAxis(joystick_handle, assignment[i].num);
+			temp = SDL_GetJoystickAxis(joy->handle, assignment[i].num);
 			
 			if (assignment[i].negative_axis)
 				temp = -temp;
 			break;
 		
 		case BUTTON:
-			temp = SDL_GetJoystickButton(joystick_handle, assignment[i].num) ? joystick_analog_max : 0;
+			temp = SDL_GetJoystickButton(joy->handle, assignment[i].num) ? joystick_analog_max : 0;
 			break;
 		
 		case HAT:
-			temp = SDL_GetJoystickHat(joystick_handle, assignment[i].num);
+			temp = SDL_GetJoystickHat(joy->handle, assignment[i].num);
 			
 			if (assignment[i].x_axis)
 				temp &= SDL_HAT_LEFT | SDL_HAT_RIGHT;
@@ -140,6 +140,23 @@ int check_assigned(SDL_Joystick *joystick_handle, const Joystick_assignment assi
 				temp &= SDL_HAT_RIGHT | SDL_HAT_DOWN;
 			
 			temp = temp ? joystick_analog_max : 0;
+			break;
+		
+		case GAMEPAD_BUTTON:
+			if (joy->gamepad == NULL)
+				continue;
+			
+			temp = SDL_GetGamepadButton(joy->gamepad, (SDL_GamepadButton)assignment[i].num) ? joystick_analog_max : 0;
+			break;
+		
+		case GAMEPAD_AXIS:
+			if (joy->gamepad == NULL)
+				continue;
+			
+			temp = SDL_GetGamepadAxis(joy->gamepad, (SDL_GamepadAxis)assignment[i].num);
+			
+			if (assignment[i].negative_axis)
+				temp = -temp;
 			break;
 		}
 		
@@ -171,7 +188,7 @@ void poll_joystick(int j)
 	{
 		bool old = joystick[j].direction[d];
 		
-		joystick[j].analog_direction[d] = check_assigned(joystick[j].handle, joystick[j].assignment[d]);
+		joystick[j].analog_direction[d] = check_assigned(&joystick[j], joystick[j].assignment[d]);
 		joystick[j].direction[d] = joystick[j].analog_direction[d] > (joystick_analog_max / 2);
 		joydown |= joystick[j].direction[d];
 		
@@ -187,7 +204,7 @@ void poll_joystick(int j)
 	{
 		bool old = joystick[j].action[d];
 		
-		joystick[j].action[d] = check_assigned(joystick[j].handle, joystick[j].assignment[d + COUNTOF(joystick[j].direction)]) > (joystick_analog_max / 2);
+		joystick[j].action[d] = check_assigned(&joystick[j], joystick[j].assignment[d + COUNTOF(joystick[j].direction)]) > (joystick_analog_max / 2);
 		joydown |= joystick[j].action[d];
 		
 		joystick[j].action_pressed[d] = joystick[j].action[d] && (!old || repeat);
@@ -255,43 +272,116 @@ void push_joysticks_as_keyboard(void)
 	}
 }
 
+// opens a device, preferring the Gamepad API when SDL recognises it as a gamepad
+static bool joystick_open_device(Joystick *joy, SDL_JoystickID id)
+{
+	memset(joy, 0, sizeof(*joy));
+	joy->id = id;
+	
+	if (SDL_IsGamepad(id))
+	{
+		joy->gamepad = SDL_OpenGamepad(id);
+		if (joy->gamepad == NULL)
+			return false;
+		
+		joy->handle = SDL_GetGamepadJoystick(joy->gamepad);
+		joy->is_gamepad = true;
+	}
+	else
+	{
+		joy->handle = SDL_OpenJoystick(id);
+		if (joy->handle == NULL)
+			return false;
+	}
+	
+	return true;
+}
+
+static void joystick_close_device(Joystick *joy)
+{
+	if (joy->gamepad != NULL)
+		SDL_CloseGamepad(joy->gamepad);
+	else if (joy->handle != NULL)
+		SDL_CloseJoystick(joy->handle);
+	
+	joy->gamepad = NULL;
+	joy->handle = NULL;
+	joy->is_gamepad = false;
+}
+
+static int joystick_find_id(SDL_JoystickID id)
+{
+	for (int j = 0; j < joysticks; j++)
+	{
+		if (joystick[j].id == id)
+			return j;
+	}
+	
+	return -1;
+}
+
+static void joystick_log_device(const Joystick *joy, const char *verb)
+{
+	if (joy->is_gamepad)
+	{
+		logInfo("Gamepad %s: %s", verb, SDL_GetGamepadName(joy->gamepad));
+	}
+	else
+	{
+		logInfo("Joystick %s: %s (%d axes, %d buttons, %d hats)",
+			verb, SDL_GetJoystickName(joy->handle),
+			SDL_GetNumJoystickAxes(joy->handle),
+			SDL_GetNumJoystickButtons(joy->handle),
+			SDL_GetNumJoystickHats(joy->handle));
+	}
+}
+
+// keeps the per-player device selection within range after the joystick array changes
+static void joystick_reindex_input_devices(int removed, int old_count)
+{
+	for (size_t i = 0; i < COUNTOF(inputDevice); ++i)
+	{
+		if (inputDevice[i] < 3)
+			continue;
+		
+		int index = inputDevice[i] - 3;
+		
+		if (index == removed)
+			inputDevice[i] = 1;  // the selected controller is gone; use the keyboard
+		else if (index > removed)
+			inputDevice[i]--;    // the array shifted down
+		
+		if (inputDevice[i] - 3 >= old_count - 1)
+			inputDevice[i] = 1;
+	}
+}
+
 // initializes SDL joystick system and loads assignments for joysticks found
 void init_joysticks(void)
 {
 	if (ignore_joystick)
 		return;
 	
-	if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK))
+	// SDL_INIT_GAMEPAD implies SDL_INIT_JOYSTICK.
+	if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
 	{
 		logWarn("Failed to initialize SDL joystick: %s", SDL_GetError());
 		ignore_joystick = true;
 		return;
 	}
 	
-	SDL_SetJoystickEventsEnabled(false);
+	// Hot-plug detection needs joystick and gamepad events; motion events are
+	// ignored by the input code, which reads the device state directly.
+	SDL_SetJoystickEventsEnabled(true);
+	SDL_SetGamepadEventsEnabled(true);
 	
 	int joystickCount = 0;
 	SDL_JoystickID *joystickIds = SDL_GetJoysticks(&joystickCount);
-	joysticks = joystickCount;
-	joystick = malloc(joysticks * sizeof(*joystick));
+	joysticks = 0;
+	joystick = NULL;
 	
-	for (int j = 0; j < joysticks; j++)
-	{
-		memset(&joystick[j], 0, sizeof(*joystick));
-		
-		joystick[j].handle = SDL_OpenJoystick(joystickIds[j]);
-		if (joystick[j].handle != NULL)
-		{
-			logInfo("Joystick detected: %s (%d axes, %d buttons, %d hats)",
-				SDL_GetJoystickName(joystick[j].handle),
-				SDL_GetNumJoystickAxes(joystick[j].handle),
-				SDL_GetNumJoystickButtons(joystick[j].handle),
-				SDL_GetNumJoystickHats(joystick[j].handle));
-			
-			if (!load_joystick_assignments(&opentyrian_config, j))
-				reset_joystick_assignments(j);
-		}
-	}
+	for (int i = 0; i < joystickCount; i++)
+		joystick_device_added(joystickIds[i]);
 	
 	SDL_free(joystickIds);
 	
@@ -308,56 +398,165 @@ void deinit_joysticks(void)
 	for (int j = 0; j < joysticks; j++)
 	{
 		if (joystick[j].handle != NULL)
-		{
 			save_joystick_assignments(&opentyrian_config, j);
-			SDL_CloseJoystick(joystick[j].handle);
-		}
+		
+		joystick_close_device(&joystick[j]);
 	}
 	
 	free(joystick);
+	joystick = NULL;
+	joysticks = 0;
 	
-	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+	SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+}
+
+// hot-plug: a device was connected
+void joystick_device_added(SDL_JoystickID id)
+{
+	if (ignore_joystick)
+		return;
+	
+	// A gamepad generates both a joystick and a gamepad added event.
+	if (joystick_find_id(id) >= 0)
+		return;
+	
+	Joystick *resized = realloc(joystick, (joysticks + 1) * sizeof(*joystick));
+	if (resized == NULL)
+	{
+		logWarn("Failed to allocate joystick %u.", (unsigned)id);
+		return;
+	}
+	joystick = resized;
+	
+	Joystick *const joy = &joystick[joysticks];
+	if (!joystick_open_device(joy, id))
+	{
+		logWarn("Failed to open joystick %u: %s", (unsigned)id, SDL_GetError());
+		return;
+	}
+	
+	joysticks++;
+	
+	joystick_log_device(joy, "connected");
+	
+	if (!load_joystick_assignments(&opentyrian_config, joysticks - 1))
+		reset_joystick_assignments(joysticks - 1);
+}
+
+// hot-plug: a device was disconnected
+void joystick_device_removed(SDL_JoystickID id)
+{
+	if (ignore_joystick)
+		return;
+	
+	// A gamepad generates both a joystick and a gamepad removed event.
+	int index = joystick_find_id(id);
+	if (index < 0)
+		return;
+	
+	joystick_log_device(&joystick[index], "disconnected");
+	
+	if (joystick[index].handle != NULL)
+		save_joystick_assignments(&opentyrian_config, index);
+	
+	joystick_close_device(&joystick[index]);
+	
+	for (int j = index; j < joysticks - 1; j++)
+		joystick[j] = joystick[j + 1];
+	
+	joysticks--;
+	
+	joystick_reindex_input_devices(index, joysticks + 1);
+	
+	if (joysticks == 0)
+	{
+		free(joystick);
+		joystick = NULL;
+	}
+	else
+	{
+		Joystick *resized = realloc(joystick, joysticks * sizeof(*joystick));
+		if (resized != NULL)
+			joystick = resized;
+	}
+}
+
+static void set_assignment(Joystick_assignment *assignment, Joystick_assignment_types type, int num, bool negative_axis)
+{
+	assignment->type = type;
+	assignment->num = num;
+	assignment->x_axis = false;
+	assignment->negative_axis = negative_axis;
 }
 
 void reset_joystick_assignments(int j)
 {
 	assert(j < joysticks);
 	
-	// defaults: first 2 axes, first hat, first 6 buttons
+	// clear assignments
 	for (uint a = 0; a < COUNTOF(joystick[j].assignment); a++)
 	{
-		// clear assignments
 		for (uint i = 0; i < COUNTOF(joystick[j].assignment[a]); i++)
 			joystick[j].assignment[a][i].type = NONE;
-		
-		if (a < 4)
-		{
-			if (SDL_GetNumJoystickAxes(joystick[j].handle) >= 2)
-			{
-				joystick[j].assignment[a][0].type = AXIS;
-				joystick[j].assignment[a][0].num = (a + 1) % 2;
-				joystick[j].assignment[a][0].negative_axis = (a == 0 || a == 3);
-			}
-			
-			if (SDL_GetNumJoystickHats(joystick[j].handle) >= 1)
-			{
-				joystick[j].assignment[a][1].type = HAT;
-				joystick[j].assignment[a][1].num = 0;
-				joystick[j].assignment[a][1].x_axis = (a == 1 || a == 3);
-				joystick[j].assignment[a][1].negative_axis = (a == 0 || a == 3);
-			}
-		}
-		else
-		{
-			if (a - 4 < (unsigned)SDL_GetNumJoystickButtons(joystick[j].handle))
-			{
-				joystick[j].assignment[a][0].type = BUTTON;
-				joystick[j].assignment[a][0].num = a - 4;
-			}
-		}
 	}
 	
-	joystick[j].analog = false;
+	if (joystick[j].is_gamepad)
+	{
+		// left stick and D-pad both drive movement
+		set_assignment(&joystick[j].assignment[0][0], GAMEPAD_AXIS, SDL_GAMEPAD_AXIS_LEFTY, true);   // up
+		set_assignment(&joystick[j].assignment[1][0], GAMEPAD_AXIS, SDL_GAMEPAD_AXIS_LEFTX, false);  // right
+		set_assignment(&joystick[j].assignment[2][0], GAMEPAD_AXIS, SDL_GAMEPAD_AXIS_LEFTY, false);  // down
+		set_assignment(&joystick[j].assignment[3][0], GAMEPAD_AXIS, SDL_GAMEPAD_AXIS_LEFTX, true);   // left
+		
+		set_assignment(&joystick[j].assignment[0][1], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_DPAD_UP, false);
+		set_assignment(&joystick[j].assignment[1][1], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, false);
+		set_assignment(&joystick[j].assignment[2][1], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_DPAD_DOWN, false);
+		set_assignment(&joystick[j].assignment[3][1], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_DPAD_LEFT, false);
+		
+		set_assignment(&joystick[j].assignment[4][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_SOUTH, false);          // fire
+		set_assignment(&joystick[j].assignment[5][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_EAST, false);           // change fire
+		set_assignment(&joystick[j].assignment[6][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);  // left sidekick
+		set_assignment(&joystick[j].assignment[7][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false); // right sidekick
+		set_assignment(&joystick[j].assignment[8][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_BACK, false);           // in-game menu
+		set_assignment(&joystick[j].assignment[9][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_START, false);          // pause
+		
+		joystick[j].analog = true;
+	}
+	else
+	{
+		// legacy defaults: first 2 axes, first hat, first 6 buttons
+		for (uint a = 0; a < COUNTOF(joystick[j].assignment); a++)
+		{
+			if (a < 4)
+			{
+				if (SDL_GetNumJoystickAxes(joystick[j].handle) >= 2)
+				{
+					joystick[j].assignment[a][0].type = AXIS;
+					joystick[j].assignment[a][0].num = (a + 1) % 2;
+					joystick[j].assignment[a][0].negative_axis = (a == 0 || a == 3);
+				}
+				
+				if (SDL_GetNumJoystickHats(joystick[j].handle) >= 1)
+				{
+					joystick[j].assignment[a][1].type = HAT;
+					joystick[j].assignment[a][1].num = 0;
+					joystick[j].assignment[a][1].x_axis = (a == 1 || a == 3);
+					joystick[j].assignment[a][1].negative_axis = (a == 0 || a == 3);
+				}
+			}
+			else
+			{
+				if (a - 4 < (unsigned)SDL_GetNumJoystickButtons(joystick[j].handle))
+				{
+					joystick[j].assignment[a][0].type = BUTTON;
+					joystick[j].assignment[a][0].num = a - 4;
+				}
+			}
+		}
+		
+		joystick[j].analog = false;
+	}
+	
 	joystick[j].sensitivity = 5;
 	joystick[j].threshold = 5;
 }
@@ -449,7 +648,10 @@ bool save_joystick_assignments(Config *config, int j)
 // fills buffer with comma separated list of assigned joystick functions
 void joystick_assignments_to_string(char *buffer, size_t buffer_len, const Joystick_assignment *assignments)
 {
-	strncpy(buffer, "", buffer_len);
+	if (buffer_len == 0)
+		return;
+	
+	buffer[0] = '\0';
 	
 	bool comma = false;
 	for (uint i = 0; i < COUNTOF(*joystick->assignment); ++i)
@@ -457,11 +659,14 @@ void joystick_assignments_to_string(char *buffer, size_t buffer_len, const Joyst
 		if (assignments[i].type == NONE)
 			continue;
 		
-		size_t len = snprintf(buffer, buffer_len, "%s%s",
-		                      comma ? ", " : "",
-		                      assignment_to_code(&assignments[i]));
-		buffer += len;
-		buffer_len -= len;
+		int written = snprintf(buffer, buffer_len, "%s%s",
+		                       comma ? ", " : "",
+		                       assignment_to_code(&assignments[i]));
+		if (written < 0 || (size_t)written >= buffer_len)
+			break;
+		
+		buffer += written;
+		buffer_len -= written;
 		
 		comma = true;
 	}
@@ -472,32 +677,73 @@ void code_to_assignment(Joystick_assignment *assignment, const char *buffer)
 {
 	memset(assignment, 0, sizeof(*assignment));
 	
-	char axis = 0, direction = 0;
+	char axis = 0, direction = 0, gamepad_name[32] = "";
 	
 	if (sscanf(buffer, " AX %d%c", &assignment->num, &direction) == 2)
+	{
 		assignment->type = AXIS;
+		
+		if (assignment->num == 0)
+			assignment->type = NONE;
+		else
+			--assignment->num;
+	}
 	else if (sscanf(buffer, " BTN %d", &assignment->num) == 1)
+	{
 		assignment->type = BUTTON;
+		
+		if (assignment->num == 0)
+			assignment->type = NONE;
+		else
+			--assignment->num;
+	}
 	else if (sscanf(buffer, " H %d%c%c", &assignment->num, &axis, &direction) == 3)
+	{
 		assignment->type = HAT;
-	
-	if (assignment->num == 0)
-		assignment->type = NONE;
-	else
-		--assignment->num;
+		
+		if (assignment->num == 0)
+			assignment->type = NONE;
+		else
+			--assignment->num;
+	}
+	else if (sscanf(buffer, " GB %31s", gamepad_name) == 1)
+	{
+		SDL_GamepadButton button = SDL_GetGamepadButtonFromString(gamepad_name);
+		if (button != SDL_GAMEPAD_BUTTON_INVALID)
+		{
+			assignment->type = GAMEPAD_BUTTON;
+			assignment->num = button;
+		}
+	}
+	else if (sscanf(buffer, " GA %31s", gamepad_name) == 1)
+	{
+		size_t len = strlen(gamepad_name);
+		if (len > 0 && (gamepad_name[len - 1] == '+' || gamepad_name[len - 1] == '-'))
+		{
+			direction = gamepad_name[len - 1];
+			gamepad_name[len - 1] = '\0';
+		}
+		
+		SDL_GamepadAxis gamepad_axis = SDL_GetGamepadAxisFromString(gamepad_name);
+		if (gamepad_axis != SDL_GAMEPAD_AXIS_INVALID)
+		{
+			assignment->type = GAMEPAD_AXIS;
+			assignment->num = gamepad_axis;
+		}
+	}
 	
 	assignment->x_axis = (toupper(axis) == 'X');
 	assignment->negative_axis = (toupper(direction) == '-');
 }
 
-/* gives the short (6 or less characters) identifier for a joystick assignment
+/* gives the short identifier for a joystick assignment
  * 
- * two of these per direction/action is all that can fit on the joystick config screen,
- * assuming two digits for the axis/button/hat number
+ * gamepad assignments are named after the SDL button/axis (e.g. "GB a",
+ * "GA lefty-"); legacy raw joystick assignments keep their number-based codes
  */
 const char *assignment_to_code(const Joystick_assignment *assignment)
 {
-	static char name[7];
+	static char name[24];
 	
 	switch (assignment->type)
 	{
@@ -522,15 +768,94 @@ const char *assignment_to_code(const Joystick_assignment *assignment)
 		         assignment->x_axis ? 'X' : 'Y',
 		         assignment->negative_axis ? '-' : '+');
 		break;
+		
+	case GAMEPAD_BUTTON:
+		snprintf(name, sizeof(name), "GB %s",
+		         SDL_GetGamepadStringForButton((SDL_GamepadButton)assignment->num));
+		break;
+		
+	case GAMEPAD_AXIS:
+		snprintf(name, sizeof(name), "GA %s%c",
+		         SDL_GetGamepadStringForAxis((SDL_GamepadAxis)assignment->num),
+		         assignment->negative_axis ? '-' : '+');
+		break;
 	}
 	
 	return name;
 }
 
-// captures joystick input for configuring assignments
+// captures gamepad input (by button/axis name) for configuring assignments
+static bool detect_gamepad_assignment(int j, Joystick_assignment *assignment)
+{
+	SDL_Gamepad *const gamepad = joystick[j].gamepad;
+	if (gamepad == NULL)
+		return false;
+	
+	bool button[SDL_GAMEPAD_BUTTON_COUNT];
+	for (int i = 0; i < SDL_GAMEPAD_BUTTON_COUNT; ++i)
+		button[i] = SDL_GetGamepadButton(gamepad, (SDL_GamepadButton)i);
+	
+	Sint16 axis[SDL_GAMEPAD_AXIS_COUNT];
+	for (int i = 0; i < SDL_GAMEPAD_AXIS_COUNT; ++i)
+		axis[i] = SDL_GetGamepadAxis(gamepad, (SDL_GamepadAxis)i);
+	
+	bool detected = false;
+	
+	while (true)
+	{
+		setFrameCount(1);
+		
+		NETWORK_KEEP_ALIVE();
+		
+		delayUntilElapsed();
+		
+		handleSdlEvents();
+		
+		for (int i = 0; i < SDL_GAMEPAD_AXIS_COUNT; ++i)
+		{
+			Sint16 temp = SDL_GetGamepadAxis(gamepad, (SDL_GamepadAxis)i);
+			
+			if (abs(temp - axis[i]) > joystick_analog_max * 2 / 3)
+			{
+				assignment->type = GAMEPAD_AXIS;
+				assignment->num = i;
+				assignment->negative_axis = temp < axis[i];
+				detected = true;
+				break;
+			}
+		}
+		
+		for (int i = 0; i < SDL_GAMEPAD_BUTTON_COUNT; ++i)
+		{
+			bool new_button = SDL_GetGamepadButton(gamepad, (SDL_GamepadButton)i);
+			
+			if (new_button == button[i])
+				continue;
+			
+			if (!new_button) // button was released
+			{
+				button[i] = false;
+			}
+			else             // button was pressed
+			{
+				assignment->type = GAMEPAD_BUTTON;
+				assignment->num = i;
+				detected = true;
+				break;
+			}
+		}
+		
+		if (detected || hasInput(INPUT_NO_MOTION))
+			break;
+	}
+	
+	return detected;
+}
+
+// captures raw joystick input for configuring assignments
 // returns false if non-joystick input was detected
 // TODO: input from joystick other than the one being configured probably should not be ignored
-bool detect_joystick_assignment(int j, Joystick_assignment *assignment)
+static bool detect_legacy_assignment(int j, Joystick_assignment *assignment)
 {
 	// get initial joystick state to compare against to see if anything was pressed
 	
@@ -629,6 +954,16 @@ bool detect_joystick_assignment(int j, Joystick_assignment *assignment)
 	return detected;
 }
 
+// captures joystick/gamepad input for configuring assignments
+// returns false if non-joystick input was detected
+bool detect_joystick_assignment(int j, Joystick_assignment *assignment)
+{
+	if (joystick[j].is_gamepad)
+		return detect_gamepad_assignment(j, assignment);
+	
+	return detect_legacy_assignment(j, assignment);
+}
+
 // compares relevant parts of joystick assignments for equality
 bool joystick_assignment_cmp(const Joystick_assignment *a, const Joystick_assignment *b)
 {
@@ -646,6 +981,11 @@ bool joystick_assignment_cmp(const Joystick_assignment *a, const Joystick_assign
 		case HAT:
 			return (a->num == b->num) &&
 			       (a->x_axis == b->x_axis) &&
+			       (a->negative_axis == b->negative_axis);
+		case GAMEPAD_BUTTON:
+			return (a->num == b->num);
+		case GAMEPAD_AXIS:
+			return (a->num == b->num) &&
 			       (a->negative_axis == b->negative_axis);
 		}
 	}

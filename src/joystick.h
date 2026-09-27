@@ -28,7 +28,9 @@ typedef enum
 	NONE,
 	AXIS,
 	BUTTON,
-	HAT
+	HAT,
+	GAMEPAD_BUTTON,
+	GAMEPAD_AXIS
 }
 Joystick_assignment_types;
 
@@ -47,7 +49,10 @@ Joystick_assignment;
 
 typedef struct
 {
-	SDL_Joystick *handle;
+	SDL_JoystickID id;
+	SDL_Joystick *handle;    // underlying joystick, always valid when opened
+	SDL_Gamepad *gamepad;    // non-NULL when opened through the Gamepad API
+	bool is_gamepad;
 	
 	Joystick_assignment assignment[10][2]; // 0-3: directions, 4-9: actions
 	
@@ -83,6 +88,10 @@ void push_joysticks_as_keyboard(void);
 
 void init_joysticks(void);
 void deinit_joysticks(void);
+
+// hot-plug handling; called from the SDL event pump
+void joystick_device_added(SDL_JoystickID id);
+void joystick_device_removed(SDL_JoystickID id);
 
 void reset_joystick_assignments(int j);
 bool load_joystick_assignments(Config* config, int j);

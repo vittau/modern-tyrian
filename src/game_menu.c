@@ -112,6 +112,15 @@ static const JE_word planetY[21] = {  40,  90,  90,  80, 170,  30,  50, 130, 120
 static const uint cube_line_chars = sizeof(*cube->text) - 1;
 static const uint cube_line_width = 150;
 
+// keeps the configured joystick index valid across hot-plug/unplug
+static void clamp_joystick_config(void)
+{
+	if (joysticks <= 0)
+		joystick_config = 0;
+	else if (joystick_config >= joysticks)
+		joystick_config %= joysticks;
+}
+
 /*** Functions ***/
 static Uint8 *playeritem_map(PlayerItems *items, uint i)
 {
@@ -409,6 +418,8 @@ void JE_itemScreen(void)
 
 		if (curMenu == MENU_JOYSTICK_CONFIG)
 		{
+			clamp_joystick_config();
+
 			const char *const menu_item[] =
 			{
 				"JOYSTICK",
@@ -437,7 +448,7 @@ void JE_itemScreen(void)
 
 				temp = (i == curSel[curMenu] - 2u) ? 252 : 250;
 
-				char value[30] = "";
+				char value[48] = "";
 				if (joysticks == 0 && i < 14) // no joysticks, everything disabled
 				{
 					sprintf(value, "-");
@@ -1346,6 +1357,8 @@ void JE_itemScreen(void)
 			case SDL_SCANCODE_LEFT:
 				if (curMenu == MENU_JOYSTICK_CONFIG)
 				{
+					clamp_joystick_config();
+
 					if (joysticks > 0)
 					{
 						switch (curSel[curMenu])
@@ -1444,6 +1457,8 @@ void JE_itemScreen(void)
 			case SDL_SCANCODE_RIGHT:
 				if (curMenu == MENU_JOYSTICK_CONFIG)
 				{
+					clamp_joystick_config();
+
 					if (joysticks > 0)
 					{
 						switch (curSel[curMenu])
@@ -2871,6 +2886,8 @@ void JE_menuFunction(JE_byte select)
 		break;
 
 	case MENU_JOYSTICK_CONFIG:
+		clamp_joystick_config();
+
 		if (joysticks == 0 && select != 17)
 			break;
 

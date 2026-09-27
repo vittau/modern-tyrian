@@ -83,6 +83,7 @@ A Visual Studio solution is provided in `visualc/`.
                                  32:9 or auto (default is 4:3)
     --pixel-aspect=SHAPE         Set the Modern pixel aspect: original (1.2, the
                                  CRT look) or square (default is original)
+    --selftest-gamepad           Run the virtual-controller input self-test and exit
 
 The `presentation` setting is also stored in `opentyrian.cfg` (in the `video`
 section) and defaults to `classic`.  Classic is the original path: the 8-bit
@@ -102,6 +103,38 @@ The `pixel_aspect` setting reproduces the non-square pixels of the original DOS
 output: `original` draws each pixel 1.2x taller than wide, `square` draws them
 1:1.  Both settings are stored in the `video` section as `aspect` and
 `pixel_aspect`.
+
+## Gamepads and Joysticks
+
+OpenTyrian uses the SDL3 Gamepad API for devices SDL recognises as gamepads
+(they are opened with `SDL_OpenGamepad`), and keeps the raw `SDL_Joystick` API
+for everything else.  Gamepads get a sensible default mapping:
+
+| Control | Action |
+|---|---|
+| Left stick | Movement (analog: proportional, honours the sensitivity/threshold settings) |
+| D-pad | Movement (digital: on/off at full speed) |
+| South / A | Fire (and Enter/confirm in menus) |
+| East / B | Change rear-weapon mode (and Esc/cancel in menus) |
+| Left shoulder (L1/LB) | Left sidekick |
+| Right shoulder (R1/RB) | Right sidekick |
+| Back / Select | In-game menu (the Esc menu) |
+| Start | Pause (and Esc/back in menus) |
+
+Controllers can be connected and disconnected while the game runs (hot-plug);
+the game opens them as they arrive and releases them as they leave.  The
+mapping is configurable on the joystick setup screen and stored in
+`opentyrian.cfg` under a `joystick` section named after the device.  Gamepad
+assignments are stored by name (`GB a`, `GB leftshoulder`, `GA lefty-`, ...),
+while the raw joystick format (`AX 1-`, `BTN 1`, `H 1X+`, ...) is still written
+and loaded for non-gamepad devices and old configuration files.
+
+The `--no-joystick` (`-j`) option disables all controller input.
+
+Since a physical controller is not always available, `--selftest-gamepad` runs
+a headless self-test against SDL virtual controllers.  It exercises the default
+mapping, hot-plug, the configuration round-trip and the legacy non-gamepad
+path, then exits 0 on success or non-zero on failure.
 
 ## Network Multiplayer
 
