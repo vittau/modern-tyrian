@@ -32,7 +32,8 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 12. **Estrutura dos arquivos `.lvl`.** `lvlPos` guarda duas entradas por fase (`JE_loadMap()` usa `lvlPos[(lvlFileNum-1)*2]`), e a última entrada do episódio 4 é o bloco de itens (`src/episodes.c:87`).
 13. **Pipeline de áudio.** A saída é mono, S16, 44100 Hz (`11025 × OUTPUT_QUALITY`), com buffer de 1024 amostras. A música é um emulador OPL mais o player LDS em C puro, sem SDL. Os efeitos sonoros são 29 em `tyrian.snd` e 9 vozes em `voices.snd`, em 8 bits a 11025 Hz. A única reamostragem acontece em `loadSndFile()` (`src/nortsong.c`), via `SDL_AudioCVT`. A percussão do OPL usa `rand()` da libc, não `mt_rand`.
 14. **Os baselines dependem da máquina.** `powf`/`pow`/`sin` (volume, OPL) e `cosf`/`sinf` (superpixels) passam por ponto flutuante da libm. Por isso os baselines valem para esta máquina e toolchain (macOS arm64, clang), e não como golden files multiplataforma. Uma CI em outro sistema precisaria de baselines próprios.
-15. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
+15. **A rede vazava para o gameplay.** Havia 38 chamadas `SDLNet_Read16/Write16` espalhadas por `mainint.c`, `tyrian2.c` e `game_menu.c`, lendo e escrevendo pacotes. Hoje elas usam `network_read16/write16` (`src/network.h`). O protocolo é UDP ponto a ponto, 2 jogadores, em lock-step com o loop do jogo; o SDL3_net não tem bind, então o filtro por endereço e porta do oponente é explícito.
+16. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
 
@@ -112,8 +113,9 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Cobrir os caminhos que as demos não exercitam: 5 cenários sintéticos (`--regress-level=E:L --regress-frames=N`) cobrem lava, água, blur, iced blur, flip vertical e holofote. Total: 52 pares, ~35 s
 - [x] Baseline de áudio offline (`--regress-audio`): 38 efeitos convertidos, as 41 músicas (10 s cada) e uma mixagem fixa. Total: 53 casos, ~37 s
 - [x] Migração SDL2 → SDL3, núcleo: vídeo, eventos, input, áudio e build. Linka só libSDL3, e os 53 baselines passam sem ser regenerados. Rede desligada temporariamente
-- [ ] Migração SDL2 → SDL3: rede via SDL3_net, CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows)
-- [ ] Pequenos ajustes de áudio pós-SDL3: buffer estático no callback (hoje é `SDL_malloc` a cada chamada) e hint `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES=1024` para manter a latência do SDL2
+- [x] Rede via SDL3_net (handshake validado com dois peers locais; o lock-step em jogo ainda não foi testado)
+- [ ] Migração SDL2 → SDL3: CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows/`visualc`)
+- [x] Pequenos ajustes de áudio pós-SDL3: buffer estático no callback e `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES=1024`
 - [ ] Backend GPU com a paleta aplicada no shader; saída idêntica ao scaler atual
 - [ ] Modos Classic/Modern como configuração (Modern = Classic por enquanto)
 
@@ -209,3 +211,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Ainda não verificado de forma manual: digitação de texto (nome do high score, nome do save), mouse, joystick e o som num dispositivo real.
 - A CI (`.github/workflows`) está quebrada nesta branch até a Fase 0c-3, porque ainda instala SDL2.
 - Próximo: Fase 0c-3, com rede via SDL3_net, CI e scripts de release para SDL3.
+
+### 2026-09-27 — Rede em SDL3_net (Fase 0c-3a)
+- Um agente novo portou `network.c` para o SDL3_net com o mesmo protocolo, aprovado na primeira revisão. Duas instâncias headless em 127.0.0.1 completam o handshake CONNECT/ACK. O lock-step em jogo não foi exercitado, porque precisa de input dos dois lados.
+- Mudança de comportamento intencional: um host que não resolve agora gera erro após 10 s; antes o jogo travava em silêncio.
+- No mesmo pacote entraram os dois ajustes de áudio pendentes: buffer estático no callback e hint de 1024 frames. Os 53 casos continuam passando.
+- Atenção para a Fase 0c-3b: o `sdl3-net.pc` do Homebrew vem com `prefix=` vazio. Por isso o Makefile pega os caminhos de `sdl3` e só os nomes de biblioteca de `sdl3-net`, o que pode falhar em sistemas com os dois pacotes em prefixos diferentes, como a build estática do Linux.
+- Instalado nesta máquina: `brew install sdl3_net` (3.2.0).
