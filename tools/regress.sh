@@ -213,8 +213,10 @@ done
 # --- modern widescreen presentation ------------------------------------------
 #
 # The same Modern canvas widened to 16:9 (original 1.2 pixel aspect), hashing
-# the whole canvas including the procedural side panels.  Three representative
-# cases keep the extra runtime small; the old modern-* cases above pin 4:3.
+# the whole canvas including the side panels and the relocated HUD.  Three
+# representative 16:9 cases keep the extra runtime small; the old modern-* cases
+# above pin 4:3.  A 16:10 case is included because 16:10 now has wide-enough
+# panels for the relocated HUD (60 px) and a different, compact layout.
 
 run_case "modern-wide-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
@@ -222,6 +224,8 @@ run_case "modern-wide-demo3-d2" --regress-demo=3 --regress-detail=2 --regress-mo
 pairs=$((pairs + 1))
 run_case "modern-wide-scenario-spotlight-d3" \
 	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "modern-wide-16x10-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:10
 pairs=$((pairs + 1))
 
 # --- game-state hashes --------------------------------------------------------

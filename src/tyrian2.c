@@ -1085,7 +1085,10 @@ level_loop:
 
 		/*-----------------------Message Bar------------------------*/
 		if (textErase > 0 && --textErase == 0)
+		{
 			blit_sprite(VGAScreenSeg, 16, 189, OPTION_SHAPES, 36);  // in-game message area
+			modern_message_clear();
+		}
 
 		/*------------------------Shield Gen-------------------------*/
 		if (galagaMode)

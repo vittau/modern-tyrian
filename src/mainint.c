@@ -80,6 +80,9 @@ void JE_drawTextWindow(const char *text)
 		blit_sprite(VGAScreenSeg, 16, 189, OPTION_SHAPES, 36);  // in-game text area
 
 	textErase = 100;
+	// Display-only hook: remember the text so the Modern message strip under the
+	// playfield can draw it.  The 8-bit frame drawing above is unchanged.
+	modern_message_set(text);
 	JE_outText(VGAScreenSeg, 20, 190, text, 0, 4);
 }
 

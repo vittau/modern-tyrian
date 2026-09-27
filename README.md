@@ -96,28 +96,40 @@ The Modern presentation is widescreen.  The original 320x200 frame keeps its
 size and is centered horizontally in a wider canvas (height stays 200 rows), so
 the playfield is never enlarged.  The `aspect` setting picks the on-screen
 aspect (or `auto` follows the window); the canvas width is
-`round(200 * pixel_aspect * aspect)`, never below 320.  The extra side space is
-filled with procedural, darkened "ambilight" panels derived from the frame's
-edge columns (during gameplay, from the playfield edges, not the HUD sidebar).
-The `pixel_aspect` setting reproduces the non-square pixels of the original DOS
-output: `original` draws each pixel 1.2x taller than wide, `square` draws them
-1:1.  Both settings are stored in the `video` section as `aspect` and
-`pixel_aspect`.
+`round(200 * pixel_aspect * aspect)`, never below 320.  The `pixel_aspect`
+setting reproduces the non-square pixels of the original DOS output: `original`
+draws each pixel 1.2x taller than wide, `square` draws them 1:1.  Both settings
+are stored in the `video` section as `aspect` and `pixel_aspect`.
+
+On non-gameplay frames (title/splash, menus, the shop, story/text screens and
+the in-game Esc menu) the side space is filled with a copy of the frame scaled
+to the canvas width, heavily blurred and darkened, so it reads as a soft
+backdrop behind the sharp, centered frame.  It is all deterministic integer
+math on the 320x200 grid, allocated only on resize (under 0.15 ms/frame at
+16:9).  At 4:3 there is no side space and nothing changes.
 
 During gameplay, when both side panels are at least 51 logical pixels wide
-(exactly the width of a boss bar), the in-game HUD that used to sit inside the
-playfield is drawn in the panels instead.  Single player uses both panels: the
-left one shows the ship status (name, extra lives, cash, superbombs, shield and
-armor values with bars, generator, plus the boss bars, level timer and the
-"Cheaters always prosper." notice) and the right one the armament (front and
-rear weapon name, power pips and rear firing mode; left and right sidekick name,
-icon and ammo/charge gauge).  Two players get one compact panel each, player 2
-right-aligned toward the outer edge.  Everything is drawn on the original
-320x200 logical grid with the game's own fonts and sprites and procedural
-frames; the panels widen at 21:9 and 32:9 without changing the layout tiers.  At
-16:9 with the original pixel aspect the panels are 53/54 px and qualify; 16:10
-and 16:9 with square pixels are too narrow, so the HUD stays in the playfield
-exactly as before.  Classic is always unchanged.
+(exactly the width of a boss bar), the Modern layout drops the original sidebar
+and bottom strip entirely: only the 264x184 playfield is copied out of the
+320x200 frame, and the freed columns carry the new HUD.  The panels are
+measured against the centered playfield (`(canvas_w - 264) / 2`), so 16:10
+(60 px) now qualifies as well as 16:9 (81/82 px), 21:9 and 32:9; 4:3 (28 px) and
+16:9 with square pixels (46 px) are too narrow and keep the original
+full-frame layout exactly as before.  The 16 rows freed below the playfield are
+a message strip: the level name on the top line and the in-game message
+(`JE_drawTextWindow`) centered below it.
+
+Single player uses both panels: the left one shows the ship status (name, extra
+lives, cash, superbombs, shield and armor values with bars, generator name,
+the **generator/weapon power reserve bar** -- the original sidebar's power bar,
+which drains when firing -- plus the boss bars and level timer) and the right one
+the armament (front and rear weapon name, power pips and rear firing mode; left
+and right sidekick name, icon and ammo/charge gauge).  Two players get one
+compact panel each (status then armament), player 2 right-aligned toward the
+outer edge.  Everything is drawn on the original 320x200 logical grid with the
+game's own fonts and sprites and procedural frames; the panels widen at 21:9
+and 32:9 without changing the layout tiers.  The power reserve bar is shown in
+every layout, including the compact ones.  Classic is always unchanged.
 
 The regression harness can save a presented frame to a BMP for headless visual
 review: `--regress-snapshot=FRAME:FILE` (repeatable; the Modern canvas with

@@ -160,18 +160,27 @@ void modern_mark_gameplay_frame(void);
 // --- Relocated in-game HUD (Phase 1b) ---------------------------------------
 //
 // In Modern mode, when both side panels are at least MODERN_HUD_MIN_PANEL_WIDTH
-// logical pixels wide, the in-game HUD that used to be drawn inside the
-// playfield (cash, lives and player name, superbombs, the special-weapon icon),
-// plus the boss bars, the level timer and the cheat notice, is drawn into two
-// off-screen 8-bit surfaces instead and composited over the ambilight panels by
-// modern_build_frame().  Index 0 in those surfaces means "keep the background".
+// logical pixels wide, the compositor copies only the 264x184 playfield out of
+// the 320x200 frame and gives the freed side columns to the new HUD, so the
+// original sidebar and bottom strip never appear next to it.  The in-game HUD
+// that used to live inside the playfield (cash, lives and player name,
+// superbombs, the special-weapon icon), plus the boss bars, the level timer and
+// the cheat notice, is drawn into two off-screen 8-bit surfaces and composited
+// over the ambilight side panels by modern_build_frame().  Index 0 in those
+// surfaces means "keep the background".
 //
-// When the panels are narrower (or in Classic mode) nothing changes: the HUD
-// stays in the playfield.  16:9 + original pixel aspect gives 53/54-px panels
-// and qualifies; 16:10 + original (32 px) and 16:9 + square (18 px) do not.
+// The panels are measured against the playfield layout (both centred in the
+// canvas): panel width = (canvas_w - 264) / 2.  With the default `original`
+// (1.2) pixel aspect 16:10 gives 60 px, 16:9 gives 81/82 px, 21:9 gives 148 px
+// and 32:9 more; 4:3 gives 28 px and falls back.  The minimum is exactly the
+// boss bar's width, so a panel that qualifies can hold every relocated element.
 //
-// The minimum is exactly the boss bar's width, so a panel that qualifies can
-// hold every relocated element.  See the layout slots below.
+// When the panels are narrower (or in Classic mode) nothing changes: the full
+// 320x200 frame is centred and the HUD stays inside it, exactly as before.
+#define MODERN_PLAYFIELD_W 264
+#define MODERN_PLAYFIELD_H 184
+// The rows freed below the playfield, which carry the message strip.
+#define MODERN_MESSAGE_H 16
 #define MODERN_HUD_MIN_PANEL_WIDTH 51
 
 // Room past the visible panel so text that runs long cannot wrap into the row
@@ -198,6 +207,21 @@ SDL_Surface *modern_hud_surface(int player);
 // Clears both HUD surfaces to index 0.  Call once per gameplay frame before the
 // relocated HUD is drawn.  A no-op outside panel mode.  No allocation.
 void modern_hud_begin_frame(void);
+
+// The off-screen 8-bit surface for the message strip under the playfield (the
+// 16 rows freed below the 264x184 playfield), index 0 transparent, or NULL
+// outside panel mode.  The strip is MODERN_PLAYFIELD_W wide by 16 rows; it
+// carries the level name and the in-game message.  Owned by modern.c; drawn by
+// modern_hud.c and composited by modern_build_frame().  No allocation per frame.
+SDL_Surface *modern_hud_message_surface(void);
+
+// Stores/clears the current in-game message (the text JE_drawTextWindow draws).
+// Display-only: the stored text is shown on the Modern message strip; the game's
+// own drawing into the 8-bit frame is untouched.  `modern_message_set` copies
+// the text into a fixed buffer, so it never allocates.
+void modern_message_set(const char *text);
+void modern_message_clear(void);
+const char *modern_message_text(void);
 
 // Converts `src_surface` (8-bit indexed) through the active palette into the
 // canvas and runs the registered passes, in order.  No allocation.

@@ -103,9 +103,38 @@ static int modern_hud_surface_w[2] = { 0, 0 };
 // differ by at most one pixel).  Kept in sync by modern_set_canvas_size().
 static int modern_hud_panel_w = 0;
 
-static void modern_fill_side_panels(ModernFrame *frame, int frame_x, bool gameplay);
+// The off-screen 8-bit surface for the message strip under the playfield
+// (MODERN_PLAYFIELD_W wide by MODERN_MESSAGE_H rows), index 0 transparent.
+// (Re)allocated only by modern_set_canvas_size(), never per frame.
+static SDL_Surface *modern_message_surface = NULL;
+static int modern_message_surface_w = 0;
+
+// The current in-game message (set by JE_drawTextWindow through
+// modern_message_set).  Display-only; copied into a fixed buffer.
+static char modern_message[64] = "";
+
+// Offset of the content the mouse maps to in the last built frame: for gameplay
+// frames in panel mode this is the playfield offset, otherwise the 320x200
+// frame offset.  Recorded by modern_build_frame() and used by
+// modern_present_frame() for mouse mapping.
+static int modern_frame_offset_x = 0;
+static int modern_frame_offset_y = 0;
+
+// Scratch for the blurred background fill of non-gameplay frames: the 320x200
+// frame downsampled to MODERN_BLUR_LOW_W x MODERN_BLUR_LOW_H RGB, plus the
+// per-canvas-column source map.  Allocated by modern_set_canvas_size().
+#define MODERN_BLUR_LOW_W 40
+#define MODERN_BLUR_LOW_H 25
+static Uint8 *modern_blur_low = NULL;
+static Uint32 *modern_blur_xmap = NULL;
+
+static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right_edge,
+                                    int left_width, int right_x, int right_width);
+static void modern_fill_blurred_background(ModernFrame *frame, int frame_x);
 static void modern_composite_hud(ModernFrame *frame, int frame_x);
+static void modern_composite_message(ModernFrame *frame, int frame_x);
 static void modern_set_hud_surface(SDL_Surface **surface, int *stored_w, int panel_w);
+static void modern_set_message_surface(int playfield_w);
 
 bool set_presentation_by_name(const char *name)
 {
@@ -213,6 +242,24 @@ void modern_set_canvas_size(int w, int h)
 		exit(EXIT_FAILURE);
 	}
 
+	// Scratch for the blurred background fill (non-gameplay frames): the
+	// downsampled frame and the per-column source map.
+	free(modern_blur_low);
+	modern_blur_low = malloc((size_t)MODERN_BLUR_LOW_W * MODERN_BLUR_LOW_H * 3);
+	if (modern_blur_low == NULL)
+	{
+		logFatal("Failed to allocate the modern blur buffer (%dx%d).", w, h);
+		exit(EXIT_FAILURE);
+	}
+
+	free(modern_blur_xmap);
+	modern_blur_xmap = malloc((size_t)w * sizeof(Uint32));
+	if (modern_blur_xmap == NULL)
+	{
+		logFatal("Failed to allocate the modern blur column map (%dx%d).", w, h);
+		exit(EXIT_FAILURE);
+	}
+
 	// (Re)create the streaming texture at the canvas size, nearest-neighbour so
 	// the logical pixels stay crisp when scaled.
 	if (modern_texture != NULL)
@@ -232,18 +279,24 @@ void modern_set_canvas_size(int w, int h)
 
 	SDL_SetTextureScaleMode(modern_texture, SDL_SCALEMODE_NEAREST);
 
-	// Side-panel HUD surfaces.  The frame is centered, so the two panels are
-	// frame_x and w - frame_x - vga_width wide; only their common (narrower)
-	// width matters for the layout checks.  With no panels this frees nothing
-	// but makes modern_hud_in_panels() false.
-	const int frame_x = (w - vga_width) / 2;
-	const int left_w = frame_x;
-	const int right_w = w - frame_x - vga_width;
+	// Side-panel HUD surfaces.  In panel mode the compositor copies only the
+	// 264x184 playfield out of the 320x200 frame, so the two panels are the
+	// columns left and right of the centred playfield:
+	//   left_w = (w - 264) / 2, right_w = w - left_w - 264.
+	// Only their common (narrower) width matters for the layout checks.  When
+	// that is below MODERN_HUD_MIN_PANEL_WIDTH the game keeps its original
+	// full-frame layout and modern_hud_in_panels() reports false.
+	const int playfield_x = (w - MODERN_PLAYFIELD_W) / 2;
+	const int left_w = playfield_x;
+	const int right_w = w - playfield_x - MODERN_PLAYFIELD_W;
 
 	modern_hud_panel_w = (left_w > 0 && right_w > 0) ? MIN(left_w, right_w) : 0;
 
 	modern_set_hud_surface(&modern_hud_surfaces[0], &modern_hud_surface_w[0], left_w);
 	modern_set_hud_surface(&modern_hud_surfaces[1], &modern_hud_surface_w[1], right_w);
+
+	// The in-game message strip under the playfield only exists in panel mode.
+	modern_set_message_surface(modern_hud_panel_w >= MODERN_HUD_MIN_PANEL_WIDTH ? MODERN_PLAYFIELD_W : 0);
 }
 
 // Allocates (or resizes) one HUD panel surface to `panel_w + MODERN_HUD_PANEL_PAD`
@@ -274,6 +327,42 @@ static void modern_set_hud_surface(SDL_Surface **surface, int *stored_w, int pan
 	*stored_w = w;
 }
 
+// Allocates (or frees) the message strip surface.  `playfield_w <= 0` frees it
+// (no panel mode); otherwise it is playfield_w + MODERN_HUD_PANEL_PAD wide by
+// MODERN_MESSAGE_H rows, zero-filled (index 0 transparent).  Not called in the
+// per-frame path.
+static void modern_set_message_surface(int playfield_w)
+{
+	if (playfield_w <= 0)
+	{
+		if (modern_message_surface != NULL)
+		{
+			SDL_DestroySurface(modern_message_surface);
+			modern_message_surface = NULL;
+		}
+		modern_message_surface_w = 0;
+		return;
+	}
+
+	const int w = playfield_w + MODERN_HUD_PANEL_PAD;
+
+	if (modern_message_surface != NULL && modern_message_surface_w == w)
+		return;
+
+	if (modern_message_surface != NULL)
+		SDL_DestroySurface(modern_message_surface);
+
+	modern_message_surface = SDL_CreateSurface(w, MODERN_MESSAGE_H, SDL_PIXELFORMAT_INDEX8);
+	if (modern_message_surface == NULL)
+	{
+		logFatal("Failed to allocate the modern message surface (%dx%d): %s", w, MODERN_MESSAGE_H, SDL_GetError());
+		exit(EXIT_FAILURE);
+	}
+
+	memset(modern_message_surface->pixels, 0, (size_t)modern_message_surface->pitch * (size_t)modern_message_surface->h);
+	modern_message_surface_w = w;
+}
+
 bool modern_hud_in_panels(void)
 {
 	return presentation == PRESENTATION_MODERN &&
@@ -292,6 +381,32 @@ SDL_Surface *modern_hud_surface(int player)
 		return NULL;
 
 	return modern_hud_surfaces[player];
+}
+
+SDL_Surface *modern_hud_message_surface(void)
+{
+	return modern_hud_in_panels() ? modern_message_surface : NULL;
+}
+
+void modern_message_set(const char *text)
+{
+	if (text == NULL)
+	{
+		modern_message[0] = '\0';
+		return;
+	}
+
+	snprintf(modern_message, sizeof modern_message, "%s", text);
+}
+
+void modern_message_clear(void)
+{
+	modern_message[0] = '\0';
+}
+
+const char *modern_message_text(void)
+{
+	return modern_message;
 }
 
 void modern_hud_begin_frame(void)
@@ -355,6 +470,19 @@ void modern_deinit(void)
 	free(modern_panel_scale_scratch);
 	modern_panel_scale_scratch = NULL;
 
+	free(modern_blur_low);
+	modern_blur_low = NULL;
+
+	free(modern_blur_xmap);
+	modern_blur_xmap = NULL;
+
+	if (modern_message_surface != NULL)
+	{
+		SDL_DestroySurface(modern_message_surface);
+		modern_message_surface = NULL;
+	}
+	modern_message_surface_w = 0;
+
 	for (int i = 0; i < 2; ++i)
 	{
 		if (modern_hud_surfaces[i] != NULL)
@@ -387,32 +515,77 @@ void modern_build_frame(SDL_Surface *src_surface)
 	frame->src_pitch = src_surface->pitch;
 	frame->palette = get_active_palette();
 
-	// Convert the 8-bit frame through the very same XRGB words the Classic
-	// "None" software scaler writes.  The frame is placed centered horizontally
-	// in the canvas; the side panels fill the rest.  With a 320-wide canvas
-	// (the default 4:3 / original combination) this is pixel-for-pixel identical
-	// to the previous Modern output.
-	const int copy_w = MIN((int)src_surface->w, frame->w);
-	const int copy_h = MIN((int)src_surface->h, frame->h);
-	const int offset_x = (frame->w - copy_w) / 2;
-
-	for (int y = 0; y < copy_h; ++y)
-	{
-		const Uint8 *src = frame->src + (size_t)y * frame->src_pitch;
-		Uint32 *dst = frame->pixels + (size_t)y * frame->w + offset_x;
-
-		for (int x = 0; x < copy_w; ++x)
-			dst[x] = rgb_palette[src[x]];
-	}
-
-	modern_fill_side_panels(frame, offset_x, modern_gameplay_frame);
-
-	// Gameplay frames in panel mode also carry the relocated HUD in the two
-	// off-screen surfaces; composite it over the ambilight (index 0 stays).
-	if (modern_gameplay_frame)
-		modern_composite_hud(frame, offset_x);
-
+	const bool gameplay = modern_gameplay_frame;
 	modern_gameplay_frame = false;
+
+	if (gameplay && modern_hud_in_panels())
+	{
+		// Panel mode: copy only the playfield rectangle (the original sidebar and
+		// bottom strip are dropped) and lay the HUD out in the freed columns and
+		// the message strip below the playfield.
+		const int playfield_x = (frame->w - MODERN_PLAYFIELD_W) / 2;
+		const int copy_w = MIN((int)src_surface->w, MODERN_PLAYFIELD_W);
+		const int copy_h = MIN(MIN((int)src_surface->h, frame->h), MODERN_PLAYFIELD_H);
+
+		for (int y = 0; y < copy_h; ++y)
+		{
+			const Uint8 *src = frame->src + (size_t)y * frame->src_pitch;
+			Uint32 *dst = frame->pixels + (size_t)y * frame->w + playfield_x;
+
+			for (int x = 0; x < copy_w; ++x)
+				dst[x] = rgb_palette[src[x]];
+		}
+
+		const int right_x = playfield_x + MODERN_PLAYFIELD_W;
+		modern_fill_side_panels(frame, playfield_x, playfield_x + MODERN_PLAYFIELD_W - 1,
+		                        playfield_x, right_x, frame->w - right_x);
+
+		modern_composite_hud(frame, playfield_x);
+		modern_composite_message(frame, playfield_x);
+
+		// Mouse mapping follows the playfield on gameplay frames.
+		modern_frame_offset_x = playfield_x;
+		modern_frame_offset_y = 0;
+	}
+	else
+	{
+		// Fallback and non-gameplay frames: the full 320x200 frame stays centred.
+		// Gameplay falls back to the ambilight (as before); non-gameplay frames
+		// get the blurred background fill.
+		const int copy_w = MIN((int)src_surface->w, frame->w);
+		const int copy_h = MIN((int)src_surface->h, frame->h);
+		const int offset_x = (frame->w - copy_w) / 2;
+
+		for (int y = 0; y < copy_h; ++y)
+		{
+			const Uint8 *src = frame->src + (size_t)y * frame->src_pitch;
+			Uint32 *dst = frame->pixels + (size_t)y * frame->w + offset_x;
+
+			for (int x = 0; x < copy_w; ++x)
+				dst[x] = rgb_palette[src[x]];
+		}
+
+		if (offset_x > 0)
+		{
+			const int right_x = offset_x + vga_width;
+			const int right_width = frame->w - right_x;
+
+			if (gameplay)
+			{
+				// Ambilight sampled from the playfield edges, skipping the HUD
+				// sidebar (playfield column 263) as before.
+				modern_fill_side_panels(frame, offset_x, offset_x + (vga_width - 1 - 56),
+				                        offset_x, right_x, right_width);
+			}
+			else
+			{
+				modern_fill_blurred_background(frame, offset_x);
+			}
+		}
+
+		modern_frame_offset_x = offset_x;
+		modern_frame_offset_y = 0;
+	}
 
 	for (size_t i = 0; i < modern_passes_count; ++i)
 		modern_passes[i](frame);
@@ -444,10 +617,32 @@ static void modern_composite_hud(ModernFrame *frame, int frame_x)
 	if (!modern_hud_in_panels())
 		return;
 
-	const int right_x = frame_x + vga_width;
+	const int right_x = frame_x + MODERN_PLAYFIELD_W;
 
 	modern_blit_hud_surface(frame, modern_hud_surfaces[0], 0, frame_x);
 	modern_blit_hud_surface(frame, modern_hud_surfaces[1], right_x, frame->w - right_x);
+}
+
+// Composites the opaque message strip (drawn by modern_hud.c) into the 16 rows
+// under the playfield.  Unlike the HUD panels, the strip writes every pixel
+// (its background is index 0), so it is an opaque info bar.
+static void modern_composite_message(ModernFrame *frame, int frame_x)
+{
+	const SDL_Surface *strip = modern_hud_message_surface();
+	if (strip == NULL)
+		return;
+
+	const int cols = MIN(MODERN_PLAYFIELD_W, strip->w);
+	const int rows = MIN(MODERN_MESSAGE_H, MIN(strip->h, frame->h - MODERN_PLAYFIELD_H));
+
+	for (int y = 0; y < rows; ++y)
+	{
+		const Uint8 *src = (const Uint8 *)strip->pixels + (size_t)y * strip->pitch;
+		Uint32 *dst = frame->pixels + (size_t)(MODERN_PLAYFIELD_H + y) * frame->w + frame_x;
+
+		for (int x = 0; x < cols; ++x)
+			dst[x] = rgb_palette[src[x]];
+	}
 }
 
 // One faded side-panel pixel.  `scale` is the precomputed Q32 fade factor:
@@ -475,23 +670,18 @@ static Uint64 modern_panel_scale(int panel_width, int d)
 }
 
 // Procedural "ambilight" side panels.  Deterministic and read-only over the
-// already-converted canvas: the left panel samples the frame's column 0, the
-// right panel column 319 (or the playfield's column 263 during gameplay, which
-// skips the HUD sidebar).  It never reads game_screen, so it cannot reveal the
-// off-screen margins.
-static void modern_fill_side_panels(ModernFrame *frame, int frame_x, bool gameplay)
+// already-converted canvas: the left panel samples `left_edge`, the right panel
+// `right_edge` (the playfield's column 263 during gameplay, which skips the HUD
+// sidebar).  It never reads game_screen, so it cannot reveal the off-screen
+// margins.  The left panel fills x[0..left_width); the right fills
+// x[right_x..right_x+right_width).
+static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right_edge,
+                                    int left_width, int right_x, int right_width)
 {
 	const int w = frame->w, h = frame->h;
-	const int left_width = frame_x;
-	const int right_x = frame_x + vga_width;
-	const int right_width = w - right_x;
 
 	if (left_width <= 0 && right_width <= 0)
 		return;
-
-	const int left_edge = frame_x;
-	const int right_edge = gameplay ? frame_x + (vga_width - 1 - 56)  // playfield column 263
-	                                : frame_x + (vga_width - 1);
 
 	const int sample = 4;
 	const int lx0 = left_edge;
@@ -590,6 +780,100 @@ static void modern_fill_side_panels(ModernFrame *frame, int frame_x, bool gamepl
 
 		for (int x = 0; x < right_width; ++x)
 			row[right_x + x] = modern_panel_pixel(rr, rg, rb, modern_panel_scale_scratch[x]);
+	}
+}
+
+// Blurred, darkened background fill for non-gameplay frames (title, menus,
+// story/text screens, the in-game Esc menu...).  The already-converted 320x200
+// frame is box-averaged down to a small grid and bilinearly stretched back over
+// the whole canvas width, then darkened, so the side regions read as a soft
+// extension of the screen rather than a flat gradient.  Deterministic integer
+// math; no allocation in the per-frame path; only used when the canvas is wider
+// than 320 (4:3 has no side regions and is unchanged).
+static void modern_fill_blurred_background(ModernFrame *frame, int frame_x)
+{
+	const int w = frame->w, h = frame->h;
+	const int left_width = frame_x;
+	const int right_x = frame_x + vga_width;
+	const int right_width = w - right_x;
+
+	if (left_width <= 0 && right_width <= 0)
+		return;
+
+	// Downsample the frame region [frame_x, frame_x + vga_width) x [0, h) into
+	// the low-res grid.  Block averaging is itself a heavy box blur.
+	for (int by = 0; by < MODERN_BLUR_LOW_H; ++by)
+	{
+		const int y0 = by * h / MODERN_BLUR_LOW_H;
+		const int y1 = MAX(y0 + 1, (by + 1) * h / MODERN_BLUR_LOW_H);
+
+		for (int bx = 0; bx < MODERN_BLUR_LOW_W; ++bx)
+		{
+			const int x0 = frame_x + bx * vga_width / MODERN_BLUR_LOW_W;
+			const int x1 = MAX(x0 + 1, frame_x + (bx + 1) * vga_width / MODERN_BLUR_LOW_W);
+
+			unsigned long r = 0, g = 0, b = 0, n = 0;
+			for (int y = y0; y < y1; ++y)
+			{
+				const Uint32 *row = frame->pixels + (size_t)y * frame->w;
+				for (int x = x0; x < x1; ++x)
+				{
+					const Uint32 p = row[x];
+					r += (p >> 16) & 0xff;
+					g += (p >> 8) & 0xff;
+					b += p & 0xff;
+					++n;
+				}
+			}
+
+			Uint8 *cell = modern_blur_low + ((size_t)by * MODERN_BLUR_LOW_W + bx) * 3;
+			cell[0] = (Uint8)(r / n);
+			cell[1] = (Uint8)(g / n);
+			cell[2] = (Uint8)(b / n);
+		}
+	}
+
+	// Per-canvas-column source coordinate (Q16) for the horizontal stretch.
+	for (int x = 0; x < w; ++x)
+		modern_blur_xmap[x] = (Uint32)(((Uint64)x * (MODERN_BLUR_LOW_W - 1) * 65536) / (w > 1 ? w - 1 : 1));
+
+	// Bilinear stretch + darken over the two side regions.  `dark` is 0.34.
+	const int dark = 88;
+	for (int y = 0; y < h; ++y)
+	{
+		const Uint32 uy = (Uint32)(((Uint64)y * (MODERN_BLUR_LOW_H - 1) * 65536) / (h > 1 ? h - 1 : 1));
+		const int iy = (int)(uy >> 16);
+		const int fy = (int)((uy >> 8) & 0xff);
+		const Uint8 *row0 = modern_blur_low + (size_t)iy * MODERN_BLUR_LOW_W * 3;
+		const Uint8 *row1 = modern_blur_low + (size_t)MIN(iy + 1, MODERN_BLUR_LOW_H - 1) * MODERN_BLUR_LOW_W * 3;
+		Uint32 *dst = frame->pixels + (size_t)y * frame->w;
+
+		for (int pass = 0; pass < 2; ++pass)
+		{
+			const int x_begin = (pass == 0) ? 0 : right_x;
+			const int x_end   = (pass == 0) ? left_width : right_x + right_width;
+
+			for (int x = x_begin; x < x_end; ++x)
+			{
+				const Uint32 ux = modern_blur_xmap[x];
+				const int ix = (int)(ux >> 16);
+				const int fx = (int)((ux >> 8) & 0xff);
+				const int ix1 = MIN(ix + 1, MODERN_BLUR_LOW_W - 1);
+				const Uint8 *c00 = row0 + (size_t)ix * 3;
+				const Uint8 *c10 = row0 + (size_t)ix1 * 3;
+				const Uint8 *c01 = row1 + (size_t)ix * 3;
+				const Uint8 *c11 = row1 + (size_t)ix1 * 3;
+
+				const int wx0 = 256 - fx, wy0 = 256 - fy;
+				const int w00 = wx0 * wy0, w10 = fx * wy0, w01 = wx0 * fy, w11 = fx * fy;
+
+				const int r = (((c00[0] * w00 + c10[0] * w10 + c01[0] * w01 + c11[0] * w11) >> 16) * dark) >> 8;
+				const int g = (((c00[1] * w00 + c10[1] * w10 + c01[1] * w01 + c11[1] * w11) >> 16) * dark) >> 8;
+				const int b = (((c00[2] * w00 + c10[2] * w10 + c01[2] * w01 + c11[2] * w11) >> 16) * dark) >> 8;
+
+				dst[x] = ((Uint32)(Uint8)r << 16) | ((Uint32)(Uint8)g << 8) | (Uint32)(Uint8)b;
+			}
+		}
 	}
 }
 
@@ -718,9 +1002,11 @@ void modern_present_frame(void)
 	SDL_RenderTexture(renderer, modern_texture, NULL, &dst_frect);
 	SDL_RenderPresent(renderer);
 
-	// The game frame sits centered in the wider canvas, so mouse mapping needs
-	// the canvas size and the frame offset, not the canvas alone.
-	video_set_last_output_rect_ex(&dst_rect, frame->w, frame->h, (frame->w - vga_width) / 2, 0);
+	// Mouse mapping needs the canvas size and the offset of the game content
+	// inside it (the playfield offset on gameplay frames in panel mode, the
+	// 320x200 frame offset otherwise); both are recorded by modern_build_frame.
+	video_set_last_output_rect_ex(&dst_rect, frame->w, frame->h,
+	                              modern_frame_offset_x, modern_frame_offset_y);
 }
 
 const ModernFrame *modern_current_frame(void)

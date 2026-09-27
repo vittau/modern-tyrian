@@ -38,6 +38,7 @@
 // ---------------------------------------------------------------------------
 #define HUD_BAR_SHIELD 144
 #define HUD_BAR_ARMOR  224
+#define HUD_BAR_POWER  113
 #define HUD_SEP_COLOR  16
 #define HUD_LABEL_BANK 2
 #define HUD_LABEL_DIM  3
@@ -49,9 +50,10 @@
 // Content margin inside a panel.
 #define HUD_MARGIN 2
 
-// A panel is "roomy" once it is wide enough for full-word labels and wider
-// bars (21:9 gives 120 px, 32:9 more).  Below this it uses the compact layout.
-#define HUD_ROOMY_WIDTH 100
+// A panel is "roomy" once it is wide enough for full-word labels, wider bars
+// and the generator name (16:9 gives 81/82 px, 21:9 more).  Below this it uses
+// the compact layout (16:10 gives 60 px).
+#define HUD_ROOMY_WIDTH 72
 
 // Layout slots, in logical pixels from the top of the 200-row panel canvas.
 //
@@ -59,15 +61,16 @@
 // keeps at least 16 px of gap.  Names start at y and are 6 px tall.
 //
 // 1-player status panel (left).  Mirrors the original playfield elements (cash,
-// lives, superbombs, special) plus the shield/armor/generator readouts.
+// lives, superbombs, special) plus the shield/armor/generator/power readouts.
 #define ST_SEP_Y          90
 #define ST_SHIELD_Y       96
 #define ST_ARMOR_Y        116
-#define ST_GEN_Y          136
-#define ST_BOSS_Y         150
+#define ST_GEN_Y          132
+#define ST_PWR_Y          142
+#define ST_BOSS_Y         156
 #define ST_BOSS_STEP      9
-#define ST_TIMER_LABEL_Y  166
-#define ST_TIMER_VALUE_Y  174
+#define ST_TIMER_LABEL_Y  174
+#define ST_TIMER_VALUE_Y  182
 
 // 1-player armament panel (right).  The cheat notice shares this panel because
 // the status panel holds the timer; together they stay clear of each other.
@@ -92,7 +95,7 @@
 #define CP_BOMBS_Y        37
 #define CP_SHIELD_Y       54
 #define CP_ARMOR_Y        64
-#define CP_GEN_Y          74
+#define CP_POWER_Y        74
 #define CP_FRONT_NAME_Y   84
 #define CP_FRONT_PIPS_Y   92
 #define CP_REAR_NAME_Y    101
@@ -350,6 +353,30 @@ static void hud_draw_generator(const HudPanel *p, int pi, int y)
 	}
 }
 
+// Generator/weapon power reserve.  `power` (0..900) is the original sidebar's
+// vertical power bar: it drains when a weapon fires (src/shots.c) and recharges
+// from the generator.  It is gameplay-critical, so it is always shown, even in
+// the compact layouts where the generator name is dropped.
+static void hud_draw_power(const HudPanel *p, int y)
+{
+	char num[16];
+	snprintf(num, sizeof num, "%u", MIN(power, 900u));
+
+	const int label_w = JE_textWidth("PWR", TINY_FONT);
+	const int num_w = JE_textWidth(num, TINY_FONT);
+
+	int bar_w = p->w - 2 * HUD_MARGIN - label_w - num_w - 5;
+	if (bar_w < 8)
+		bar_w = 8;
+
+	const int total = label_w + 3 + bar_w + 2 + num_w;
+	const int x = hud_start(p, total);
+
+	hud_text(p->surface, x, y, "PWR", HUD_LABEL_BANK, HUD_LABEL_DIM);
+	hud_bar(p->surface, x + label_w + 3, y + 2, bar_w, 4, MIN(power, 900u), 900, HUD_BAR_POWER);
+	hud_text(p->surface, x + label_w + 3 + bar_w + 2, y, num, HUD_NUM_BANK, 1);
+}
+
 // Weapon power pips (1..11), as the original sidebar's segments.
 static void hud_draw_pips(const HudPanel *p, int pi, int port, int y)
 {
@@ -524,7 +551,13 @@ static void hud_draw_status_panel(const HudPanel *p)
 	hud_meter_row(p, ST_ARMOR_Y, p->roomy ? "ARMOR" : "AR", player[0].armor,
 	              MAX(player[0].initial_armor, 1u), HUD_BAR_ARMOR);
 
-	hud_draw_generator(p, 0, ST_GEN_Y);
+	// The generator's name is extra information (the original in-game HUD had
+	// no label, only the bar); it is shown when the panel is roomy.  The power
+	// reserve bar itself is always shown.
+	if (p->roomy)
+		hud_draw_generator(p, 0, ST_GEN_Y);
+
+	hud_draw_power(p, ST_PWR_Y);
 }
 
 // 1-player armament panel.
@@ -557,7 +590,7 @@ static void hud_draw_compact_panel(const HudPanel *p, int pi, bool with_cheat)
 	hud_meter_row(p, CP_ARMOR_Y, "A", player[pi].armor,
 	              MAX(player[pi].initial_armor, 1u), HUD_BAR_ARMOR);
 
-	hud_draw_generator(p, pi, CP_GEN_Y);
+	hud_draw_power(p, CP_POWER_Y);
 
 	hud_draw_weapon(p, pi, FRONT_WEAPON, -1, CP_FRONT_NAME_Y, CP_FRONT_PIPS_Y, -1, false);
 	hud_draw_weapon(p, pi, REAR_WEAPON, -1, CP_REAR_NAME_Y, CP_REAR_PIPS_Y, -1, true);
@@ -603,6 +636,38 @@ static void hud_preserve_tempw(void)
 	}
 }
 
+// The 16-row message strip under the playfield.  It is an opaque info bar: the
+// level name on the top line and the current in-game message (JE_drawTextWindow)
+// on the bottom line.  Drawn into the strip surface; modern.c composites it.
+static void hud_draw_message_strip(void)
+{
+	SDL_Surface *surface = modern_hud_message_surface();
+	if (surface == NULL)
+		return;
+
+	memset(surface->pixels, 0, (size_t)surface->pitch * (size_t)surface->h);
+
+	// Black bar with a separator line along its top edge.
+	fill_rectangle_xy(surface, 0, 0, MODERN_PLAYFIELD_W - 1, surface->h - 1, 0);
+	fill_rectangle_xy(surface, 0, 0, MODERN_PLAYFIELD_W - 1, 0, HUD_SEP_COLOR);
+
+	const int name_w = JE_textWidth(levelName, TINY_FONT);
+	if (name_w > 0 && name_w <= MODERN_PLAYFIELD_W - 4)
+		hud_text(surface, 2, 2, levelName, HUD_LABEL_BANK, HUD_VALUE_BRIGHT);
+
+	const char *message = modern_message_text();
+	if (message != NULL && message[0] != '\0')
+	{
+		char buf[64];
+		hud_truncate(buf, sizeof buf, message, MODERN_PLAYFIELD_W - 4);
+
+		int x = (MODERN_PLAYFIELD_W - JE_textWidth(buf, TINY_FONT)) / 2;
+		if (x < 2)
+			x = 2;
+		hud_text(surface, x, 9, buf, HUD_NUM_BANK, 5);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Public entry points.
 // ---------------------------------------------------------------------------
@@ -637,6 +702,8 @@ void modern_hud_draw(void)
 		hud_draw_status_panel(&left);
 		hud_draw_armament_panel(&right);
 	}
+
+	hud_draw_message_strip();
 }
 
 void modern_hud_draw_timer(const char *label, const char *value, int brightness)
