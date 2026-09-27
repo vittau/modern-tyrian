@@ -1984,7 +1984,7 @@ void JE_highScoreCheck(void)
 
 				JE_barShade(VGAScreen, 65, 55, 255, 155);
 
-				SDL_StartTextInput();
+				SDL_StartTextInput(main_window);
 
 				do
 				{
@@ -2100,7 +2100,7 @@ void JE_highScoreCheck(void)
 					}
 				} while (!quit);
 
-				SDL_StopTextInput();
+				SDL_StopTextInput(main_window);
 
 				if (!cancel)
 				{
@@ -2735,7 +2735,7 @@ void JE_operation(JE_byte slot)
 
 		JE_barShade(VGAScreen, 65, 55, 255, 155);
 
-		SDL_StartTextInput();
+		SDL_StartTextInput(main_window);
 
 		bool quit = false;
 		while (!quit)
@@ -2840,7 +2840,7 @@ void JE_operation(JE_byte slot)
 			}
 		}
 
-		SDL_StopTextInput();
+		SDL_StopTextInput(main_window);
 	}
 }
 
@@ -3084,7 +3084,7 @@ void JE_mainKeyboardInput(void)
 		debugHistCount = 0;
 
 		/* YKS: clock ticks since midnight replaced by SDL_GetTicks */
-		lastDebugTime = SDL_GetTicks();
+		lastDebugTime = (Uint32)SDL_GetTicks();
 	}
 
 	/* {CHEAT-SKIP LEVEL} */

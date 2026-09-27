@@ -8,8 +8,11 @@ else
     TYRIAN_DIR = $(gamesdir)/tyrian
 endif
 
-# true, false, or auto (true if pkg-config can find SDL2_net)
-WITH_NETWORK := auto
+# Networking is out of scope for the core SDL2 -> SDL3 migration: src/network.c
+# still uses the SDL2_net API (which does not exist in SDL3).  Force it off so
+# the core build links only SDL3; the network code is kept in the tree and will
+# be ported to SDL3_net in a follow-up task.
+WITH_NETWORK := false
 
 ################################################################################
 
@@ -60,15 +63,6 @@ DEPS := $(SRCS:src/%.c=obj/%.d)
 
 ###
 
-ifeq ($(WITH_NETWORK), auto)
-    ifeq ($(shell $(PKG_CONFIG) --exists SDL2_net 2>/dev/null && echo true), true)
-        WITH_NETWORK := true
-    else
-        WITH_NETWORK := false
-        $(info SDL2_net not found; building without network support)
-    endif
-endif
-
 ifeq ($(WITH_NETWORK), true)
     EXTRA_CPPFLAGS += -DWITH_NETWORK
 endif
@@ -96,13 +90,13 @@ LDFLAGS ?=
 LDLIBS ?=
 
 ifeq ($(WITH_NETWORK), true)
-    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl2 SDL2_net --cflags)
-    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl2 SDL2_net --libs-only-L --libs-only-other)
-    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl2 SDL2_net --libs-only-l)
+    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 SDL3_net --cflags)
+    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 SDL3_net --libs-only-L --libs-only-other)
+    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl3 SDL3_net --libs-only-l)
 else
-    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl2 --cflags)
-    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl2 --libs-only-L --libs-only-other)
-    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl2 --libs-only-l)
+    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 --cflags)
+    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 --libs-only-L --libs-only-other)
+    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl3 --libs-only-l)
 endif
 
 ALL_CPPFLAGS = -DTARGET_$(PLATFORM) \

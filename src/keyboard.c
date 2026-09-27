@@ -26,7 +26,7 @@
 #include "regress.h"
 #include "video.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #define SDL_POLL_INTERVAL 10
 
@@ -34,10 +34,10 @@ JE_boolean ESCPressed;
 
 bool windowHasFocus;
 
-bool keysactive[SDL_NUM_SCANCODES];
+bool keysactive[SDL_SCANCODE_COUNT];
 
 // There are too many virtual keys, so just keep track of the few we need.
-const SDL_Keycode lordKeySyms[] = { SDLK_l, SDLK_o, SDLK_r, SDLK_d };
+const SDL_Keycode lordKeySyms[] = { SDLK_L, SDLK_O, SDLK_R, SDLK_D };
 bool lordKeySymsDown[4] = { 0 };
 
 static KeyboardInput keyboardInputs[32];
@@ -74,13 +74,11 @@ static const Uint16 ucsMap[] =
 
 void init_keyboard(void)
 {
-	SDL_StopTextInput();
+	SDL_StopTextInput(main_window);
 
-	SDL_ShowCursor(SDL_FALSE);
+	SDL_HideCursor();
 
-#if SDL_VERSION_ATLEAST(2, 26, 0)
 	SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "1");
-#endif
 }
 
 bool keyboardHasInput(void)
@@ -156,7 +154,7 @@ void mouseClearInput(void)
 
 void mouseSetRelative(bool enable)
 {
-	SDL_SetRelativeMouseMode(enable && windowHasFocus);
+	SDL_SetWindowRelativeMouseMode(main_window, enable && windowHasFocus);
 
 	mouseRelativeEnabled = enable;
 
@@ -182,48 +180,43 @@ void handleSdlEvents(void)
 	{
 		switch (ev.type)
 		{
-			case SDL_WINDOWEVENT:
-				switch (ev.window.event)
-				{
-				case SDL_WINDOWEVENT_FOCUS_LOST:
-					windowHasFocus = false;
+			case SDL_EVENT_WINDOW_FOCUS_LOST:
+				windowHasFocus = false;
 
-					mouseSetRelative(mouseRelativeEnabled);
-					break;
-
-				case SDL_WINDOWEVENT_FOCUS_GAINED:
-					windowHasFocus = true;
-
-					mouseSetRelative(mouseRelativeEnabled);
-					break;
-
-				case SDL_WINDOWEVENT_RESIZED:
-					video_on_win_resize();
-					break;
-				}
+				mouseSetRelative(mouseRelativeEnabled);
 				break;
 
-			case SDL_KEYDOWN:
-				if (ev.key.keysym.mod & KMOD_ALT &&
-				    ev.key.keysym.scancode == SDL_SCANCODE_RETURN)
+			case SDL_EVENT_WINDOW_FOCUS_GAINED:
+				windowHasFocus = true;
+
+				mouseSetRelative(mouseRelativeEnabled);
+				break;
+
+			case SDL_EVENT_WINDOW_RESIZED:
+				video_on_win_resize();
+				break;
+
+			case SDL_EVENT_KEY_DOWN:
+				if (ev.key.mod & SDL_KMOD_ALT &&
+				    ev.key.scancode == SDL_SCANCODE_RETURN)
 				{
 					toggle_fullscreen();
 					break;
 				}
 
 				if (!ev.key.repeat)
-					keysactive[ev.key.keysym.scancode] = true;
+					keysactive[ev.key.scancode] = true;
 
 				for (size_t i = 0; i < COUNTOF(lordKeySyms); ++i)
-					lordKeySymsDown[i] |= ev.key.keysym.sym == lordKeySyms[i];
+					lordKeySymsDown[i] |= ev.key.key == lordKeySyms[i];
 
 				if (keyboardInputsCount < COUNTOF(keyboardInputs))
 				{
 					assert(keyboardInputsBack < COUNTOF(keyboardInputs));
 					KeyboardInput *const input = &keyboardInputs[keyboardInputsBack];
-					input->sym = ev.key.keysym.sym;
-					input->scancode = ev.key.keysym.scancode;
-					input->mod = ev.key.keysym.mod;
+					input->sym = ev.key.key;
+					input->scancode = ev.key.scancode;
+					input->mod = ev.key.mod;
 					input->ch = 0;
 					keyboardInputsBack = keyboardInputsBack == COUNTOF(keyboardInputs) - 1 ? 0 : keyboardInputsBack + 1;
 					keyboardInputsCount += 1;
@@ -232,18 +225,22 @@ void handleSdlEvents(void)
 				mouseInactive = true;
 				break;
 
-			case SDL_KEYUP:
-				keysactive[ev.key.keysym.scancode] = false;
+			case SDL_EVENT_KEY_UP:
+				keysactive[ev.key.scancode] = false;
 
 				for (size_t i = 0; i < COUNTOF(lordKeySyms); ++i)
-					lordKeySymsDown[i] &= ev.key.keysym.sym != lordKeySyms[i];
+					lordKeySymsDown[i] &= ev.key.key != lordKeySyms[i];
 				break;
 
-			case SDL_TEXTINPUT:
-				for (size_t i = 0; i < COUNTOF(ev.text.text); ++i)
+			case SDL_EVENT_TEXT_INPUT:
+			{
+				const char *text = ev.text.text;
+				size_t text_len = strlen(text);
+
+				for (size_t i = 0; i < text_len; ++i)
 				{
 					// Decode codepoint from UTF-8.
-					Uint16 cp = (unsigned char)ev.text.text[i];
+					Uint16 cp = (unsigned char)text[i];
 					if (cp == 0)
 					{
 						break;
@@ -259,20 +256,20 @@ void handleSdlEvents(void)
 					}
 					else if (cp < 0xE0)
 					{
-						if (i + 1 >= COUNTOF(ev.text.text))
+						if (i + 1 >= text_len)
 							continue;
 
 						cp &= 0x1F;
-						cp = (cp << 6) | (ev.text.text[++i] & 0x3F);
+						cp = (cp << 6) | (text[++i] & 0x3F);
 					}
 					else if (cp < 0xF0)
 					{
-						if (i + 2 >= COUNTOF(ev.text.text))
+						if (i + 2 >= text_len)
 							continue;
 
 						cp &= 0x0F;
-						cp = (cp << 6) | (ev.text.text[++i] & 0x3F);
-						cp = (cp << 6) | (ev.text.text[++i] & 0x3F);
+						cp = (cp << 6) | (text[++i] & 0x3F);
+						cp = (cp << 6) | (text[++i] & 0x3F);
 					}
 					else
 					{
@@ -307,61 +304,71 @@ void handleSdlEvents(void)
 						KeyboardInput *const input = &keyboardInputs[keyboardInputsBack];
 						input->sym = -1;  // Text; not a key.
 						input->scancode = -1;  // Text; not a key.
-						input->mod = KMOD_NONE;
+						input->mod = SDL_KMOD_NONE;
 						input->ch = ch;
 						keyboardInputsBack = keyboardInputsBack == COUNTOF(keyboardInputs) - 1 ? 0 : keyboardInputsBack + 1;
 						keyboardInputsCount += 1;
 					}
 				}
 				break;
+			}
 
-			case SDL_MOUSEMOTION:
-				mouseX = ev.motion.x;
-				mouseY = ev.motion.y;
+			case SDL_EVENT_MOUSE_MOTION:
+				mouseX = (Sint32)ev.motion.x;
+				mouseY = (Sint32)ev.motion.y;
 				mapWindowPointToScreen(&mouseX, &mouseY);
 
 				mouseHasMotionInput = true;
 
 				if (mouseRelativeEnabled && windowHasFocus)
 				{
-					mouseWindowXRelative += ev.motion.xrel;
-					mouseWindowYRelative += ev.motion.yrel;
+					mouseWindowXRelative += (Sint32)ev.motion.xrel;
+					mouseWindowYRelative += (Sint32)ev.motion.yrel;
 				}
 
 				// Show system mouse pointer if outside screen.
-				SDL_ShowCursor(mouseX < 0 || mouseX >= vga_width ||
-				               mouseY < 0 || mouseY >= vga_height ? SDL_ENABLE : SDL_DISABLE);
+				if (mouseX < 0 || mouseX >= vga_width ||
+				    mouseY < 0 || mouseY >= vga_height)
+					SDL_ShowCursor();
+				else
+					SDL_HideCursor();
 
 				if (ev.motion.xrel != 0 || ev.motion.yrel != 0)
 					mouseInactive = false;
 				break;
 
-			case SDL_MOUSEBUTTONDOWN:
-				mapWindowPointToScreen(&ev.button.x, &ev.button.y);
+			case SDL_EVENT_MOUSE_BUTTON_DOWN:
+			{
+				Sint32 x = (Sint32)ev.button.x, y = (Sint32)ev.button.y;
+				mapWindowPointToScreen(&x, &y);
 
 				if (mouseInputsCount < COUNTOF(mouseInputs))
 				{
 					assert(mouseInputsBack < COUNTOF(mouseInputs));
 					MouseInput *const input = &mouseInputs[mouseInputsBack];
 					input->button = ev.button.button;
-					input->x = ev.button.x;
-					input->y = ev.button.y;
+					input->x = x;
+					input->y = y;
 					mouseInputsBack = mouseInputsBack == COUNTOF(mouseInputs) - 1 ? 0 : mouseInputsBack + 1;
 					mouseInputsCount += 1;
 				}
 
-				mouseButtonsDown |= SDL_BUTTON(ev.button.button);
+				mouseButtonsDown |= SDL_BUTTON_MASK(ev.button.button);
 
 				mouseInactive = false;
 				break;
+			}
 
-			case SDL_MOUSEBUTTONUP:
-				mapWindowPointToScreen(&ev.button.x, &ev.button.y);
+			case SDL_EVENT_MOUSE_BUTTON_UP:
+			{
+				Sint32 x = (Sint32)ev.button.x, y = (Sint32)ev.button.y;
+				mapWindowPointToScreen(&x, &y);
 
-				mouseButtonsDown &= ~SDL_BUTTON(ev.button.button);
+				mouseButtonsDown &= ~SDL_BUTTON_MASK(ev.button.button);
 				break;
+			}
 
-			case SDL_QUIT:
+			case SDL_EVENT_QUIT:
 				exit(0);
 				break;
 		}

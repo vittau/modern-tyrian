@@ -19,7 +19,7 @@
 #ifndef REGRESS_H
 #define REGRESS_H
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #include <stdbool.h>
 #include <stdio.h>

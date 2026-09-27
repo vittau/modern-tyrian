@@ -19,7 +19,7 @@
 #ifndef LOGGING_H
 #define LOGGING_H
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #define logDebug(...) SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, __VA_ARGS__)
 #define logInfo(...) SDL_Log(__VA_ARGS__)

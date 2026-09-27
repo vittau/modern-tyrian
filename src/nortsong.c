@@ -25,7 +25,7 @@
 #include "regress.h"
 #include "sndmast.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #include <assert.h>
 #include <stdlib.h>
@@ -122,7 +122,7 @@ void delayUntilElapsed(void)
 	SDL_Delay(((Uint32)diff + half) >> 10);
 }
 
-static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *filename, bool trim, SDL_AudioCVT *cvt)
+static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *filename, bool trim)
 {
 	File file = dataFileOpen(filename, "rb");
 	if (file.error)
@@ -160,7 +160,12 @@ static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *file
 		maxSize = MAX(maxSize, size);
 	}
 
-	cvt->buf = malloc(maxSize * cvt->len_mult);
+	// Source data is signed 8-bit mono at 11025 Hz; convert it to the mixer's
+	// output format (signed 16-bit mono at audioSampleRate).
+	const SDL_AudioSpec src_spec = { SDL_AUDIO_S8, 1, 11025 };
+	const SDL_AudioSpec dst_spec = { SDL_AUDIO_S16, 1, audioSampleRate };
+
+	Uint8 *src = malloc(maxSize);
 
 	for (size_t i = 0; i < count; ++i)
 	{
@@ -176,21 +181,24 @@ static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *file
 
 		fileSetPosition(&file, position);
 
-		fileReadExactly(&file, cvt->buf, size);
-		cvt->len = size;
+		fileReadExactly(&file, src, size);
 
-		if (SDL_ConvertAudio(cvt) != 0)
+		Uint8 *dst = NULL;
+		int dst_len = 0;
+		if (!SDL_ConvertAudioSamples(&src_spec, src, (int)size, &dst_spec, &dst, &dst_len))
 		{
 			logError("Failed to convert audio: %s", SDL_GetError());
 			continue;
 		}
 
-		soundSamples[soundsOffset + i] = malloc(cvt->len_cvt);
-		memcpy(soundSamples[soundsOffset + i], cvt->buf, cvt->len_cvt);
-		soundSampleCount[soundsOffset + i] = cvt->len_cvt / sizeof (Sint16);
+		soundSamples[soundsOffset + i] = malloc(dst_len);
+		memcpy(soundSamples[soundsOffset + i], dst, dst_len);
+		soundSampleCount[soundsOffset + i] = dst_len / sizeof (Sint16);
+
+		SDL_free(dst);
 	}
 
-	free(cvt->buf);
+	free(src);
 
 	free(positions);
 
@@ -210,19 +218,11 @@ void loadSndFile(bool xmas)
 		soundSampleCount[i] = 0;
 	}
 
-	// Build converter to output sample format and rate.
-	SDL_AudioCVT cvt;
-	if (SDL_BuildAudioCVT(&cvt, AUDIO_S8, 1, 11025, AUDIO_S16SYS, 1, audioSampleRate) < 0)
-	{
-		logError("Failed to build audio converter: %s", SDL_GetError());
-		return;
-	}
-
 	const char *sfxFilename = "tyrian.snd";
-	loadSounds(0, SFX_COUNT, sfxFilename, false, &cvt);
+	loadSounds(0, SFX_COUNT, sfxFilename, false);
 
 	const char *voiceFilename = xmas ? "voicesc.snd" : "voices.snd";
-	loadSounds(SFX_COUNT, VOICE_COUNT, voiceFilename, true, &cvt);
+	loadSounds(SFX_COUNT, VOICE_COUNT, voiceFilename, true);
 }
 
 void JE_playSampleNum(JE_byte samplenum)

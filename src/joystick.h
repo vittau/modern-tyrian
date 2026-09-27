@@ -21,7 +21,7 @@
 
 #include "config_file.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 typedef enum
 {

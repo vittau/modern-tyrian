@@ -185,7 +185,7 @@ void hq2x_32(SDL_Surface *src_surface, SDL_Texture *dst_texture)
 	int src_pitch = src_surface->pitch;
 	int dst_pitch;
 
-	const int dst_Bpp = 4,         // dst_surface->format->BytesPerPixel
+	const int dst_Bpp = 4,         // SDL_BYTESPERPIXEL(dst_surface->format)
 	          height = vga_height, // src_surface->h
 	          width = vga_width;   // src_surface->w
 
@@ -2989,7 +2989,7 @@ void hq3x_32(SDL_Surface *src_surface, SDL_Texture *dst_texture)
 	int src_pitch = src_surface->pitch;
 	int dst_pitch;
 
-	const int dst_Bpp = 4,         // dst_surface->format->BytesPerPixel
+	const int dst_Bpp = 4,         // SDL_BYTESPERPIXEL(dst_surface->format)
 	          height = vga_height, // src_surface->h
 	          width = vga_width;   // src_surface->w
 
@@ -6853,7 +6853,7 @@ void hq4x_32(SDL_Surface *src_surface, SDL_Texture *dst_texture)
 	int src_pitch = src_surface->pitch;
 	int dst_pitch;
 
-	const int dst_Bpp = 4,         // dst_surface->format->BytesPerPixel
+	const int dst_Bpp = 4,         // SDL_BYTESPERPIXEL(dst_surface->format)
 	          height = vga_height, // src_surface->h
 	          width = vga_width;   // src_surface->w
 

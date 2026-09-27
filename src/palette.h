@@ -19,7 +19,7 @@
 #ifndef PALETTE_H
 #define PALETTE_H
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 typedef SDL_Color Palette[256];
 

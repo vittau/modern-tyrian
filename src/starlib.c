@@ -156,7 +156,7 @@ bool starLibMain(KeyboardInput *const keyboardInput)  // FKA StarLib.Main
 	{
 		switch (KEY_COMBO(keyboardInput->mod, keyboardInput->scancode))
 		{
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_EQUALS):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_EQUALS):
 				starlib_speed++;
 				speedChange = 0;
 				break;
@@ -194,29 +194,29 @@ bool starLibMain(KeyboardInput *const keyboardInput)  // FKA StarLib.Main
 			case SDL_SCANCODE_0:
 				JE_changeSetup(10);
 				break;
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_1):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_1):
 				JE_changeSetup(11);
 				break;
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_2):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_2):
 				JE_changeSetup(12);
 				break;
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_3):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_3):
 				JE_changeSetup(13);
 				break;
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_4):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_4):
 				JE_changeSetup(14);
 				break;
 
 			case SDL_SCANCODE_C:
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_C):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_C):
 				JE_resetValues();
 				break;
 			case SDL_SCANCODE_S:
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_S):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_S):
 				nspVarVarInc = mt_rand_1() * 0.01f - 0.005f;
 				break;
 			case SDL_SCANCODE_X:
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_X):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_X):
 			case SDL_SCANCODE_ESCAPE:
 				run = false;
 				break;
@@ -226,17 +226,17 @@ bool starLibMain(KeyboardInput *const keyboardInput)  // FKA StarLib.Main
 			case SDL_SCANCODE_RIGHTBRACKET:
 				pColor++;
 				break;
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_LEFTBRACKET):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_LEFTBRACKET):
 				pColor -= 72;
 				break;
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_RIGHTBRACKET):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_RIGHTBRACKET):
 				pColor += 72;
 				break;
 			case SDL_SCANCODE_GRAVE:
 				doChange = !doChange;
 				break;
 			case SDL_SCANCODE_P:
-			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_P):
+			case KEY_COMBO(SDL_KMOD_SHIFT, SDL_SCANCODE_P):
 				waitUntilGetInput();
 				break;
 			default:

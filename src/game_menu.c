@@ -1537,9 +1537,9 @@ void JE_itemScreen(void)
 			default:
 				switch (keyboardInput.sym)
 				{
-				case SDLK_s:
+				case SDLK_S:
 				{
-					if (keyboardInput.mod & KMOD_ALT &&
+					if (keyboardInput.mod & SDL_KMOD_ALT &&
 					    curMenu != MENU_LOAD_SAVE)
 					{
 						if (curMenu == MENU_DATA_CUBE_SUB ||
@@ -1556,9 +1556,9 @@ void JE_itemScreen(void)
 					}
 					break;
 				}
-				case SDLK_l:
+				case SDLK_L:
 				{
-					if (keyboardInput.mod & KMOD_ALT &&
+					if (keyboardInput.mod & SDL_KMOD_ALT &&
 					    curMenu != MENU_LOAD_SAVE)
 					{
 						if (curMenu == MENU_DATA_CUBE_SUB ||

@@ -20,7 +20,7 @@
 
 #include "opentyr.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #include <assert.h>
 #include <ctype.h>
@@ -83,13 +83,12 @@ bool findDataFiles(void)
 	static char *baseDataDirPath = NULL;
 	if (baseDataDirPath == NULL)
 	{
-		char *basePath = SDL_GetBasePath();
+		const char *basePath = SDL_GetBasePath();
 		if (basePath != NULL)
 		{
 			size_t baseDataDirPathSize = strlen(basePath) + strlen("data") + 1;
 			baseDataDirPath = malloc(baseDataDirPathSize);
 			snprintf(baseDataDirPath, baseDataDirPathSize, "%sdata", basePath);
-			SDL_free(basePath);
 		}
 	}
 
@@ -173,7 +172,7 @@ static void determineUserDirPath(void)
 		userDirPathLen = 0;
 	}
 
-	char *basePath = SDL_GetBasePath();
+	const char *basePath = SDL_GetBasePath();
 	if (basePath != NULL)
 	{
 		// If a certain file exists in the base path, store user files there.
@@ -194,8 +193,6 @@ static void determineUserDirPath(void)
 			userDirPath = malloc(userDirPathSize);
 			snprintf(userDirPath, userDirPathSize, "%s", basePath);
 		}
-
-		SDL_free(basePath);
 
 		if (portable)
 			return;

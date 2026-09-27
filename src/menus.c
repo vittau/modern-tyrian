@@ -552,8 +552,8 @@ bool difficultySelect(void)
 			{
 			case 3:
 			{
-				if (keyboardInput.mod & KMOD_SHIFT &&
-				    keyboardInput.sym == SDLK_g)
+				if (keyboardInput.mod & SDL_KMOD_SHIFT &&
+				    keyboardInput.sym == SDLK_G)
 				{
 					menuItemsVisibleCount = 4;
 				}
@@ -561,7 +561,7 @@ bool difficultySelect(void)
 			}
 			case 4:
 			{
-				if (keyboardInput.mod & KMOD_SHIFT &&
+				if (keyboardInput.mod & SDL_KMOD_SHIFT &&
 				    keyboardInput.sym == SDLK_RIGHTBRACKET)
 				{
 					menuItemsVisibleCount = 5;

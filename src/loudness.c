@@ -24,7 +24,7 @@
 #include "opentyr.h"
 #include "opl.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #include <assert.h>
 #include <stdlib.h>
@@ -39,7 +39,7 @@ unsigned int song_playing = 0;
 
 bool audio_disabled = false, music_disabled = false, samples_disabled = false;
 
-static SDL_AudioDeviceID audioDevice = 0;
+static SDL_AudioStream *audioStream = NULL;
 
 static Uint8 musicVolume = 255;
 static Uint8 sampleVolume = 255;
@@ -73,7 +73,7 @@ static size_t channelSampleCount[CHANNEL_COUNT] = { 0 };
 static Uint8 channelVolume[CHANNEL_COUNT];
 #define CHANNEL_VOLUME_LEVELS 8
 
-static void audioCallback(void *userdata, Uint8 *stream, int size);
+static void audioCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount);
 
 static void load_song(unsigned int song_num);
 
@@ -97,39 +97,33 @@ bool init_audio(void)
 	if (audio_disabled)
 		return false;
 
-	SDL_AudioSpec ask, got;
+	// SDL3 opens the device through a stream.  The stream's source spec is the
+	// game's pipeline format (S16, mono, 44100 Hz); passing it to
+	// SDL_OpenAudioDeviceStream means no format conversion happens between
+	// audio_mix()'s output and the stream.
+	const SDL_AudioSpec spec = { SDL_AUDIO_S16, 1, 11025 * OUTPUT_QUALITY };
 
-	ask.freq = 11025 * OUTPUT_QUALITY;
-	ask.format = AUDIO_S16SYS;
-	ask.channels = 1;
-	ask.samples = 256 * OUTPUT_QUALITY; // ~23 ms
-	ask.callback = audioCallback;
-
-	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0)
+	if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
 	{
 		logError("Failed to initialize SDL audio: %s", SDL_GetError());
 		audio_disabled = true;
 		return false;
 	}
 
-	int allowedChanges = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE;
-#if SDL_VERSION_ATLEAST(2, 0, 9)
-	allowedChanges |= SDL_AUDIO_ALLOW_SAMPLES_CHANGE;
-#endif
-	audioDevice = SDL_OpenAudioDevice(/*device*/ NULL, /*iscapture*/ 0, &ask, &got, allowedChanges);
+	audioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audioCallback, NULL);
 
-	if (audioDevice == 0)
+	if (audioStream == NULL)
 	{
 		logError("Failed to open audio device: %s", SDL_GetError());
 		audio_disabled = true;
 		return false;
 	}
 
-	configure_audio(got.freq);
+	configure_audio(spec.freq);
 
 	opl_init();
 
-	SDL_PauseAudioDevice(audioDevice, 0); // unpause
+	SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(audioStream));
 
 	return true;
 }
@@ -228,11 +222,25 @@ static void audio_mix(Sint16 *samples, int samplesCount)
 	}
 }
 
-static void audioCallback(void *userdata, Uint8 *stream, int size)
+static void audioCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
 	(void)userdata;
+	(void)total_amount;
 
-	audio_mix((Sint16 *)stream, size / sizeof (Sint16));
+	if (additional_amount <= 0)
+		return;
+
+	const int samplesCount = additional_amount / (int)sizeof (Sint16);
+
+	Sint16 *samples = SDL_malloc((size_t)samplesCount * sizeof (Sint16));
+	if (samples == NULL)
+		return;
+
+	audio_mix(samples, samplesCount);
+
+	SDL_PutAudioStreamData(stream, samples, samplesCount * (int)sizeof (Sint16));
+
+	SDL_free(samples);
 }
 
 void deinit_audio(void)
@@ -240,11 +248,11 @@ void deinit_audio(void)
 	if (audio_disabled)
 		return;
 
-	if (audioDevice != 0)
+	if (audioStream != NULL)
 	{
-		SDL_PauseAudioDevice(audioDevice, 1); // pause
-		SDL_CloseAudioDevice(audioDevice);
-		audioDevice = 0;
+		SDL_PauseAudioDevice(SDL_GetAudioStreamDevice(audioStream));
+		SDL_DestroyAudioStream(audioStream);
+		audioStream = NULL;
 	}
 
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);
@@ -317,22 +325,22 @@ void play_song(unsigned int song_num)  // FKA NortSong.playSong
 
 	if (song_num != song_playing)
 	{
-		SDL_LockAudioDevice(audioDevice);
+		SDL_LockAudioStream(audioStream);
 
 		music_stopped = true;
 
-		SDL_UnlockAudioDevice(audioDevice);
+		SDL_UnlockAudioStream(audioStream);
 
 		load_song(song_num);
 
 		song_playing = song_num;
 	}
 
-	SDL_LockAudioDevice(audioDevice);
+	SDL_LockAudioStream(audioStream);
 
 	music_stopped = false;
 
-	SDL_UnlockAudioDevice(audioDevice);
+	SDL_UnlockAudioStream(audioStream);
 }
 
 void restart_song(void)  // FKA Player.selectSong(1)
@@ -340,13 +348,13 @@ void restart_song(void)  // FKA Player.selectSong(1)
 	if (audio_disabled)
 		return;
 
-	SDL_LockAudioDevice(audioDevice);
+	SDL_LockAudioStream(audioStream);
 
 	lds_rewind();
 
 	music_stopped = false;
 
-	SDL_UnlockAudioDevice(audioDevice);
+	SDL_UnlockAudioStream(audioStream);
 }
 
 void stop_song(void)  // FKA Player.selectSong(0)
@@ -354,11 +362,11 @@ void stop_song(void)  // FKA Player.selectSong(0)
 	if (audio_disabled)
 		return;
 
-	SDL_LockAudioDevice(audioDevice);
+	SDL_LockAudioStream(audioStream);
 
 	music_stopped = true;
 
-	SDL_UnlockAudioDevice(audioDevice);
+	SDL_UnlockAudioStream(audioStream);
 }
 
 void fade_song(void)  // FKA Player.selectSong($C001)
@@ -366,11 +374,11 @@ void fade_song(void)  // FKA Player.selectSong($C001)
 	if (audio_disabled)
 		return;
 
-	SDL_LockAudioDevice(audioDevice);
+	SDL_LockAudioStream(audioStream);
 
 	lds_fade(1);
 
-	SDL_UnlockAudioDevice(audioDevice);
+	SDL_UnlockAudioStream(audioStream);
 }
 
 static void set_volume_locked(Uint8 musicVolume_, Uint8 sampleVolume_)
@@ -384,11 +392,11 @@ void set_volume(Uint8 musicVolume_, Uint8 sampleVolume_)  // FKA NortSong.setVol
 	if (audio_disabled)
 		return;
 
-	SDL_LockAudioDevice(audioDevice);
+	SDL_LockAudioStream(audioStream);
 
 	set_volume_locked(musicVolume_, sampleVolume_);
 
-	SDL_UnlockAudioDevice(audioDevice);
+	SDL_UnlockAudioStream(audioStream);
 }
 
 static void multiSamplePlay_locked(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint8 vol)
@@ -406,11 +414,11 @@ void multiSamplePlay(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint
 	if (audio_disabled || samples_disabled)
 		return;
 
-	SDL_LockAudioDevice(audioDevice);
+	SDL_LockAudioStream(audioStream);
 
 	multiSamplePlay_locked(samples, sampleCount, chan, vol);
 
-	SDL_UnlockAudioDevice(audioDevice);
+	SDL_UnlockAudioStream(audioStream);
 }
 
 // --- offline audio regression (--regress-audio) -----------------------------

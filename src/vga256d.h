@@ -21,7 +21,7 @@
 
 #include "opentyr.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 void JE_pix(SDL_Surface *surface, int x, int y, JE_byte c);
 void JE_pix3(SDL_Surface *surface, int x, int y, JE_byte c);
@@ -35,7 +35,7 @@ void JE_barBright(SDL_Surface *surface, int a, int b, int c, int d);
 static inline void fill_rectangle_wh(SDL_Surface *surface, int x, int y, uint w, uint h, Uint8 color)
 {
 	SDL_Rect rect = { x, y, w, h };
-	SDL_FillRect(surface, &rect, color);
+	SDL_FillSurfaceRect(surface, &rect, color);
 }
 
 void draw_segmented_gauge(SDL_Surface *surface, int x, int y, Uint8 color, uint segment_width, uint segment_height, uint segment_value, uint value);

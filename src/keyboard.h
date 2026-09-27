@@ -21,13 +21,13 @@
 
 #include "opentyr.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #define KEY_COMBO(mod, scancode) ((Uint32)(scancode) | \
-	(((mod) & KMOD_SHIFT ? (Uint32)KMOD_SHIFT : 0) | \
-	 ((mod) & KMOD_CTRL ? (Uint32)KMOD_CTRL : 0) | \
-	 ((mod) & KMOD_ALT ? (Uint32)KMOD_ALT : 0) | \
-	 ((mod) & KMOD_GUI ? (Uint32)KMOD_GUI : 0)) << 16)
+	(((mod) & SDL_KMOD_SHIFT ? (Uint32)SDL_KMOD_SHIFT : 0) | \
+	 ((mod) & SDL_KMOD_CTRL ? (Uint32)SDL_KMOD_CTRL : 0) | \
+	 ((mod) & SDL_KMOD_ALT ? (Uint32)SDL_KMOD_ALT : 0) | \
+	 ((mod) & SDL_KMOD_GUI ? (Uint32)SDL_KMOD_GUI : 0)) << 16)
 
 typedef struct KeyboardInput
 {
@@ -54,7 +54,7 @@ extern JE_boolean ESCPressed;  // TODO: Implement this.
 
 extern bool windowHasFocus;
 
-extern bool keysactive[SDL_NUM_SCANCODES];
+extern bool keysactive[SDL_SCANCODE_COUNT];
 
 extern const SDL_Keycode lordKeySyms[4];
 extern bool lordKeySymsDown[4];

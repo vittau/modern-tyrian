@@ -61,7 +61,7 @@ void JE_darkenBackground(JE_word neat)  /* wild detail level */
 
 void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 {
-	assert(surface->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(surface->format) == 8);
 	
 	Uint8 *pixels = (Uint8 *)surface->pixels + (y * surface->pitch) + x,
 	      *pixels_ll = (Uint8 *)surface->pixels,  // lower limit
@@ -107,7 +107,7 @@ void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 
 void blit_background_row_blend(SDL_Surface *surface, int x, int y, Uint8 **map)
 {
-	assert(surface->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(surface->format) == 8);
 	
 	Uint8 *pixels = (Uint8 *)surface->pixels + (y * surface->pitch) + x,
 	      *pixels_ll = (Uint8 *)surface->pixels,  // lower limit
@@ -153,7 +153,7 @@ void blit_background_row_blend(SDL_Surface *surface, int x, int y, Uint8 **map)
 
 void draw_background_1(SDL_Surface *surface)
 {
-	SDL_FillRect(surface, NULL, 0);
+	SDL_FillSurfaceRect(surface, NULL, 0);
 	
 	Uint8 **map = (Uint8 **)mapYPos + mapXbpPos - 12;
 	
@@ -318,7 +318,7 @@ void JE_checkSmoothies(void)
 
 void lava_filter(SDL_Surface *dst, SDL_Surface *src)
 {
-	assert(src->format->BitsPerPixel == 8 && dst->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	/* we don't need to check for over-reading the pixel surfaces since we only
 	 * read from the top 185+1 scanlines, and there should be 320 */
@@ -366,7 +366,7 @@ void lava_filter(SDL_Surface *dst, SDL_Surface *src)
 
 void water_filter(SDL_Surface *dst, SDL_Surface *src)
 {
-	assert(src->format->BitsPerPixel == 8 && dst->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	Uint8 hue = smoothie_data[1] << 4;
 	
@@ -414,7 +414,7 @@ void water_filter(SDL_Surface *dst, SDL_Surface *src)
 
 void iced_blur_filter(SDL_Surface *dst, SDL_Surface *src)
 {
-	assert(src->format->BitsPerPixel == 8 && dst->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	Uint8 *dst_pixel = dst->pixels;
 	const Uint8 *src_pixel = src->pixels;
@@ -440,7 +440,7 @@ void iced_blur_filter(SDL_Surface *dst, SDL_Surface *src)
 
 void blur_filter(SDL_Surface *dst, SDL_Surface *src)
 {
-	assert(src->format->BitsPerPixel == 8 && dst->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	Uint8 *dst_pixel = dst->pixels;
 	const Uint8 *src_pixel = src->pixels;

@@ -103,7 +103,7 @@ void JE_loadPic(SDL_Surface *screen, JE_byte id, JE_boolean storepal)
 
 	free(data);
 
-	assert(screen->w == 320 && screen->h == 200 && screen->format->BytesPerPixel == 1);
+	assert(screen->w == 320 && screen->h == 200 && SDL_BYTESPERPIXEL(screen->format) == 1);
 	for (size_t y = 0; y < 200; ++y)
 		memcpy((Uint8 *)screen->pixels + y * screen->pitch, image + y * 320, 320);
 

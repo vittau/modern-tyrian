@@ -19,9 +19,14 @@
 #ifndef OPENTYR_H
 #define OPENTYR_H
 
-#include "SDL_types.h"
+#include <SDL3/SDL_stdinc.h>
 
+// SDL2's SDL.h pulled in the C standard library headers below transitively;
+// SDL3's SDL_stdinc.h no longer does, so include them explicitly here for the
+// whole project (as it previously relied on SDL.h to provide them).
+#include <math.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #ifndef COUNTOF
 #define COUNTOF(x) (sizeof(x) / sizeof *(x))  // use only on arrays!

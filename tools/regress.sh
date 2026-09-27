@@ -112,7 +112,7 @@ run_case() {
 	local start elapsed rc lines hunk first
 
 	start=$(now)
-	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
 		"$BIN" --data="$DATA_DIR" --regress-out="$out" "$@" \
 		>"$log" 2>&1
 	rc=$?

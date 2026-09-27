@@ -2019,7 +2019,7 @@ draw_player_shot_loop_end:
 	}
 
 	/*-------      DEbug      ---------*/
-	debugTime = SDL_GetTicks();
+	debugTime = (Uint32)SDL_GetTicks();
 
 	if (debug)
 	{
@@ -3354,12 +3354,12 @@ bool titleScreen(void)
 		JE_showVGA();
 		JE_mouseReplace();
 
-		const Uint32 idleStartTick = SDL_GetTicks();
+		const Uint32 idleStartTick = (Uint32)SDL_GetTicks();
 
 		while (true)
 		{
 			// Play demo after idle for 30 seconds.
-			if (SDL_GetTicks() - idleStartTick > 30000)
+			if ((Uint32)SDL_GetTicks() - idleStartTick > 30000)
 			{
 				fade_black(15);
 
@@ -3463,7 +3463,7 @@ bool titleScreen(void)
 			for (size_t i = 0; i < SA_ENGAGE; i++)
 			{
 				if (specialNameProgress[i] >= COUNTOF(specialName[i]) - 1 ||
-				    sym != specialName[i][specialNameProgress[i]])
+				    sym != (SDL_Keycode)(unsigned char)specialName[i][specialNameProgress[i]])
 				{
 					specialNameProgress[i] = 0;
 					continue;
@@ -3729,7 +3729,7 @@ void intro_logos(void)
 {
 	moveTyrianLogoUp = true;
 
-	SDL_FillRect(VGAScreen, NULL, 0);
+	SDL_FillSurfaceRect(VGAScreen, NULL, 0);
 
 	fade_white(25);
 

@@ -96,7 +96,7 @@ void JE_loadPCX(const char *filename) // this is only meant to load tshp2.pcx
 
 	SDL_Surface *const screen = VGAScreen;
 
-	assert(screen->w == 320 && screen->h == 200 && screen->format->BytesPerPixel == 1);
+	assert(screen->w == 320 && screen->h == 200 && SDL_BYTESPERPIXEL(screen->format) == 1);
 	for (size_t y = 0; y < 200; ++y)
 		memcpy((Uint8 *)screen->pixels + y * screen->pitch, image + y * 320, 320);
 

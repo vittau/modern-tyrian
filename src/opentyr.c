@@ -51,7 +51,8 @@
 #include "video_scale.h"
 #include "xmas.h"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 
 #include <assert.h>
 #include <stdio.h>
@@ -64,7 +65,11 @@ const char *opentyrian_version = OPENTYRIAN_VERSION;
 
 static size_t getDisplayPickerItemsCount(void)
 {
-	return 1 + (size_t)SDL_GetNumVideoDisplays();
+	int display_count = 0;
+	SDL_DisplayID *displays = SDL_GetDisplays(&display_count);
+	SDL_free(displays);
+
+	return 1 + (size_t)display_count;
 }
 
 static const char *getDisplayPickerItem(size_t i, char *buffer, size_t bufferSize)
@@ -752,7 +757,7 @@ void setupMenu(void)
 int main(int argc, char *argv[])
 {
 #ifndef NDEBUG
-	SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
+	SDL_SetLogPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
 #endif
 
 	mt_srand(time(NULL));
@@ -767,7 +772,7 @@ int main(int argc, char *argv[])
 	logInfo("under certain conditions.  See the file COPYING for details.");
 	logInfo("%s", "");
 
-	if (SDL_Init(0) != 0)
+	if (!SDL_Init(0))
 	{
 		logFatal("Failed to initialize SDL: %s", SDL_GetError());
 		return EXIT_FAILURE;

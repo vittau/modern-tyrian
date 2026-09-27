@@ -19,7 +19,7 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #include <stdbool.h>
 
@@ -44,7 +44,7 @@ extern SDL_Surface *game_screen;
 extern SDL_Surface *VGAScreen2;
 
 extern SDL_Window *main_window;
-extern SDL_PixelFormat *main_window_tex_format;
+extern const SDL_PixelFormatDetails *main_window_tex_format;
 
 void init_video(void);
 

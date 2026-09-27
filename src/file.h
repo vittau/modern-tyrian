@@ -19,7 +19,7 @@
 #ifndef FILE_H
 #define FILE_H
 
-#include "SDL_endian.h"
+#include <SDL3/SDL_endian.h>
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -64,7 +64,7 @@ static inline uint16_t fileReadU16(File *file)
 {
 	Uint16 value;
 	fileReadExactly(file, &value, sizeof value);
-	return SDL_SwapLE16(value);
+	return SDL_Swap16LE(value);
 }
 
 static inline void fileReadU16Array(File *file, uint16_t *values, size_t count)
@@ -72,7 +72,7 @@ static inline void fileReadU16Array(File *file, uint16_t *values, size_t count)
 	fileReadExactly(file, values, sizeof *values * count);
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
 	for (size_t i = 0; i < count; ++i)
-		values[i] = SDL_SwapLE16(values[i]);
+		values[i] = SDL_Swap16LE(values[i]);
 #endif
 }
 
@@ -80,7 +80,7 @@ static inline uint16_t fileReadU16BE(File *file)
 {
 	Uint16 value;
 	fileReadExactly(file, &value, sizeof value);
-	return SDL_SwapBE16(value);
+	return SDL_Swap16BE(value);
 }
 
 static inline void fileReadU16BEArray(File *file, uint16_t *values, size_t count)
@@ -88,7 +88,7 @@ static inline void fileReadU16BEArray(File *file, uint16_t *values, size_t count
 	fileReadExactly(file, values, sizeof *values * count);
 #if SDL_BYTEORDER != SDL_BIG_ENDIAN
 	for (size_t i = 0; i < count; ++i)
-		values[i] = SDL_SwapBE16(values[i]);
+		values[i] = SDL_Swap16BE(values[i]);
 #endif
 }
 
@@ -96,7 +96,7 @@ static inline uint32_t fileReadU32(File *file)
 {
 	Uint32 value;
 	fileReadExactly(file, &value, sizeof value);
-	return SDL_SwapLE32(value);
+	return SDL_Swap32LE(value);
 }
 
 static inline void fileReadU32Array(File *file, uint32_t *values, size_t count)
@@ -104,7 +104,7 @@ static inline void fileReadU32Array(File *file, uint32_t *values, size_t count)
 	fileReadExactly(file, values, sizeof *values * count);
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
 	for (size_t i = 0; i < count; ++i)
-		values[i] = SDL_SwapLE32(values[i]);
+		values[i] = SDL_Swap32LE(values[i]);
 #endif
 }
 

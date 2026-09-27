@@ -99,7 +99,7 @@ bool regress_scan_args(int argc, char *argv[])
 Uint32 regress_clock_ticks10bit(void)
 {
 	if (!regress_active())
-		return SDL_GetTicks() << 10;
+		return (Uint32)SDL_GetTicks() << 10;
 
 	return regress_clock;
 }
@@ -138,7 +138,7 @@ void regress_capture_frame(SDL_Surface *surface)
 	if (regress_out == NULL || surface == NULL)
 		return;
 
-	assert(surface->format->BitsPerPixel == 8);
+	assert(SDL_BITSPERPIXEL(surface->format) == 8);
 
 	Uint64 hash = fnv_offset_basis;
 
@@ -222,10 +222,10 @@ void regress_begin_scenario(void)
 void regress_init(void)
 {
 	// Headless by default.  Respect a driver the caller set explicitly.
-	if (SDL_getenv("SDL_VIDEODRIVER") == NULL)
-		SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
-	if (SDL_getenv("SDL_AUDIODRIVER") == NULL)
-		SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
+	if (SDL_getenv("SDL_VIDEO_DRIVER") == NULL)
+		SDL_setenv_unsafe("SDL_VIDEO_DRIVER", "dummy", 1);
+	if (SDL_getenv("SDL_AUDIO_DRIVER") == NULL)
+		SDL_setenv_unsafe("SDL_AUDIO_DRIVER", "dummy", 1);
 
 	// Regress playback needs neither audio nor joystick input, except the
 	// offline audio regression, which drives the mixer directly.
