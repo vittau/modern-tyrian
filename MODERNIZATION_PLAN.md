@@ -38,6 +38,7 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 18. **SDL3: eventos de hot-plug.** `SDL_EVENT_GAMEPAD_ADDED/REMOVED` chegam mesmo com os eventos desabilitados, mas `SDL_EVENT_JOYSTICK_ADDED/REMOVED` não chegam. Um gamepad gera os dois pares, então é preciso deduplicar por instance id.
 19. **O harness pode receber input real.** No macOS, mesmo com o driver `dummy`, o processo de teste é um app Cocoa chamado `opentyrian`. Um `osascript` que traz "o processo opentyrian" para a frente e manda teclas (como nas capturas de tela do widescreen) pode acertar um teste em andamento. Isso aconteceu: o cenário `flip` falhou por volta do quadro 855 só enquanto outro agente capturava telas, e passou 3/3 isolado, tanto na árvore limpa quanto na do gamepad. A correção está pendente (§6).
 20. **Arte além da borda do playfield (medido).** Cada camada de fundo é desenhada como uma janela de 12 tiles (288 px) deslizando sobre um mapa de 336 px (bg1/bg2) ou 360 px (bg3). Somando todo o range do pan, há arte em x ∈ [-45,315) na bg1, [-41,342) na bg2 e [-69,369) na bg3, com o playfield em [24,288). A margem garantida em qualquer pan é assimétrica: ~45 px à esquerda e só 3 px à direita (7 px onde há bg2/bg3 densa). Seis fases não têm fundo nenhum (E1:L1, E2:L5, L7, L8, L9 e E4:L14). Com 24 px por lado, a faixa esquerda tem em média 94 % de arte real e a direita 64 %. Inimigos já simulados aparecem nessas faixas em 11–21 % dos quadros. Porém `JE_drawEnemy` só anima e desenha inimigos em x ∈ (-29,300), o que limita a revelação à direita a ~12 px, e tiros somem visivelmente na borda direita em ~1,5 % dos quadros. Dois cuidados para qualquer implementação: `blit_sprite2*` usam o `VGAScreen->pitch` global em vez do pitch da superfície (`sprite.c:559,636,672,708`), e `draw_background_2/3` avançam o scroll dentro da função de desenho, então não podem ser chamadas duas vezes por quadro. Relatório completo: `.worker-reports/phase1-extview-investigation.md`.
+21. **O desenho do HUD tem efeitos na lógica.** `JE_inGameDisplays` escreve na global `tempW`, que o pan lê, e `draw_boss_bar` atualiza `boss_bar[]` durante o desenho. `blit_sprite2*` usavam o `VGAScreen->pitch` global; foi corrigido para o pitch da superfície de destino. Para vigiar isso, `--regress-state-out` grava um hash por quadro do estado do jogo: RNG, jogadores, inimigos, tiros, barras de chefe, `tempW`, eventos e explosões. Os casos `state-*` rodam o Modern 16:9 contra baselines gerados pelo Classic, então qualquer mudança do Modern que altere o estado do jogo falha ali. Limitação: o hash inclui bytes de padding das structs, o que é determinístico no mesmo binário (e os baselines já são por máquina).
 20. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
@@ -128,7 +129,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 ### Fase 1 — Ganhos visíveis e baratos
 - [x] Correção de PAR (4:3) com integer scaling por eixo: `pixel_aspect` = `original` (1,2) ou `square` (`b1e4313`)
 - [x] Widescreen: `aspect` = 4:3, 16:10, 16:9, 21:9, 32:9 ou auto. O quadro de 320×200 fica centralizado e nunca é ampliado, e as laterais recebem um preenchimento procedural escurecido ("ambilight") tirado das bordas do playfield, sem revelar nada fora dele (`b1e4313`)
-- [ ] HUD que fica dentro do playfield (dinheiro, vidas, superbombas, arma especial, barras de chefe) movido para os painéis laterais no modo Modern, quando houver largura. Em andamento na worktree `hud` (etapa 1 do HUD modernizado, §7)
+- [x] HUD que fica dentro do playfield (dinheiro, vidas e nomes, superbombas, arma especial, barras de chefe, timer da fase, aviso de cheat) movido para os painéis laterais no modo Modern quando cada painel tem ≥ 51 px (16:9 original ou mais largo). Jogador 1 à esquerda, jogador 2 à direita. Merge `1292c30`
 - [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Integrado a `modernization` no merge `85f741a`
 - [x] Harness imune a input real: no modo regress só `SDL_EVENT_QUIT` passa, joysticks ficam inertes, o foco fica fixo e no macOS o processo sobe com `SDL_HINT_MAC_BACKGROUND_APP` (§2.19)
 - [ ] Bloom simples pela máscara de brilho da paleta
@@ -140,7 +141,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] Luzes dinâmicas, com cor derivada da matiz da paleta
 - [ ] VFX (na grade de 320×200): faíscas, destroços, fumaça, shockwave, trilhas, muzzle flash e impactos
 - [ ] Partículas ambiente (poeira, névoa, energia)
-- [ ] HUD expandido (painéis esquerdo e direito; layouts 1P, 2P, arcade e rede)
+- [ ] HUD expandido, etapa 2 do HUD modernizado (§7): nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
 
 ### Fase 3 — Opcional e cara
@@ -285,3 +286,9 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - `SDL_HINT_MAC_BACKGROUND_APP` é ligado antes do `SDL_Init`.
 - Nesta sessão o `osascript` não conseguiu mais entregar teclas ao processo, que nunca virou frontmost. Por isso a prova usou um injetor temporário dentro do processo: uma tecla Up via `SDL_PushEvent` no quadro 855 do cenário flip. Sem o descarte, 3/3 divergem a partir do quadro 858; com o descarte, 3/3 batem com o baseline.
 - Revisão: diff de 4 arquivos, build ok, auditoria GCC limpa, autoteste do gamepad ok, `make regress` 66/66.
+
+### 2026-09-27 — HUD modernizado, etapa 1 entregue
+- O agente da worktree `hud` desenha os elementos que ficavam dentro do playfield em duas superfícies de 8 bits fora da tela, uma por painel, e o `modern_build_frame` compõe essas superfícies sobre o ambilight. A largura mínima de 51 px vem da barra de chefe. Em 16:10 original (32 px) e em 16:9 square (18 px), tudo continua dentro do playfield, para não deixar um HUD pela metade.
+- Prova (§2.21): os fluxos de hash de estado de demo 1, demo 3 e spotlight são byte a byte iguais entre Classic e Modern 16:9 com o HUD movido. Isso virou os 3 casos `state-*`. Só os 3 baselines `modern-wide-*` mudaram, como esperado.
+- Revisão: diff conferido (todas as escritas em `tempW` preservadas; a atualização da barra de chefe continua separada do desenho), capturas 1P real e 2P com barras de chefe (sonda headless). Depois do merge em `modernization`: build ok, auditoria GCC limpa, autoteste do gamepad ok, `make regress` 69/69.
+- Para a etapa 2: em 16:9 os painéis têm só ~53 px, então cabe um layout de uma coluna; em 21:9 cabe mais. Nomes longos de jogador em rede precisam de truncamento. O P2 deveria ficar alinhado à borda externa.
