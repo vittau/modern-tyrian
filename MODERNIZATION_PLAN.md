@@ -126,13 +126,13 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Pipeline de composição moderna na CPU (`src/modern.c`): canvas XRGB na grade lógica, lista de passes de efeito (vazia), textura própria com nearest. Setting `presentation` (cfg + `--presentation`), hash do canvas no harness (`--regress-modern`). Total: 63 casos. Custo ~37 µs/quadro
 
 ### Fase 1 — Ganhos visíveis e baratos
-- [ ] Correção de PAR (4:3) com integer scaling por eixo
-- [ ] Widescreen: playfield 264×184 recortado, HUD original ao lado, laterais com a arte além da borda escurecida
+- [x] Correção de PAR (4:3) com integer scaling por eixo: `pixel_aspect` = `original` (1,2) ou `square` (`b1e4313`)
+- [x] Widescreen: `aspect` = 4:3, 16:10, 16:9, 21:9, 32:9 ou auto. O quadro de 320×200 fica centralizado e nunca é ampliado, e as laterais recebem um preenchimento procedural escurecido ("ambilight") tirado das bordas do playfield, sem revelar nada fora dele (`b1e4313`)
 - [ ] HUD que fica dentro do playfield (dinheiro, vidas, superbombs) movido para fora no modo Modern
 - [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Commit `1a33820` na branch local `gamepad`, ainda não integrado a `modernization`
 - [ ] Harness imune a input real: no modo regress, descartar eventos de teclado/mouse/foco e marcar o processo como app de fundo no macOS (ver §2.19)
 - [ ] Bloom simples pela máscara de brilho da paleta
-- [ ] **Visão estendida (modo Modern, opcional):** mostrar mais da largura real das fases dos dois lados do playfield, sem mudar o gameplay (lógica, limites de spawn/despawn e movimento da nave intactos). Passo 1: medir por fase quanta arte existe além da borda em todo o range do pan e mapear as suposições de 320 px no renderizador de 8 bits. Passo 2: implementar com a largura que as medições permitirem. A prova de que a lógica não mudou é o hash da janela central de 264 px igual aos baselines atuais. Passo 1 feito (§2.20); o passo 2 aguarda a decisão em §7
+- [—] ~~Visão estendida~~: descartada pelo usuário depois das medições (§2.20, §7). As laterais ficam só com o preenchimento procedural do widescreen
 
 ### Fase 2 — O "Modern"
 - [ ] Snapshot e fila de eventos por tick
@@ -150,17 +150,15 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 ## 7. Decisões
 
 ### Em aberto
-- **Visão estendida: só fundo ou fundo com objetos?** As medições (§2.20) mostram que dá para estender ~24 px por lado com arte real, mas com uma limitação:
-  - **(A) Só o fundo (recomendado).** As faixas laterais mostram a arte real das fases, escurecidas para marcar que ficam fora da área de jogo. Inimigos e tiros continuam aparecendo e sumindo na borda original. O jogador não vê nada antes do que via no DOS. Buffer de fundo largo separado, só no modo Modern. Esforço ~2 dias, risco baixo.
-  - **(B) Fundo e objetos.** Inimigos aparecem nas faixas antes de entrar no playfield, o que dá ao jogador informação que o original não dava. À direita isso fica limitado a ~12 px pelo portão de desenho de `JE_drawEnemy`, e há tiros sumindo à vista na borda direita. Exige alargar o framebuffer das fases (território da Fase 3). Esforço ~3–5 dias, risco real de regressão.
-  - **(C) Desistir** e deixar as laterais só com o preenchimento procedural do widescreen.
+_(nenhuma)_
 
 ### Tomadas
 - **2026-09-26 — Fase 0 aprovada; backend = SDL3.** A migração SDL2 → SDL3 (API de GPU/renderer com shaders e API nova de gamepad) foi a recomendação aceita. SDL3 3.4.16 já está instalado via Homebrew.
 - **2026-09-26 — Efeitos na resolução original.** Partículas, luzes, bloom, trilhas e demais VFX são calculados na grade lógica de 320×200 (um valor por pixel do jogo) e ampliados com o mesmo scaling dos sprites. Nenhum efeito é desenhado em resolução de tela. Com isso somem o risco de "mistura de resoluções" (§5) e a decisão estética que estava prevista para a Fase 2.
 - **2026-09-26 — Arte nova só procedural.** O projeto não terá artista. Arte nova é permitida desde que seja gerada por código: ruído, gradientes, derivação/recoloração/composição dos sprites e tiles originais, partículas, shaders. Nada desenhado à mão e nada de sprites redesenhados em alta resolução. Isso resolve a contradição de §5: camadas extras de parallax (névoa, poeira, starfields, versões desfocadas ou escurecidas dos tiles existentes) viram viáveis se forem procedurais, sempre na grade de 320×200.
 - **2026-09-27 — Composição moderna na CPU, sem backend GPU próprio** (decisão técnica do coordenador; pode ser revista). Como todos os efeitos ficam na grade de 320×200, o custo de luz, bloom, partículas e widescreen na CPU é trivial: 64 mil pixels por quadro, bem menos de 1 ms. Fazer na CPU mantém tudo portátil, sem shaders para Metal/Vulkan/D3D, e determinístico, então a saída do modo Modern pode ser coberta por baselines de hash como o resto. O `SDL_Renderer` do SDL3 continua só para subir a textura e escalar com nearest. O modo Classic mantém o caminho atual intacto. Se no futuro algum efeito exigir resolução de tela, reavaliamos.
-- **2026-09-27 — Visão estendida é desejada, dentro das regras de gameplay.** O usuário prefere usar a área extra da tela mostrando mais do campo do que só decoração, desde que viável. Limites conhecidos: os mapas têm só 336–360 px de largura contra 264 visíveis, e o pan horizontal existe só como parallax das 3 camadas; os tiros inimigos somem em x ≤ 0 / > 275 e os do jogador em x < -34 / > 290; os inimigos existem de -80 a 340. Por isso a ampliação fica restrita à arte real disponível, estimada em ~20–24 px por lado, e o restante segue com as laterais procedurais. Mudar limites de despawn para ampliar mais está fora de escopo, porque alteraria o balanceamento.
+- **2026-09-27 — Visão estendida descartada.** As medições (§2.20) mostraram só ~24 px de arte real por lado, com a direita 36 % vazia em média, e mostrar os objetos nessas faixas daria ao jogador informação que o original não dava. Das três opções (só fundo, fundo com objetos, desistir), o usuário escolheu desistir. As laterais do widescreen ficam só com o preenchimento procedural.
+- **2026-09-27 — (substituída pela anterior) Visão estendida é desejada, dentro das regras de gameplay.** O usuário prefere usar a área extra da tela mostrando mais do campo do que só decoração, desde que viável. Limites conhecidos: os mapas têm só 336–360 px de largura contra 264 visíveis, e o pan horizontal existe só como parallax das 3 camadas; os tiros inimigos somem em x ≤ 0 / > 275 e os do jogador em x < -34 / > 290; os inimigos existem de -80 a 340. Por isso a ampliação fica restrita à arte real disponível, estimada em ~20–24 px por lado, e o restante segue com as laterais procedurais. Mudar limites de despawn para ampliar mais está fora de escopo, porque alteraria o balanceamento.
 - **2026-09-26 — Ordem da Fase 0:** o teste de regressão por demos vem antes da migração para SDL3, porque é a rede de segurança dela.
 
 ## 8. Processo
@@ -262,3 +260,9 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 ### 2026-09-27 — Visão estendida medida
 - Um agente numa worktree separada instrumentou o renderizador de 8 bits (depois reverteu tudo), varreu o pan inteiro e rodou as 62 fases dos 4 episódios mais as 5 demos. Números em §2.20.
 - Resultado: dá para mostrar ~24 px de arte real por lado, com a direita mais pobre (64 % coberta em média). Mostrar também os inimigos nessas faixas esbarra no portão de desenho de `JE_drawEnemy` e exigiria alargar o framebuffer das fases. A escolha entre só fundo e fundo com objetos foi para o usuário (§7, em aberto). A implementação vem depois do widescreen, qualquer que seja a opção.
+
+### 2026-09-27 — Widescreen e PAR entregues (Fase 1a); visão estendida descartada
+- O agente de widescreen entregou os ajustes `aspect` e `pixel_aspect` do modo Modern. O canvas tem largura `round(200 × PAR × aspect)`, com o quadro original centralizado e laterais "ambilight" procedurais, determinísticas e escurecidas. Durante o jogo elas usam a coluna 263 do playfield, pulando o HUD. O mapeamento do mouse leva em conta o deslocamento do quadro, e o custo é de ~65–72 µs por quadro em 16:9.
+- Na revisão: diff lido, capturas de tela conferidas (4:3 e 16:9, original e square), `make regress` com 66/66 (os 63 antigos com baselines intactos, mais 3 `modern-wide-*` em 16:9) e auditoria GCC 16 limpa. Commit `b1e4313`.
+- Pendências menores anotadas pelo agente: no modo Integer, com PAR 1,2, uma janela pequena (640×400) fica com escala quase quadrada; e a janela ainda segue o tamanho do scaler Classic. Um tamanho de janela padrão próprio do Modern resolveria as duas coisas. Fica para depois.
+- O usuário escolheu desistir da visão estendida (§7). Próximos passos: integrar a branch `gamepad` e deixar o harness imune a input real.
