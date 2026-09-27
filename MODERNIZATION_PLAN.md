@@ -143,8 +143,8 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] VFX (na grade de 320×200): faíscas, destroços, fumaça, shockwave, trilhas, muzzle flash e impactos
 - [ ] Partículas ambiente (poeira, névoa, energia)
 - [x] HUD expandido, etapa 2 do HUD modernizado (§7), commit `5a5952b`. Pendente, pedido do usuário: no modo Modern, só o HUD novo, sem a barra lateral original
-- [ ] Só o HUD novo no Modern: a barra lateral e a faixa de baixo originais saem do canvas nos quadros de jogo, e o HUD novo assume toda a informação delas e usa o espaço liberado
-- [ ] Splash screens e menus em widescreen: laterais preenchidas com uma cópia ampliada, desfocada e escurecida da própria tela
+- [x] Só o HUD novo no Modern (commit desta entrada): a barra lateral e a faixa de baixo originais saem do canvas nos quadros de jogo, e o HUD novo assume toda a informação delas e usa o espaço liberado
+- [x] Fallback de widescreen para telas fora do jogo: laterais com a própria tela desfocada e escurecida (média 40×25 + esticamento bilinear, ~0,08 ms em 16:9)
 - [ ] Telas fora do jogo em widescreen com conteúdo real (inventário em `.worker-reports/screens-inventory.md`, ferramenta `tools/dump_screens.py`):
   - Vert- (fundo ampliado ~1,33× e cortado em cima e embaixo, elementos do menu nítidos por cima em 1×) no **título** (pic 4) e nos **menus** sobre a pic 2 (seleção de jogo, episódio e dificuldade, setup, ajuda, load/save, recordes). A pic 2 perde a linha "AN EPIC MEGAGAMES PRODUCTION ©1994" embutida no rodapé; tentar recompor essa faixa em 1×
   - Extensão real, montada por código: **mapa de navegação** (o espaço de coordenadas dos planetas já passa de 320), **ship specs** (grid procedural), **jukebox** e **simulador de armas** (starfields), **créditos**
@@ -312,3 +312,9 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - O Mac reiniciou no meio das correções da etapa 2 e derrubou o Orca, o agente e o scratchpad. Um agente novo terminou as correções: vidas e dinheiro em linhas separadas, nomes com espaços sobrando aparados antes do corte, a reserva do ícone especial só no 2P, e o caso `state-scenario-spotlight-2p-d3`, o primeiro que roda o bloco de vidas, e portanto as escritas em `tempW`.
 - Falhas intermitentes na revisão ("no output written" em demo1-d6, divergência em iced) vinham de uma sessão fantasma (§2.22) disputando o `test/regress/actual/`. Com ela interrompida: 70/70 duas vezes, auditoria GCC limpa. A sessão fantasma também revelou que a falha antiga do quadro 855 era o `data/` errado (§2.19).
 - O usuário aprovou o visual. Commit `5a5952b`. Próximo: só o HUD novo no Modern, e splash screens e menus com laterais desfocadas (§7).
+
+### 2026-09-27 — Só o HUD novo na partida; desfoque nos menus
+- Nos quadros de jogo com painéis, o compositor copia só o playfield de 264×184. A barra lateral e a faixa de baixo originais continuam sendo desenhadas no quadro de 8 bits, o que garante lógica intacta, mas não entram no canvas. Os painéis ficam com 81/82 px em 16:9, e 16:10 passa a ter painéis (60 px). Os 16 pixels sob o playfield viram uma faixa com o nome da fase e a mensagem do jogo, que chega por um gancho só de leitura em `JE_drawTextWindow` e no apagamento da mensagem. O HUD ganhou a barra de energia das armas (`PWR`), o único dado vital que só a barra original mostrava.
+- As telas fora do jogo trocaram o ambilight pelo desfoque da própria tela.
+- Revisão: inventário barra→HUD completo, capturas conferidas (1P e 2P em 16:9, 16:10, 21:9, arcade, telas reais de título e menus), ganchos conferidos (o `--textErase` continua avaliado igual), auditoria GCC limpa, `make regress` 71/71 duas vezes. Os `state-*` e os baselines Classic e 4:3 não mudaram.
+- Próximo: telas fora do jogo com conteúdo real (§6): Vert- no título e nos menus da pic 2, o painel direito da moldura da loja alargado e a extensão real do mapa, do ship specs, dos starfields e dos créditos.
