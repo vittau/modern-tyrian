@@ -179,18 +179,8 @@ void modern_mark_gameplay_frame(void);
 // first panel-width columns are composited).
 #define MODERN_HUD_PANEL_PAD 80
 
-// Vertical layout slots inside a side panel, in logical pixels from the top of
-// the 200-row canvas.  Left panel: player 1; right panel: player 2.
-#define MODERN_HUD_SPECIAL_Y     2   // 24x28 special-weapon icon (left panel)
-#define MODERN_HUD_LIVES_NAME_Y  34  // player name
-#define MODERN_HUD_LIVES_ICON_Y  42  // life icons
-#define MODERN_HUD_CASH_Y        60  // cash
-#define MODERN_HUD_BOMBS_Y       74  // superbomb icons
-#define MODERN_HUD_BOSS_Y        94  // boss health bar (bar b lives in panel b)
-#define MODERN_HUD_TIMER_LABEL_Y 112 // level-timer label (left panel)
-#define MODERN_HUD_TIMER_VALUE_Y 120 // level-timer value (left panel)
-#define MODERN_HUD_CHEAT_Y       168 // "Cheaters always prosper." (left panel)
-#define MODERN_HUD_MARGIN        1   // left inset for panel content
+// The layout of the relocated HUD and every element drawn into these surfaces
+// lives in src/modern_hud.c/.h.
 
 // True when the current Modern canvas has side panels wide enough for the
 // relocated HUD.  False for Classic, Modern 4:3 and any narrow-panel geometry.

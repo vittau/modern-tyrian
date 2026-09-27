@@ -35,6 +35,7 @@
 #include "menus.h"
 #include "mainint.h"
 #include "modern.h"
+#include "modern_hud.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "musmast.h"
@@ -2093,18 +2094,7 @@ draw_player_shot_loop_end:
 		sprintf(buffer, "%.1f", levelTimerCountdown / 100.0f);
 		if (modern_hud_in_panels())
 		{
-			SDL_Surface *const panel = modern_hud_surface(0);
-			const int panel_w = modern_side_panel_width();
-
-			int x = (panel_w - JE_textWidth(miscText[66], TINY_FONT)) / 2;
-			if (x < MODERN_HUD_MARGIN)
-				x = MODERN_HUD_MARGIN;
-			JE_textShade(panel, x, MODERN_HUD_TIMER_LABEL_Y, miscText[66], 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
-
-			x = (panel_w - JE_textWidth(buffer, SMALL_FONT_SHAPES)) / 2;
-			if (x < MODERN_HUD_MARGIN)
-				x = MODERN_HUD_MARGIN;
-			JE_dString(panel, x, MODERN_HUD_TIMER_VALUE_Y, buffer, SMALL_FONT_SHAPES);
+			modern_hud_draw_timer(miscText[66], buffer, (levelTimerCountdown % 20) / 3);
 		}
 		else
 		{
@@ -5230,21 +5220,21 @@ void draw_boss_bar(void)
 	}
 
 	// Only the drawing target changes: in Modern panel mode bar b is drawn in
-	// the side panel of the same index, otherwise it stays in the playfield.
+	// the side panel of the same index (both stacked in the status panel in
+	// single player), otherwise it stays in the playfield.
 	const bool in_panels = modern_hud_in_panels();
-	const int panel_w = in_panels ? modern_side_panel_width() : 0;
 
 	for (unsigned int b = 0; b < bars; b++)
 	{
-		unsigned int x, y1, y2;
+		int x, y1, y2, half_width = 25;
 		SDL_Surface *surface;
 
 		if (in_panels)
 		{
-			surface = modern_hud_surface((int)b);
-			x = (unsigned int)(panel_w / 2);
-			y1 = MODERN_HUD_BOSS_Y;
-			y2 = MODERN_HUD_BOSS_Y + 5;
+			if (!modern_hud_boss_target((int)b, twoPlayerMode && !galagaMode, &surface, &x, &y1, &half_width))
+				break;
+
+			y2 = y1 + 5;
 		}
 		else
 		{
@@ -5256,7 +5246,7 @@ void draw_boss_bar(void)
 			y2 = 12;
 		}
 
-		JE_barX(surface, x - 25, y1, x + 25, y2, 115);
+		JE_barX(surface, x - half_width, y1, x + half_width, y2, 115);
 		JE_barX(surface, x - (boss_bar[b].armor / 10), y1, x + (boss_bar[b].armor + 5) / 10, y2, 118 + boss_bar[b].color);
 
 		if (boss_bar[b].color > 0)

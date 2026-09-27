@@ -48,6 +48,8 @@ extern int regress_audio;             // non-zero = offline audio regression
 extern int regress_modern;            // non-zero = force the Modern presentation
 extern int regress_aspect;            // ModernAspect to force in regress mode; -1 = default (4:3)
 extern const char *regress_state_out_path;  // where per-frame state hashes are written
+extern int regress_players;           // players to start a scenario with (1 or 2)
+extern int regress_arcade;            // non-zero = start a scenario in 1-player arcade mode
 
 // True when regress mode was requested.
 bool regress_active(void);
@@ -97,6 +99,15 @@ void regress_clock_advance_to(Uint32 target);
 // When --regress-state-out is also set, a state-hash line for the same frame is
 // appended to that stream too (see below).
 void regress_capture_frame(SDL_Surface *surface);
+
+// Registers a snapshot request: on presented frame `frame` save the presented
+// image to `path` as a BMP (the Modern canvas when the run is Modern, the 8-bit
+// frame otherwise).  `path` must stay valid for the whole run (argv storage is
+// fine).  Returns false when the (small) request table is full.
+bool regress_add_snapshot(unsigned long frame, const char *path);
+
+// True when at least one --regress-snapshot was requested.
+bool regress_has_snapshots(void);
 
 // Append one "<frame_index> <hash>" line for the current Modern canvas
 // (XRGB8888), hashing the visible w*4 bytes of each row and walking the pitch.

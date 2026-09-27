@@ -228,9 +228,11 @@ pairs=$((pairs + 1))
 #
 # The state-hash stream covers the RNG, the players, the enemy/shot arrays,
 # boss_bar[], tempW and the level event position, and is independent of the
-# presentation.  These three cases run it through the Modern 16:9 path (where
-# the relocated HUD is active) and compare against baselines that were produced
-# by a Classic run, so any Modern change that perturbs game state fails here.
+# presentation.  These cases run it through the Modern 16:9 path (where the
+# relocated HUD is active) and compare against baselines that were produced by a
+# Classic run, so any Modern change that perturbs game state fails here.  The
+# state-scenario-spotlight-2p case additionally exercises the lives block of
+# JE_inGameDisplays (and therefore its tempW writes) via --regress-players=2.
 # See src/regress.c (regress_state_hash).
 
 run_state_case() {
@@ -283,6 +285,9 @@ run_state_case "state-demo3-d2" --regress-demo=3 --regress-detail=2 --regress-mo
 pairs=$((pairs + 1))
 run_state_case "state-scenario-spotlight-d3" \
 	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_state_case "state-scenario-spotlight-2p-d3" \
+	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-players=2 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
 
 # --- offline audio -----------------------------------------------------------

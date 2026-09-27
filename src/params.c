@@ -81,6 +81,9 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 268, 0,   "regress-aspect",    true },
 		{ 269, 0,   "selftest-gamepad",  false },
 		{ 270, 0,   "regress-state-out", true },
+		{ 271, 0,   "regress-snapshot",  true },
+		{ 272, 0,   "regress-players",   true },
+		{ 273, 0,   "regress-arcade",    false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -126,6 +129,10 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
 			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
 			logInfo("  --regress-state-out=FILE     Write per-frame game-state hashes to FILE");
+			logInfo("  --regress-snapshot=F:FILE    Save the presented image of frame F to FILE (BMP)");
+			logInfo("                               (repeatable; the Modern canvas with --regress-modern)");
+			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
+			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -344,6 +351,36 @@ void JE_paramCheck(int argc, char *argv[])
 			break;
 		case 270: // --regress-state-out
 			regress_state_out_path = option.arg;
+			break;
+		case 271: // --regress-snapshot=FRAME:FILE
+		{
+			char *end = NULL;
+			const unsigned long frame = strtoul(option.arg, &end, 10);
+			if (end == option.arg || *end != ':' || end[1] == '\0')
+			{
+				logError("%s: --regress-snapshot must be FRAME:FILE", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			if (!regress_add_snapshot(frame, end + 1))
+			{
+				logError("%s: too many --regress-snapshot options (max 16)", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		}
+		case 272: // --regress-players
+		{
+			const int temp = atoi(option.arg);
+			if (temp != 1 && temp != 2)
+			{
+				logError("%s: --regress-players must be 1 or 2", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_players = temp;
+			break;
+		}
+		case 273: // --regress-arcade
+			regress_arcade = 1;
 			break;
 			
 		default:

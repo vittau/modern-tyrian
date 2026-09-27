@@ -55,6 +55,21 @@ int regress_audio = 0;
 int regress_modern = 0;
 int regress_aspect = -1;
 const char *regress_state_out_path = NULL;
+int regress_players = 1;
+int regress_arcade = 0;
+
+// Snapshot requests (--regress-snapshot=FRAME:FILE), repeatable.  Fixed size:
+// a run needs only a handful and parsing must not allocate per frame.
+#define REGRESS_MAX_SNAPSHOTS 16
+
+typedef struct
+{
+	unsigned long frame;
+	const char *path;
+} RegressSnapshot;
+
+static RegressSnapshot regress_snapshots[REGRESS_MAX_SNAPSHOTS];
+static int regress_snapshot_count = 0;
 
 // 64-bit FNV-1a.
 static const Uint64 fnv_offset_basis = UINT64_C(14695981039346656037);
@@ -246,9 +261,91 @@ static void regress_emit_records(bool write_frame, Uint64 frame_hash)
 	}
 }
 
+bool regress_add_snapshot(unsigned long frame, const char *path)
+{
+	if (regress_snapshot_count >= REGRESS_MAX_SNAPSHOTS)
+		return false;
+
+	regress_snapshots[regress_snapshot_count].frame = frame;
+	regress_snapshots[regress_snapshot_count].path = path;
+	++regress_snapshot_count;
+	return true;
+}
+
+bool regress_has_snapshots(void)
+{
+	return regress_snapshot_count > 0;
+}
+
+// Saves `surface` (8-bit) to every snapshot requested for the current frame,
+// attaching the active palette so the BMP is viewable.
+static void regress_save_snapshots_8bit(const SDL_Surface *surface)
+{
+	for (int i = 0; i < regress_snapshot_count; ++i)
+	{
+		if (regress_snapshots[i].frame != regress_frame)
+			continue;
+
+		SDL_Surface *tmp = SDL_CreateSurface(surface->w, surface->h, SDL_PIXELFORMAT_INDEX8);
+		if (tmp == NULL)
+		{
+			logError("Failed to create snapshot surface: %s", SDL_GetError());
+			continue;
+		}
+
+		const int row = MIN(surface->w, tmp->w);
+		for (int y = 0; y < surface->h && y < tmp->h; ++y)
+			memcpy((Uint8 *)tmp->pixels + (size_t)y * tmp->pitch,
+			       (const Uint8 *)surface->pixels + (size_t)y * surface->pitch, (size_t)row);
+
+		SDL_Palette *palette = SDL_CreatePalette(256);
+		if (palette != NULL)
+		{
+			SDL_SetPaletteColors(palette, get_active_palette(), 0, 256);
+			SDL_SetSurfacePalette(tmp, palette);
+		}
+
+		if (!SDL_SaveBMP(tmp, regress_snapshots[i].path))
+			logError("Failed to save snapshot '%s': %s", regress_snapshots[i].path, SDL_GetError());
+		else
+			logInfo("Regression: saved snapshot frame %lu to '%s'.", regress_frame, regress_snapshots[i].path);
+
+		if (palette != NULL)
+			SDL_DestroyPalette(palette);
+		SDL_DestroySurface(tmp);
+	}
+}
+
+// Saves the current Modern canvas (XRGB8888) to every requested snapshot.
+static void regress_save_snapshots_modern(const ModernFrame *frame)
+{
+	for (int i = 0; i < regress_snapshot_count; ++i)
+	{
+		if (regress_snapshots[i].frame != regress_frame)
+			continue;
+
+		SDL_Surface *tmp = SDL_CreateSurfaceFrom(frame->w, frame->h, SDL_PIXELFORMAT_XRGB8888,
+		                                         frame->pixels, frame->pitch);
+		if (tmp == NULL)
+		{
+			logError("Failed to wrap the modern canvas for a snapshot: %s", SDL_GetError());
+			continue;
+		}
+
+		if (!SDL_SaveBMP(tmp, regress_snapshots[i].path))
+			logError("Failed to save snapshot '%s': %s", regress_snapshots[i].path, SDL_GetError());
+		else
+			logInfo("Regression: saved snapshot frame %lu to '%s'.", regress_frame, regress_snapshots[i].path);
+
+		SDL_DestroySurface(tmp);
+	}
+}
+
 void regress_capture_frame(SDL_Surface *surface)
 {
-	if ((regress_out == NULL && regress_state_out == NULL) || surface == NULL)
+	if (surface == NULL)
+		return;
+	if (regress_out == NULL && regress_state_out == NULL && !regress_has_snapshots())
 		return;
 
 	const bool write_frame = regress_out != NULL;
@@ -276,12 +373,15 @@ void regress_capture_frame(SDL_Surface *surface)
 		}
 	}
 
+	if (regress_has_snapshots())
+		regress_save_snapshots_8bit(surface);
+
 	regress_emit_records(write_frame, hash);
 }
 
 void regress_capture_modern_frame(void)
 {
-	if (regress_out == NULL && regress_state_out == NULL)
+	if (regress_out == NULL && regress_state_out == NULL && !regress_has_snapshots())
 		return;
 
 	const ModernFrame *frame = modern_current_frame();
@@ -304,6 +404,9 @@ void regress_capture_modern_frame(void)
 			pixels += frame->pitch;
 		}
 	}
+
+	if (regress_has_snapshots())
+		regress_save_snapshots_modern(frame);
 
 	regress_emit_records(write_frame, hash);
 }
@@ -352,6 +455,46 @@ void regress_begin_scenario(void)
 	player[0].items.sidekick_series = 0;
 	player[0].items.sidekick_level = 0;
 	player[0].items.super_arcade_mode = 0;
+
+	// --regress-arcade turns the scenario into a 1-player arcade run (the same
+	// `onePlayerAction` flag the 1-player arcade menu sets), so the arcade HUD
+	// -- in particular the extra-lives row -- can be captured headless.
+	if (regress_arcade)
+	{
+		onePlayerAction = true;
+		player[0].items.weapon[FRONT_WEAPON].power = 6;  // extra lives (arcade)
+		player[0].cash = 12345;
+	}
+
+	// --regress-players=2 turns the scenario into a deterministic two-player
+	// run so the compact 2-player HUD can be captured headless.  Player 2 gets
+	// a distinct loadout and some cash so the capture shows real data; player 1
+	// gets extra lives (stored in the front weapon power field, as the engine
+	// does) so the life icons are visible.
+	if (regress_players == 2)
+	{
+		twoPlayerMode = true;
+
+		player[0].items.weapon[FRONT_WEAPON].power = 6;
+		player[0].items.weapon[REAR_WEAPON].id = 15;   // Vulcan Cannon
+		player[0].items.weapon[REAR_WEAPON].power = 2;
+		player[0].items.sidekick[LEFT_SIDEKICK] = 1;
+		player[0].items.sidekick[RIGHT_SIDEKICK] = 2;
+		player[0].weapon_mode = 1;
+		player[0].cash = 2820;
+
+		player[1].items = player[0].items;
+		player[1].items.weapon[FRONT_WEAPON].id = 1;   // Pulse Cannon
+		player[1].items.weapon[FRONT_WEAPON].power = 3;
+		player[1].items.weapon[REAR_WEAPON].id = 15;   // Vulcan Cannon
+		player[1].items.weapon[REAR_WEAPON].power = 2;
+		player[1].items.sidekick[LEFT_SIDEKICK] = 2;
+		player[1].items.sidekick[RIGHT_SIDEKICK] = 0;
+		player[1].weapon_mode = 2;
+		player[1].cash = 6789;
+		player[1].last_items = player[1].items;
+	}
+
 	player[0].last_items = player[0].items;
 }
 
@@ -412,9 +555,9 @@ void regress_init(void)
 	regress_clock = 0;
 	regress_frame = 0;
 
-	if (regress_out_path == NULL && regress_state_out_path == NULL)
+	if (regress_out_path == NULL && regress_state_out_path == NULL && !regress_has_snapshots())
 	{
-		logFatal("--regress-demo/--regress-level/--regress-audio require --regress-out=FILE or --regress-state-out=FILE.");
+		logFatal("--regress-demo/--regress-level/--regress-audio require --regress-out=FILE, --regress-state-out=FILE or --regress-snapshot=FRAME:FILE.");
 		exit(EXIT_FAILURE);
 	}
 

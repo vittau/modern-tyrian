@@ -106,12 +106,23 @@ output: `original` draws each pixel 1.2x taller than wide, `square` draws them
 
 During gameplay, when both side panels are at least 51 logical pixels wide
 (exactly the width of a boss bar), the in-game HUD that used to sit inside the
-playfield is drawn in the panels instead: player 1's cash, lives, superbombs and
-special-weapon icon on the left, player 2's on the right, with the boss bars,
-the level timer and the "Cheaters always prosper." notice placed alongside.  At
+playfield is drawn in the panels instead.  Single player uses both panels: the
+left one shows the ship status (name, extra lives, cash, superbombs, shield and
+armor values with bars, generator, plus the boss bars, level timer and the
+"Cheaters always prosper." notice) and the right one the armament (front and
+rear weapon name, power pips and rear firing mode; left and right sidekick name,
+icon and ammo/charge gauge).  Two players get one compact panel each, player 2
+right-aligned toward the outer edge.  Everything is drawn on the original
+320x200 logical grid with the game's own fonts and sprites and procedural
+frames; the panels widen at 21:9 and 32:9 without changing the layout tiers.  At
 16:9 with the original pixel aspect the panels are 53/54 px and qualify; 16:10
 and 16:9 with square pixels are too narrow, so the HUD stays in the playfield
 exactly as before.  Classic is always unchanged.
+
+The regression harness can save a presented frame to a BMP for headless visual
+review: `--regress-snapshot=FRAME:FILE` (repeatable; the Modern canvas with
+`--regress-modern`, the 8-bit frame otherwise), e.g. with `--regress-demo` or
+`--regress-level`.
 
 ## Gamepads and Joysticks
 
