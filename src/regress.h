@@ -47,6 +47,7 @@ extern int regress_detail;            // processorType to use (1..6)
 extern int regress_audio;             // non-zero = offline audio regression
 extern int regress_modern;            // non-zero = force the Modern presentation
 extern int regress_aspect;            // ModernAspect to force in regress mode; -1 = default (4:3)
+extern const char *regress_state_out_path;  // where per-frame state hashes are written
 
 // True when regress mode was requested.
 bool regress_active(void);
@@ -93,11 +94,20 @@ Uint32 regress_clock_ticks10bit(void);
 void regress_clock_advance_to(Uint32 target);
 
 // Append one "<frame_index> <hash>" line for a presented 320x200 8-bit surface.
+// When --regress-state-out is also set, a state-hash line for the same frame is
+// appended to that stream too (see below).
 void regress_capture_frame(SDL_Surface *surface);
 
 // Append one "<frame_index> <hash>" line for the current Modern canvas
 // (XRGB8888), hashing the visible w*4 bytes of each row and walking the pitch.
-// The palette is already baked into those bytes.
+// The palette is already baked into those bytes.  Also emits the frame's state
+// hash when --regress-state-out is set.
 void regress_capture_modern_frame(void);
+
+// State-hash stream (--regress-state-out=FILE): one "<frame_index> <hash>" line
+// per presented frame, covering the RNG state, both players' gameplay fields,
+// the enemy/shot arrays, boss_bar[], tempW and the level event position.  The
+// stream is presentation-independent, so a Classic run and a Modern run of the
+// same case must produce byte-identical files.
 
 #endif /* REGRESS_H */

@@ -104,3 +104,44 @@ float mt_rand_lt1(void)
 	/* MT_RAND_MAX must be a float before adding one to it! */
 	return ((float)mt_rand() / ((float)MT_RAND_MAX + 1.0f));
 }
+
+unsigned long long mt_rand_state_hash(void)
+{
+	/* FNV-1a over the 624 state words and the three cursor offsets.  The state
+	   words are 32-bit by construction, so only their low 4 bytes are hashed,
+	   keeping the result independent of the host's `unsigned long` width. */
+	unsigned long long h = 14695981039346656037ULL;
+	const unsigned long long prime = 1099511628211ULL;
+
+	if (!p0)
+		return h;
+
+	const unsigned long offsets[3] =
+	{
+		(unsigned long)(p0 - x),
+		(unsigned long)(p1 - x),
+		(unsigned long)(pm - x),
+	};
+
+	for (int i = 0; i < N; ++i)
+	{
+		unsigned long long v = (unsigned long long)(x[i] & 0xffffffffUL);
+		for (int b = 0; b < 4; ++b)
+		{
+			h ^= (v >> (8 * b)) & 0xffULL;
+			h *= prime;
+		}
+	}
+
+	for (int i = 0; i < 3; ++i)
+	{
+		unsigned long long v = (unsigned long long)(offsets[i] & 0xffffffffUL);
+		for (int b = 0; b < 4; ++b)
+		{
+			h ^= (v >> (8 * b)) & 0xffULL;
+			h *= prime;
+		}
+	}
+
+	return h;
+}

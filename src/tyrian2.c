@@ -2065,6 +2065,11 @@ draw_player_shot_loop_end:
 		frameCountMax = (frameCountMax == 2) ? 3 : 2;
 	}
 
+	// Clear the Modern side-panel HUD surfaces before any HUD element is drawn
+	// this frame (the level timer is the first such element).  A no-op unless
+	// the relocated HUD is active.  Display-only.
+	modern_hud_begin_frame();
+
 	/*--------  Level Timer    ---------*/
 	if (levelTimer && levelTimerCountdown > 0)
 	{
@@ -2085,9 +2090,27 @@ draw_player_shot_loop_end:
 			soundQueue[7] = S_WARNING;
 		}
 
-		JE_textShade (VGAScreen, 140, 6, miscText[66], 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
 		sprintf(buffer, "%.1f", levelTimerCountdown / 100.0f);
-		JE_dString (VGAScreen, 100, 2, buffer, SMALL_FONT_SHAPES);
+		if (modern_hud_in_panels())
+		{
+			SDL_Surface *const panel = modern_hud_surface(0);
+			const int panel_w = modern_side_panel_width();
+
+			int x = (panel_w - JE_textWidth(miscText[66], TINY_FONT)) / 2;
+			if (x < MODERN_HUD_MARGIN)
+				x = MODERN_HUD_MARGIN;
+			JE_textShade(panel, x, MODERN_HUD_TIMER_LABEL_Y, miscText[66], 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
+
+			x = (panel_w - JE_textWidth(buffer, SMALL_FONT_SHAPES)) / 2;
+			if (x < MODERN_HUD_MARGIN)
+				x = MODERN_HUD_MARGIN;
+			JE_dString(panel, x, MODERN_HUD_TIMER_VALUE_Y, buffer, SMALL_FONT_SHAPES);
+		}
+		else
+		{
+			JE_textShade (VGAScreen, 140, 6, miscText[66], 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
+			JE_dString (VGAScreen, 100, 2, buffer, SMALL_FONT_SHAPES);
+		}
 	}
 
 	/*GAME OVER*/
@@ -5166,15 +5189,16 @@ void JE_whoa(void)
 	levelWarningLines = 4;
 }
 
-static void JE_barX(JE_word x1, JE_word y1, JE_word x2, JE_word y2, JE_byte col)
+static void JE_barX(SDL_Surface *surface, JE_word x1, JE_word y1, JE_word x2, JE_word y2, JE_byte col)
 {
-	fill_rectangle_xy(VGAScreen, x1, y1,     x2, y1,     col + 1);
-	fill_rectangle_xy(VGAScreen, x1, y1 + 1, x2, y2 - 1, col    );
-	fill_rectangle_xy(VGAScreen, x1, y2,     x2, y2,     col - 1);
+	fill_rectangle_xy(surface, x1, y1,     x2, y1,     col + 1);
+	fill_rectangle_xy(surface, x1, y1 + 1, x2, y2 - 1, col    );
+	fill_rectangle_xy(surface, x1, y2,     x2, y2,     col - 1);
 }
 
 void draw_boss_bar(void)
 {
+	// The update part always runs, unchanged and exactly once per frame.
 	for (unsigned int b = 0; b < COUNTOF(boss_bar); b++)
 	{
 		if (boss_bar[b].link_num == 0)
@@ -5205,14 +5229,35 @@ void draw_boss_bar(void)
 		boss_bar[1].link_num = 0;
 	}
 
+	// Only the drawing target changes: in Modern panel mode bar b is drawn in
+	// the side panel of the same index, otherwise it stays in the playfield.
+	const bool in_panels = modern_hud_in_panels();
+	const int panel_w = in_panels ? modern_side_panel_width() : 0;
+
 	for (unsigned int b = 0; b < bars; b++)
 	{
-		unsigned int x = (bars == 2)
-		               ? ((b == 0) ? 125 : 185)
-		               : ((levelTimer) ? 250 : 155);  // level timer and boss bar would overlap
+		unsigned int x, y1, y2;
+		SDL_Surface *surface;
 
-		JE_barX(x - 25, 7, x + 25, 12, 115);
-		JE_barX(x - (boss_bar[b].armor / 10), 7, x + (boss_bar[b].armor + 5) / 10, 12, 118 + boss_bar[b].color);
+		if (in_panels)
+		{
+			surface = modern_hud_surface((int)b);
+			x = (unsigned int)(panel_w / 2);
+			y1 = MODERN_HUD_BOSS_Y;
+			y2 = MODERN_HUD_BOSS_Y + 5;
+		}
+		else
+		{
+			surface = VGAScreen;
+			x = (bars == 2)
+			  ? ((b == 0) ? 125 : 185)
+			  : ((levelTimer) ? 250 : 155);  // level timer and boss bar would overlap
+			y1 = 7;
+			y2 = 12;
+		}
+
+		JE_barX(surface, x - 25, y1, x + 25, y2, 115);
+		JE_barX(surface, x - (boss_bar[b].armor / 10), y1, x + (boss_bar[b].armor + 5) / 10, y2, 118 + boss_bar[b].color);
 
 		if (boss_bar[b].color > 0)
 			boss_bar[b].color--;

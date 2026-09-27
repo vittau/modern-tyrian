@@ -104,6 +104,15 @@ output: `original` draws each pixel 1.2x taller than wide, `square` draws them
 1:1.  Both settings are stored in the `video` section as `aspect` and
 `pixel_aspect`.
 
+During gameplay, when both side panels are at least 51 logical pixels wide
+(exactly the width of a boss bar), the in-game HUD that used to sit inside the
+playfield is drawn in the panels instead: player 1's cash, lives, superbombs and
+special-weapon icon on the left, player 2's on the right, with the boss bars,
+the level timer and the "Cheaters always prosper." notice placed alongside.  At
+16:9 with the original pixel aspect the panels are 53/54 px and qualify; 16:10
+and 16:9 with square pixels are too narrow, so the HUD stays in the playfield
+exactly as before.  Classic is always unchanged.
+
 ## Gamepads and Joysticks
 
 OpenTyrian uses the SDL3 Gamepad API for devices SDL recognises as gamepads

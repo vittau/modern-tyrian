@@ -157,6 +157,58 @@ void modern_update_canvas_size(void);
 // by modern_build_frame(); it does not affect gameplay.
 void modern_mark_gameplay_frame(void);
 
+// --- Relocated in-game HUD (Phase 1b) ---------------------------------------
+//
+// In Modern mode, when both side panels are at least MODERN_HUD_MIN_PANEL_WIDTH
+// logical pixels wide, the in-game HUD that used to be drawn inside the
+// playfield (cash, lives and player name, superbombs, the special-weapon icon),
+// plus the boss bars, the level timer and the cheat notice, is drawn into two
+// off-screen 8-bit surfaces instead and composited over the ambilight panels by
+// modern_build_frame().  Index 0 in those surfaces means "keep the background".
+//
+// When the panels are narrower (or in Classic mode) nothing changes: the HUD
+// stays in the playfield.  16:9 + original pixel aspect gives 53/54-px panels
+// and qualifies; 16:10 + original (32 px) and 16:9 + square (18 px) do not.
+//
+// The minimum is exactly the boss bar's width, so a panel that qualifies can
+// hold every relocated element.  See the layout slots below.
+#define MODERN_HUD_MIN_PANEL_WIDTH 51
+
+// Room past the visible panel so text that runs long cannot wrap into the row
+// below (the surfaces are always this much wider than the panel; only the
+// first panel-width columns are composited).
+#define MODERN_HUD_PANEL_PAD 80
+
+// Vertical layout slots inside a side panel, in logical pixels from the top of
+// the 200-row canvas.  Left panel: player 1; right panel: player 2.
+#define MODERN_HUD_SPECIAL_Y     2   // 24x28 special-weapon icon (left panel)
+#define MODERN_HUD_LIVES_NAME_Y  34  // player name
+#define MODERN_HUD_LIVES_ICON_Y  42  // life icons
+#define MODERN_HUD_CASH_Y        60  // cash
+#define MODERN_HUD_BOMBS_Y       74  // superbomb icons
+#define MODERN_HUD_BOSS_Y        94  // boss health bar (bar b lives in panel b)
+#define MODERN_HUD_TIMER_LABEL_Y 112 // level-timer label (left panel)
+#define MODERN_HUD_TIMER_VALUE_Y 120 // level-timer value (left panel)
+#define MODERN_HUD_CHEAT_Y       168 // "Cheaters always prosper." (left panel)
+#define MODERN_HUD_MARGIN        1   // left inset for panel content
+
+// True when the current Modern canvas has side panels wide enough for the
+// relocated HUD.  False for Classic, Modern 4:3 and any narrow-panel geometry.
+bool modern_hud_in_panels(void);
+
+// Width in logical pixels of the narrower side panel (0 when there is none).
+int modern_side_panel_width(void);
+
+// The off-screen 8-bit surface for side panel `player` (0 = left/P1,
+// 1 = right/P2), index 0 transparent, or NULL when modern_hud_in_panels() is
+// false.  Owned by modern.c; the game draws into it with the usual 8-bit
+// primitives.  modern_hud_begin_frame() must clear it once per gameplay frame.
+SDL_Surface *modern_hud_surface(int player);
+
+// Clears both HUD surfaces to index 0.  Call once per gameplay frame before the
+// relocated HUD is drawn.  A no-op outside panel mode.  No allocation.
+void modern_hud_begin_frame(void);
+
 // Converts `src_surface` (8-bit indexed) through the active palette into the
 // canvas and runs the registered passes, in order.  No allocation.
 void modern_build_frame(SDL_Surface *src_surface);

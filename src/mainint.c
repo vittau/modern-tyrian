@@ -33,6 +33,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "menus.h"
+#include "modern.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "musmast.h"
@@ -2849,15 +2850,38 @@ void JE_inGameDisplays(void)
 	char stemp[21];
 	char tempstr[256];
 
+	// Modern mode with wide enough side panels draws the HUD into the two
+	// off-screen panel surfaces instead of the playfield.  Everything below is
+	// otherwise the original code: in particular the tempW writes (read by the
+	// parallax panning) happen exactly the same way in both branches.
+	const bool in_panels = modern_hud_in_panels();
+	const int panel_w = in_panels ? modern_side_panel_width() : 0;
+
 	for (uint i = 0; i < ((twoPlayerMode && !galagaMode) ? 2 : 1); ++i)
 	{
 		snprintf(tempstr, sizeof(tempstr), "%lu", player[i].cash);
-		JE_textShade(VGAScreen, 30 + 200 * i, 175, tempstr, 2, 4, FULL_SHADE);
+		if (in_panels)
+		{
+			SDL_Surface *const panel = modern_hud_surface((int)i);
+			int x = (panel_w - JE_textWidth(tempstr, TINY_FONT)) / 2;
+			if (x < MODERN_HUD_MARGIN)
+				x = MODERN_HUD_MARGIN;
+			JE_textShade(panel, x, MODERN_HUD_CASH_Y, tempstr, 2, 4, FULL_SHADE);
+		}
+		else
+		{
+			JE_textShade(VGAScreen, 30 + 200 * i, 175, tempstr, 2, 4, FULL_SHADE);
+		}
 	}
 
 	/*Special Weapon?*/
 	if (player[0].items.special > 0)
-		blit_sprite2x2(VGAScreen, 25, 1, spriteSheet10, special[player[0].items.special].itemgraphic);
+	{
+		if (in_panels)
+			blit_sprite2x2(modern_hud_surface(0), (panel_w - 24) / 2, MODERN_HUD_SPECIAL_Y, spriteSheet10, special[player[0].items.special].itemgraphic);
+		else
+			blit_sprite2x2(VGAScreen, 25, 1, spriteSheet10, special[player[0].items.special].itemgraphic);
+	}
 
 	/*Lives Left*/
 	if (onePlayerAction || twoPlayerMode)
@@ -2869,20 +2893,45 @@ void JE_inGameDisplays(void)
 			int y = (temp == 0 && player[0].items.special > 0) ? 35 : 15;
 			tempW = (temp == 0) ? 30: 270;
 
-			if (extra_lives >= 5)
+			if (in_panels)
 			{
-				blit_sprite2(VGAScreen, tempW, y, spriteSheet9, 285);
-				tempW = (temp == 0) ? 45 : 250;
-				sprintf(tempstr, "%d", extra_lives);
-				JE_textShade(VGAScreen, tempW, y + 3, tempstr, 15, 1, FULL_SHADE);
+				SDL_Surface *const panel = modern_hud_surface(temp);
+				int x = MODERN_HUD_MARGIN;
+
+				if (extra_lives >= 5)
+				{
+					blit_sprite2(panel, x, MODERN_HUD_LIVES_ICON_Y, spriteSheet9, 285);
+					tempW = (temp == 0) ? 45 : 250;
+					sprintf(tempstr, "%d", extra_lives);
+					JE_textShade(panel, x + 14, MODERN_HUD_LIVES_ICON_Y + 3, tempstr, 15, 1, FULL_SHADE);
+				}
+				else if (extra_lives >= 1)
+				{
+					for (uint i = 0; i < extra_lives; ++i)
+					{
+						blit_sprite2(panel, x, MODERN_HUD_LIVES_ICON_Y, spriteSheet9, 285);
+						x += 12;
+						tempW += (temp == 0) ? 12 : -12;
+					}
+				}
 			}
-			else if (extra_lives >= 1)
+			else
 			{
-				for (uint i = 0; i < extra_lives; ++i)
+				if (extra_lives >= 5)
 				{
 					blit_sprite2(VGAScreen, tempW, y, spriteSheet9, 285);
+					tempW = (temp == 0) ? 45 : 250;
+					sprintf(tempstr, "%d", extra_lives);
+					JE_textShade(VGAScreen, tempW, y + 3, tempstr, 15, 1, FULL_SHADE);
+				}
+				else if (extra_lives >= 1)
+				{
+					for (uint i = 0; i < extra_lives; ++i)
+					{
+						blit_sprite2(VGAScreen, tempW, y, spriteSheet9, 285);
 
-					tempW += (temp == 0) ? 12 : -12;
+						tempW += (temp == 0) ? 12 : -12;
+					}
 				}
 			}
 
@@ -2893,25 +2942,58 @@ void JE_inGameDisplays(void)
 			}
 
 			tempW = (temp == 0) ? 28 : (285 - JE_textWidth(stemp, TINY_FONT));
-			JE_textShade(VGAScreen, tempW, y - 7, stemp, 2, 6, FULL_SHADE);
+			if (in_panels)
+				JE_textShade(modern_hud_surface(temp), MODERN_HUD_MARGIN, MODERN_HUD_LIVES_NAME_Y, stemp, 2, 6, FULL_SHADE);
+			else
+				JE_textShade(VGAScreen, tempW, y - 7, stemp, 2, 6, FULL_SHADE);
 		}
 	}
 
 	/*Super Bombs!!*/
 	for (uint i = 0; i < COUNTOF(player); ++i)
 	{
-		int x = (i == 0) ? 30 : 270;
-
-		for (uint j = player[i].superbombs; j > 0; --j)
+		if (in_panels)
 		{
-			blit_sprite2(VGAScreen, x, 160, spriteSheet9, 304);
-			x += (i == 0) ? 12 : -12;
+			SDL_Surface *const panel = modern_hud_surface((int)i);
+			int x = MODERN_HUD_MARGIN;
+
+			for (uint j = player[i].superbombs; j > 0; --j)
+			{
+				blit_sprite2(panel, x, MODERN_HUD_BOMBS_Y, spriteSheet9, 304);
+				x += 12;
+			}
+		}
+		else
+		{
+			int x = (i == 0) ? 30 : 270;
+
+			for (uint j = player[i].superbombs; j > 0; --j)
+			{
+				blit_sprite2(VGAScreen, x, 160, spriteSheet9, 304);
+				x += (i == 0) ? 12 : -12;
+			}
 		}
 	}
 
 	if (youAreCheating)
 	{
-		JE_outText(VGAScreen, 90, 170, "Cheaters always prosper.", 3, 4);
+		if (in_panels)
+		{
+			static const char *const cheat_lines[3] = { "Cheaters", "always", "prosper." };
+
+			SDL_Surface *const panel = modern_hud_surface(0);
+			for (int l = 0; l < 3; ++l)
+			{
+				int x = (panel_w - JE_textWidth(cheat_lines[l], TINY_FONT)) / 2;
+				if (x < MODERN_HUD_MARGIN)
+					x = MODERN_HUD_MARGIN;
+				JE_outText(panel, x, MODERN_HUD_CHEAT_Y + l * 8, cheat_lines[l], 3, 4);
+			}
+		}
+		else
+		{
+			JE_outText(VGAScreen, 90, 170, "Cheaters always prosper.", 3, 4);
+		}
 	}
 }
 

@@ -93,7 +93,19 @@ static Uint8 *modern_panel_scratch = NULL;
 // sized to the canvas width.  Allocated by modern_set_canvas_size().
 static Uint64 *modern_panel_scale_scratch = NULL;
 
+// Off-screen 8-bit surfaces the game draws the relocated in-game HUD into (one
+// per side panel), plus their allocated widths.  Index 0 is transparent.  They
+// are (re)allocated only by modern_set_canvas_size(), never per frame.
+static SDL_Surface *modern_hud_surfaces[2] = { NULL, NULL };
+static int modern_hud_surface_w[2] = { 0, 0 };
+
+// Width of the narrower side panel for the current canvas (the left one; the two
+// differ by at most one pixel).  Kept in sync by modern_set_canvas_size().
+static int modern_hud_panel_w = 0;
+
 static void modern_fill_side_panels(ModernFrame *frame, int frame_x, bool gameplay);
+static void modern_composite_hud(ModernFrame *frame, int frame_x);
+static void modern_set_hud_surface(SDL_Surface **surface, int *stored_w, int panel_w);
 
 bool set_presentation_by_name(const char *name)
 {
@@ -219,6 +231,79 @@ void modern_set_canvas_size(int w, int h)
 	}
 
 	SDL_SetTextureScaleMode(modern_texture, SDL_SCALEMODE_NEAREST);
+
+	// Side-panel HUD surfaces.  The frame is centered, so the two panels are
+	// frame_x and w - frame_x - vga_width wide; only their common (narrower)
+	// width matters for the layout checks.  With no panels this frees nothing
+	// but makes modern_hud_in_panels() false.
+	const int frame_x = (w - vga_width) / 2;
+	const int left_w = frame_x;
+	const int right_w = w - frame_x - vga_width;
+
+	modern_hud_panel_w = (left_w > 0 && right_w > 0) ? MIN(left_w, right_w) : 0;
+
+	modern_set_hud_surface(&modern_hud_surfaces[0], &modern_hud_surface_w[0], left_w);
+	modern_set_hud_surface(&modern_hud_surfaces[1], &modern_hud_surface_w[1], right_w);
+}
+
+// Allocates (or resizes) one HUD panel surface to `panel_w + MODERN_HUD_PANEL_PAD`
+// x vga_height, zero-filled.  `panel_w <= 0` leaves the existing surface alone;
+// modern_hud_in_panels() then reports false so it is never used.  Not called in
+// the per-frame path.
+static void modern_set_hud_surface(SDL_Surface **surface, int *stored_w, int panel_w)
+{
+	if (panel_w <= 0)
+		return;
+
+	const int w = panel_w + MODERN_HUD_PANEL_PAD;
+
+	if (*surface != NULL && *stored_w == w)
+		return;
+
+	if (*surface != NULL)
+		SDL_DestroySurface(*surface);
+
+	*surface = SDL_CreateSurface(w, vga_height, SDL_PIXELFORMAT_INDEX8);
+	if (*surface == NULL)
+	{
+		logFatal("Failed to allocate the modern HUD panel surface (%dx%d): %s", w, vga_height, SDL_GetError());
+		exit(EXIT_FAILURE);
+	}
+
+	memset((*surface)->pixels, 0, (size_t)(*surface)->pitch * (size_t)(*surface)->h);
+	*stored_w = w;
+}
+
+bool modern_hud_in_panels(void)
+{
+	return presentation == PRESENTATION_MODERN &&
+	       modern_hud_panel_w >= MODERN_HUD_MIN_PANEL_WIDTH &&
+	       modern_hud_surfaces[0] != NULL && modern_hud_surfaces[1] != NULL;
+}
+
+int modern_side_panel_width(void)
+{
+	return modern_hud_in_panels() ? modern_hud_panel_w : 0;
+}
+
+SDL_Surface *modern_hud_surface(int player)
+{
+	if (player < 0 || player >= 2 || !modern_hud_in_panels())
+		return NULL;
+
+	return modern_hud_surfaces[player];
+}
+
+void modern_hud_begin_frame(void)
+{
+	if (!modern_hud_in_panels())
+		return;
+
+	for (int i = 0; i < 2; ++i)
+	{
+		SDL_Surface *surface = modern_hud_surfaces[i];
+		memset(surface->pixels, 0, (size_t)surface->pitch * (size_t)surface->h);
+	}
 }
 
 void modern_init(void)
@@ -270,6 +355,17 @@ void modern_deinit(void)
 	free(modern_panel_scale_scratch);
 	modern_panel_scale_scratch = NULL;
 
+	for (int i = 0; i < 2; ++i)
+	{
+		if (modern_hud_surfaces[i] != NULL)
+		{
+			SDL_DestroySurface(modern_hud_surfaces[i]);
+			modern_hud_surfaces[i] = NULL;
+		}
+		modern_hud_surface_w[i] = 0;
+	}
+	modern_hud_panel_w = 0;
+
 	free(modern_frame_state.pixels);
 	modern_frame_state.pixels = NULL;
 	modern_frame_state.w = 0;
@@ -310,10 +406,48 @@ void modern_build_frame(SDL_Surface *src_surface)
 	}
 
 	modern_fill_side_panels(frame, offset_x, modern_gameplay_frame);
+
+	// Gameplay frames in panel mode also carry the relocated HUD in the two
+	// off-screen surfaces; composite it over the ambilight (index 0 stays).
+	if (modern_gameplay_frame)
+		modern_composite_hud(frame, offset_x);
+
 	modern_gameplay_frame = false;
 
 	for (size_t i = 0; i < modern_passes_count; ++i)
 		modern_passes[i](frame);
+}
+
+// Copies the non-transparent pixels of one HUD panel surface over the canvas
+// side region starting at `dst_x`.  `panel_w` is the visible panel width; the
+// surface's extra MODERN_HUD_PANEL_PAD columns are never composited.
+static void modern_blit_hud_surface(const ModernFrame *frame, const SDL_Surface *hud, int dst_x, int panel_w)
+{
+	const int rows = MIN(frame->h, hud->h);
+	const int cols = MIN(panel_w, hud->w);
+
+	for (int y = 0; y < rows; ++y)
+	{
+		const Uint8 *src = (const Uint8 *)hud->pixels + (size_t)y * hud->pitch;
+		Uint32 *dst = frame->pixels + (size_t)y * frame->w + dst_x;
+
+		for (int x = 0; x < cols; ++x)
+		{
+			if (src[x] != 0)
+				dst[x] = rgb_palette[src[x]];
+		}
+	}
+}
+
+static void modern_composite_hud(ModernFrame *frame, int frame_x)
+{
+	if (!modern_hud_in_panels())
+		return;
+
+	const int right_x = frame_x + vga_width;
+
+	modern_blit_hud_surface(frame, modern_hud_surfaces[0], 0, frame_x);
+	modern_blit_hud_surface(frame, modern_hud_surfaces[1], right_x, frame->w - right_x);
 }
 
 // One faded side-panel pixel.  `scale` is the precomputed Q32 fade factor:

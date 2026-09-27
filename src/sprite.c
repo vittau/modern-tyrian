@@ -556,7 +556,7 @@ void blit_sprite2(SDL_Surface *surface, int x, int y, Sprite2_array sprite2s, un
 		
 		if (count == 0) // move to next pixel row
 		{
-			pixels += VGAScreen->pitch - 12;
+			pixels += surface->pitch - 12;
 		}
 		else
 		{
@@ -633,7 +633,7 @@ void blit_sprite2_blend(SDL_Surface *surface,  int x, int y, Sprite2_array sprit
 		
 		if (count == 0) // move to next pixel row
 		{
-			pixels += VGAScreen->pitch - 12;
+			pixels += surface->pitch - 12;
 		}
 		else
 		{
@@ -669,7 +669,7 @@ void blit_sprite2_darken(SDL_Surface *surface, int x, int y, Sprite2_array sprit
 		
 		if (count == 0) // move to next pixel row
 		{
-			pixels += VGAScreen->pitch - 12;
+			pixels += surface->pitch - 12;
 		}
 		else
 		{
@@ -705,7 +705,7 @@ void blit_sprite2_filter(SDL_Surface *surface, int x, int y, Sprite2_array sprit
 		
 		if (count == 0) // move to next pixel row
 		{
-			pixels += VGAScreen->pitch - 12;
+			pixels += surface->pitch - 12;
 		}
 		else
 		{

@@ -28,11 +28,14 @@
 #include "opentyr.h"
 #include "palette.h"
 #include "player.h"
+#include "shots.h"
+#include "tyrian2.h"
 #include "varz.h"
 #include "video.h"
 
 #include <assert.h>
 #include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +53,7 @@ int regress_detail = 2;
 int regress_audio = 0;
 int regress_modern = 0;
 int regress_aspect = -1;
+const char *regress_state_out_path = NULL;
 
 // 64-bit FNV-1a.
 static const Uint64 fnv_offset_basis = UINT64_C(14695981039346656037);
@@ -59,6 +63,7 @@ static const Uint64 fnv_prime        = UINT64_C(1099511628211);
 static Uint32 regress_clock = 0;
 
 static FILE *regress_out = NULL;
+static FILE *regress_state_out = NULL;
 static unsigned long regress_frame = 0;
 
 bool regress_active(void)
@@ -136,10 +141,98 @@ FILE *regress_output_file(void)
 	return regress_out;
 }
 
-// Writes one "<frame_index> <hash>" record and honors the scenario frame cap.
-static void regress_emit_frame_hash(Uint64 hash)
+// Hash of the whole gameplay state, presentation-independent.  Deliberately
+// skips the pointer fields of the enemy structs (their addresses depend on the
+// process layout) and hashes everything else field by field so no struct
+// padding can leak in.
+static Uint64 regress_state_hash(void)
 {
-	fprintf(regress_out, "%lu %016" PRIx64 "\n", regress_frame, hash);
+	Uint64 hash = fnv_offset_basis;
+
+	const unsigned long long rng = mt_rand_state_hash();
+	hash_bytes(&hash, (const Uint8 *)&rng, sizeof rng);
+
+	for (int i = 0; i < 2; ++i)
+	{
+		const Player *p = &player[i];
+
+		hash_bytes(&hash, (const Uint8 *)&p->cash, sizeof p->cash);
+		hash_bytes(&hash, (const Uint8 *)&p->items, sizeof p->items);
+		hash_bytes(&hash, (const Uint8 *)&p->last_items, sizeof p->last_items);
+		hash_bytes(&hash, (const Uint8 *)&p->is_dragonwing, sizeof p->is_dragonwing);
+		hash_bytes(&hash, (const Uint8 *)&p->shield_max, sizeof p->shield_max);
+		hash_bytes(&hash, (const Uint8 *)&p->initial_armor, sizeof p->initial_armor);
+		hash_bytes(&hash, (const Uint8 *)&p->shot_hit_area_x, sizeof p->shot_hit_area_x);
+		hash_bytes(&hash, (const Uint8 *)&p->shot_hit_area_y, sizeof p->shot_hit_area_y);
+		hash_bytes(&hash, (const Uint8 *)&p->is_alive, sizeof p->is_alive);
+		hash_bytes(&hash, (const Uint8 *)&p->invulnerable_ticks, sizeof p->invulnerable_ticks);
+		hash_bytes(&hash, (const Uint8 *)&p->exploding_ticks, sizeof p->exploding_ticks);
+		hash_bytes(&hash, (const Uint8 *)&p->shield, sizeof p->shield);
+		hash_bytes(&hash, (const Uint8 *)&p->armor, sizeof p->armor);
+		hash_bytes(&hash, (const Uint8 *)&p->weapon_mode, sizeof p->weapon_mode);
+		hash_bytes(&hash, (const Uint8 *)&p->superbombs, sizeof p->superbombs);
+		hash_bytes(&hash, (const Uint8 *)&p->purple_balls_needed, sizeof p->purple_balls_needed);
+		hash_bytes(&hash, (const Uint8 *)&p->mouseX, sizeof p->mouseX);
+		hash_bytes(&hash, (const Uint8 *)&p->mouseY, sizeof p->mouseY);
+		hash_bytes(&hash, (const Uint8 *)&p->x, sizeof p->x);
+		hash_bytes(&hash, (const Uint8 *)&p->y, sizeof p->y);
+		hash_bytes(&hash, (const Uint8 *)p->old_x, sizeof p->old_x);
+		hash_bytes(&hash, (const Uint8 *)p->old_y, sizeof p->old_y);
+		hash_bytes(&hash, (const Uint8 *)&p->x_velocity, sizeof p->x_velocity);
+		hash_bytes(&hash, (const Uint8 *)&p->y_velocity, sizeof p->y_velocity);
+		hash_bytes(&hash, (const Uint8 *)&p->x_friction_ticks, sizeof p->x_friction_ticks);
+		hash_bytes(&hash, (const Uint8 *)&p->y_friction_ticks, sizeof p->y_friction_ticks);
+		hash_bytes(&hash, (const Uint8 *)&p->delta_x_shot_move, sizeof p->delta_x_shot_move);
+		hash_bytes(&hash, (const Uint8 *)&p->delta_y_shot_move, sizeof p->delta_y_shot_move);
+		hash_bytes(&hash, (const Uint8 *)&p->last_x_shot_move, sizeof p->last_x_shot_move);
+		hash_bytes(&hash, (const Uint8 *)&p->last_y_shot_move, sizeof p->last_y_shot_move);
+		hash_bytes(&hash, (const Uint8 *)&p->last_x_explosion_follow, sizeof p->last_x_explosion_follow);
+		hash_bytes(&hash, (const Uint8 *)&p->last_y_explosion_follow, sizeof p->last_y_explosion_follow);
+		hash_bytes(&hash, (const Uint8 *)p->sidekick, sizeof p->sidekick);
+
+		const Uint8 lives = (p->lives != NULL) ? *p->lives : 0;
+		hash_bytes(&hash, &lives, sizeof lives);
+	}
+
+	// Enemies: every field except the two pointers (sprite2s, enemydatofs),
+	// whose addresses vary with the process layout.
+	for (unsigned int i = 0; i < COUNTOF(enemy); ++i)
+	{
+		const Uint8 *base = (const Uint8 *)&enemy[i];
+		hash_bytes(&hash, base, offsetof(struct JE_SingleEnemyType, sprite2s));
+		hash_bytes(&hash, base + offsetof(struct JE_SingleEnemyType, exrev),
+		                 offsetof(struct JE_SingleEnemyType, enemydatofs) - offsetof(struct JE_SingleEnemyType, exrev));
+		hash_bytes(&hash, base + offsetof(struct JE_SingleEnemyType, edamaged),
+		                 sizeof(struct JE_SingleEnemyType) - offsetof(struct JE_SingleEnemyType, edamaged));
+	}
+	hash_bytes(&hash, (const Uint8 *)enemyAvail, sizeof enemyAvail);
+	hash_bytes(&hash, (const Uint8 *)enemyShot, sizeof enemyShot);
+	hash_bytes(&hash, (const Uint8 *)enemyShotAvail, sizeof enemyShotAvail);
+	hash_bytes(&hash, (const Uint8 *)playerShotData, sizeof playerShotData);
+	hash_bytes(&hash, (const Uint8 *)shotAvail, sizeof shotAvail);
+	hash_bytes(&hash, (const Uint8 *)boss_bar, sizeof boss_bar);
+	hash_bytes(&hash, (const Uint8 *)&tempW, sizeof tempW);
+	hash_bytes(&hash, (const Uint8 *)&eventLoc, sizeof eventLoc);
+	hash_bytes(&hash, (const Uint8 *)&curLoc, sizeof curLoc);
+	hash_bytes(&hash, (const Uint8 *)&levelTimer, sizeof levelTimer);
+	hash_bytes(&hash, (const Uint8 *)&levelTimerCountdown, sizeof levelTimerCountdown);
+	hash_bytes(&hash, (const Uint8 *)explosions, sizeof explosions);
+	hash_bytes(&hash, (const Uint8 *)superpixels, sizeof superpixels);
+	hash_bytes(&hash, (const Uint8 *)rep_explosions, sizeof rep_explosions);
+
+	return hash;
+}
+
+// Writes the frame and/or state record(s) for the current frame and honors the
+// scenario frame cap.  Either stream may be absent; at least one is open.
+static void regress_emit_records(bool write_frame, Uint64 frame_hash)
+{
+	if (write_frame)
+		fprintf(regress_out, "%lu %016" PRIx64 "\n", regress_frame, frame_hash);
+
+	if (regress_state_out != NULL)
+		fprintf(regress_state_out, "%lu %016" PRIx64 "\n", regress_frame, regress_state_hash());
+
 	regress_frame++;
 
 	if (regress_frames > 0 && regress_frame >= (unsigned long)regress_frames)
@@ -154,55 +247,64 @@ static void regress_emit_frame_hash(Uint64 hash)
 
 void regress_capture_frame(SDL_Surface *surface)
 {
-	if (regress_out == NULL || surface == NULL)
+	if ((regress_out == NULL && regress_state_out == NULL) || surface == NULL)
 		return;
 
-	assert(SDL_BITSPERPIXEL(surface->format) == 8);
-
+	const bool write_frame = regress_out != NULL;
 	Uint64 hash = fnv_offset_basis;
 
-	// Hash only the visible 320 bytes of each row, honoring the pitch.
-	const Uint8 *pixels = surface->pixels;
-	const size_t row_size = MIN((size_t)surface->w, (size_t)vga_width);
-	for (int y = 0; y < surface->h; ++y)
+	if (write_frame)
 	{
-		hash_bytes(&hash, pixels, row_size);
-		pixels += surface->pitch;
+		assert(SDL_BITSPERPIXEL(surface->format) == 8);
+
+		// Hash only the visible 320 bytes of each row, honoring the pitch.
+		const Uint8 *pixels = surface->pixels;
+		const size_t row_size = MIN((size_t)surface->w, (size_t)vga_width);
+		for (int y = 0; y < surface->h; ++y)
+		{
+			hash_bytes(&hash, pixels, row_size);
+			pixels += surface->pitch;
+		}
+
+		// Hash the palette that is currently being presented.
+		const SDL_Color *palette = get_active_palette();
+		for (size_t i = 0; i < 256; ++i)
+		{
+			const Uint8 rgb[3] = { palette[i].r, palette[i].g, palette[i].b };
+			hash_bytes(&hash, rgb, sizeof rgb);
+		}
 	}
 
-	// Hash the palette that is currently being presented.
-	const SDL_Color *palette = get_active_palette();
-	for (size_t i = 0; i < 256; ++i)
-	{
-		const Uint8 rgb[3] = { palette[i].r, palette[i].g, palette[i].b };
-		hash_bytes(&hash, rgb, sizeof rgb);
-	}
-
-	regress_emit_frame_hash(hash);
+	regress_emit_records(write_frame, hash);
 }
 
 void regress_capture_modern_frame(void)
 {
-	if (regress_out == NULL)
+	if (regress_out == NULL && regress_state_out == NULL)
 		return;
 
 	const ModernFrame *frame = modern_current_frame();
 	if (frame == NULL || frame->pixels == NULL)
 		return;
 
+	const bool write_frame = regress_out != NULL;
 	Uint64 hash = fnv_offset_basis;
 
-	// Hash the visible XRGB bytes of each row, honoring the canvas pitch.  The
-	// palette is already applied to the canvas, so it is not hashed separately.
-	const Uint8 *pixels = (const Uint8 *)frame->pixels;
-	const size_t row_size = (size_t)frame->w * sizeof(Uint32);
-	for (int y = 0; y < frame->h; ++y)
+	if (write_frame)
 	{
-		hash_bytes(&hash, pixels, row_size);
-		pixels += frame->pitch;
+		// Hash the visible XRGB bytes of each row, honoring the canvas pitch.
+		// The palette is already applied to the canvas, so it is not hashed
+		// separately.
+		const Uint8 *pixels = (const Uint8 *)frame->pixels;
+		const size_t row_size = (size_t)frame->w * sizeof(Uint32);
+		for (int y = 0; y < frame->h; ++y)
+		{
+			hash_bytes(&hash, pixels, row_size);
+			pixels += frame->pitch;
+		}
 	}
 
-	regress_emit_frame_hash(hash);
+	regress_emit_records(write_frame, hash);
 }
 
 void regress_begin_scenario(void)
@@ -298,36 +400,78 @@ void regress_init(void)
 	regress_clock = 0;
 	regress_frame = 0;
 
-	if (regress_out_path == NULL)
+	if (regress_out_path == NULL && regress_state_out_path == NULL)
 	{
-		logFatal("--regress-demo/--regress-level/--regress-audio require --regress-out=FILE.");
+		logFatal("--regress-demo/--regress-level/--regress-audio require --regress-out=FILE or --regress-state-out=FILE.");
 		exit(EXIT_FAILURE);
 	}
 
-	regress_out = fopen(regress_out_path, "wb");
-	if (regress_out == NULL)
+	if (regress_audio_active() && regress_out_path == NULL)
 	{
-		logFatal("Failed to open regression output '%s'.", regress_out_path);
+		// The audio baseline is the frame output stream; there is no state
+		// stream for it.
+		logFatal("--regress-audio requires --regress-out=FILE.");
 		exit(EXIT_FAILURE);
+	}
+
+	if (regress_out_path != NULL)
+	{
+		regress_out = fopen(regress_out_path, "wb");
+		if (regress_out == NULL)
+		{
+			logFatal("Failed to open regression output '%s'.", regress_out_path);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_state_out_path != NULL)
+	{
+		regress_state_out = fopen(regress_state_out_path, "wb");
+		if (regress_state_out == NULL)
+		{
+			logFatal("Failed to open regression state output '%s'.", regress_state_out_path);
+			exit(EXIT_FAILURE);
+		}
 	}
 }
 
 void regress_finish(void)
 {
-	if (regress_out == NULL)
+	if (regress_out == NULL && regress_state_out == NULL)
 		return;
 
-	if (fclose(regress_out) != 0)
+	bool close_ok = true;
+
+	if (regress_out != NULL)
 	{
-		logError("Failed to close regression output '%s'.", regress_out_path);
+		if (fclose(regress_out) != 0)
+		{
+			logError("Failed to close regression output '%s'.", regress_out_path);
+			close_ok = false;
+		}
 		regress_out = NULL;
-		return;
 	}
 
-	regress_out = NULL;
+	if (regress_state_out != NULL)
+	{
+		if (fclose(regress_state_out) != 0)
+		{
+			logError("Failed to close regression state output '%s'.", regress_state_out_path);
+			close_ok = false;
+		}
+		regress_state_out = NULL;
+	}
+
+	if (!close_ok)
+		return;
 
 	if (regress_audio_active())
 		logInfo("Regression: wrote audio baseline to '%s'.", regress_out_path);
 	else
-		logInfo("Regression: wrote %lu frames to '%s'.", regress_frame, regress_out_path);
+	{
+		if (regress_out_path != NULL)
+			logInfo("Regression: wrote %lu frames to '%s'.", regress_frame, regress_out_path);
+		if (regress_state_out_path != NULL)
+			logInfo("Regression: wrote %lu state records to '%s'.", regress_frame, regress_state_out_path);
+	}
 }
