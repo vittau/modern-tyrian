@@ -128,6 +128,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] HUD que fica dentro do playfield (dinheiro, vidas, superbombs) movido para fora no modo Modern
 - [ ] Gamepad via API moderna do SDL, com hot-plug e remapeamento
 - [ ] Bloom simples pela máscara de brilho da paleta
+- [ ] **Visão estendida (modo Modern, opcional):** mostrar mais da largura real das fases dos dois lados do playfield, sem mudar o gameplay (lógica, limites de spawn/despawn e movimento da nave intactos). Passo 1: medir por fase quanta arte existe além da borda em todo o range do pan e mapear as suposições de 320 px no renderizador de 8 bits. Passo 2: implementar com a largura que as medições permitirem. A prova de que a lógica não mudou é o hash da janela central de 264 px igual aos baselines atuais
 
 ### Fase 2 — O "Modern"
 - [ ] Snapshot e fila de eventos por tick
@@ -152,6 +153,7 @@ _(nenhuma)_
 - **2026-09-26 — Efeitos na resolução original.** Partículas, luzes, bloom, trilhas e demais VFX são calculados na grade lógica de 320×200 (um valor por pixel do jogo) e ampliados com o mesmo scaling dos sprites. Nenhum efeito é desenhado em resolução de tela. Com isso somem o risco de "mistura de resoluções" (§5) e a decisão estética que estava prevista para a Fase 2.
 - **2026-09-26 — Arte nova só procedural.** O projeto não terá artista. Arte nova é permitida desde que seja gerada por código: ruído, gradientes, derivação/recoloração/composição dos sprites e tiles originais, partículas, shaders. Nada desenhado à mão e nada de sprites redesenhados em alta resolução. Isso resolve a contradição de §5: camadas extras de parallax (névoa, poeira, starfields, versões desfocadas ou escurecidas dos tiles existentes) viram viáveis se forem procedurais, sempre na grade de 320×200.
 - **2026-09-27 — Composição moderna na CPU, sem backend GPU próprio** (decisão técnica do coordenador; pode ser revista). Como todos os efeitos ficam na grade de 320×200, o custo de luz, bloom, partículas e widescreen na CPU é trivial: 64 mil pixels por quadro, bem menos de 1 ms. Fazer na CPU mantém tudo portátil, sem shaders para Metal/Vulkan/D3D, e determinístico, então a saída do modo Modern pode ser coberta por baselines de hash como o resto. O `SDL_Renderer` do SDL3 continua só para subir a textura e escalar com nearest. O modo Classic mantém o caminho atual intacto. Se no futuro algum efeito exigir resolução de tela, reavaliamos.
+- **2026-09-27 — Visão estendida é desejada, dentro das regras de gameplay.** O usuário prefere usar a área extra da tela mostrando mais do campo do que só decoração, desde que viável. Limites conhecidos: os mapas têm só 336–360 px de largura contra 264 visíveis, e o pan horizontal existe só como parallax das 3 camadas; os tiros inimigos somem em x ≤ 0 / > 275 e os do jogador em x < -34 / > 290; os inimigos existem de -80 a 340. Por isso a ampliação fica restrita à arte real disponível, estimada em ~20–24 px por lado, e o restante segue com as laterais procedurais. Mudar limites de despawn para ampliar mais está fora de escopo, porque alteraria o balanceamento.
 - **2026-09-26 — Ordem da Fase 0:** o teste de regressão por demos vem antes da migração para SDL3, porque é a rede de segurança dela.
 
 ## 8. Processo
@@ -240,3 +242,7 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Com o Actions disparado pela API (em forks o push não disparava na primeira vez; hoje o push já dispara), foram 4 rodadas até ficar tudo verde: (1) `libxtst-dev` e o banco MSYS2 desatualizado; (2) `palette.c:87`, que o GCC rejeita com `-pedantic`; (3) `PKG_CONFIG_PATH` só no passo de compilação, o que quebrava `make install`; (4) verde em Linux x86_64/arm64, macOS e Windows x86_64/arm64 (`e5a6d11`).
 - Lição registrada em §2.17: auditar com `gcc-16` e as flags da CI toda mudança em `src/`, porque o clang do macOS aceita construções que o GCC rejeita.
 - Fase 0 concluída. A Fase 1 começou em paralelo: widescreen/PAR no checkout principal e gamepad numa worktree local separada (`gamepad`), que será incorporada a `modernization` após revisão.
+
+### 2026-09-27 — Pergunta sobre ampliar o campo horizontal
+- O usuário perguntou se dá para aproveitar o scroll horizontal nativo para mostrar mais campo no widescreen. Análise: o "scroll" é só o parallax do fundo (camada da frente ~70 px, meio ~47, fundo ~24), os mapas têm 336–360 px, e tiros e inimigos têm limites de remoção próximos da borda original. Só ~20–24 px por lado são viáveis sem inventar arte nem mudar o gameplay.
+- Decisão (§7): seguir com a visão estendida dentro desse limite. Começa com uma investigação de medições numa worktree separada; a implementação vem depois do widescreen.
