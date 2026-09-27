@@ -21,6 +21,7 @@
 #include "config.h"
 #include "episodes.h"
 #include "joystick.h"
+#include "keyboard.h"
 #include "logging.h"
 #include "loudness.h"
 #include "modern.h"
@@ -264,6 +265,17 @@ void regress_init(void)
 	// offline audio regression, which drives the mixer directly.
 	audio_disabled = !regress_audio_active();
 	ignore_joystick = true;
+
+	// No controller is opened and joystick hot-plug ADDED/REMOVED events are
+	// ignored while ignore_joystick is set (see init_joysticks() and
+	// joystick_device_added()/joystick_device_removed()).  handleSdlEvents()
+	// additionally drops every input event in regress mode, so a device plugged
+	// in mid-run cannot feed the game.
+	//
+	// Because that drop happens before any focus event is processed, redefine
+	// the focused state directly: the release build auto-pauses while the window
+	// is unfocused (see JE_main), and a regress run must never pause.
+	windowHasFocus = true;
 
 	// Pin every setting that can change the 8-bit framebuffer or the gameplay.
 	// These mirror the defaults the engine uses when no config file is present,

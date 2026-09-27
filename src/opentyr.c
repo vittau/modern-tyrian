@@ -774,6 +774,21 @@ int main(int argc, char *argv[])
 	logInfo("under certain conditions.  See the file COPYING for details.");
 	logInfo("%s", "");
 
+	// Detect regress/selftest mode before SDL_Init(): the regress hint below
+	// must be set before SDL_Init(), and detecting the mode before loading the
+	// configuration lets the user's config and save files be skipped.
+	// JE_paramCheck() below does the real parsing.
+	bool regress = regress_scan_args(argc, argv);
+	bool selftest = gamepad_selftest_scan_args(argc, argv);
+
+	// macOS: a regress run must not become (or be brought to) the foreground,
+	// or a stray osascript/System Events keystroke or a cursor warp from the
+	// real desktop could focus it and inject input mid-run.  SDL ignores this
+	// hint on other platforms.  The input events themselves are discarded in
+	// handleSdlEvents() as well.
+	if (regress)
+		SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+
 	if (!SDL_Init(0))
 	{
 		logFatal("Failed to initialize SDL: %s", SDL_GetError());
@@ -781,11 +796,6 @@ int main(int argc, char *argv[])
 	}
 
 	atexit(SDL_Quit);
-
-	// Detect regress mode before loading configuration so the user's config and
-	// save files can be skipped.  JE_paramCheck() below does the real parsing.
-	bool regress = regress_scan_args(argc, argv);
-	bool selftest = gamepad_selftest_scan_args(argc, argv);
 
 	if (!regress && !selftest)
 	{

@@ -178,6 +178,16 @@ void handleSdlEvents(void)
 
 	while (SDL_PollEvent(&ev))
 	{
+		// Regression playback must be deterministic and headless, so the real
+		// desktop cannot be allowed to steer it.  Discard every keyboard, text,
+		// mouse, joystick/gamepad and window focus/resize event before it can
+		// touch game state; only SDL_EVENT_QUIT (handled below) still gets
+		// through.  Joysticks are never opened in regress mode either (see
+		// regress_init()), but dropping their events here keeps a hot-plugged
+		// device harmless even if one somehow got through.
+		if (regress_active() && ev.type != SDL_EVENT_QUIT)
+			continue;
+
 		switch (ev.type)
 		{
 			case SDL_EVENT_WINDOW_FOCUS_LOST:

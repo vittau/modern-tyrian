@@ -25,6 +25,7 @@
 #include "network.h"
 #include "nortsong.h"
 #include "opentyr.h"
+#include "regress.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -222,6 +223,12 @@ void poll_joystick(int j)
 // updates all joystick states
 void poll_joysticks(void)
 {
+	// Regression mode must never read a real controller, even one hot-plugged
+	// mid-run.  init_joysticks() already leaves the device array empty via
+	// ignore_joystick; this keeps the poll itself inert as well.
+	if (regress_active())
+		return;
+	
 	joydown = false;
 	
 	for (int j = 0; j < joysticks; j++)
