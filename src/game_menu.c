@@ -1600,7 +1600,7 @@ void JE_itemScreen(void)
 		{
 			setFrameCount(1);
 
-			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_WAITING)
+			if (packet_in[0] && network_read16(&packet_in[0]->data[0]) == PACKET_WAITING)
 			{
 				network_update();
 				break;

@@ -8,11 +8,9 @@ else
     TYRIAN_DIR = $(gamesdir)/tyrian
 endif
 
-# Networking is out of scope for the core SDL2 -> SDL3 migration: src/network.c
-# still uses the SDL2_net API (which does not exist in SDL3).  Force it off so
-# the core build links only SDL3; the network code is kept in the tree and will
-# be ported to SDL3_net in a follow-up task.
-WITH_NETWORK := false
+# Networking is enabled automatically when SDL3_net is installed; override the
+# detection with `make WITH_NETWORK=false` (or `true`).
+WITH_NETWORK ?= auto
 
 ################################################################################
 
@@ -63,6 +61,14 @@ DEPS := $(SRCS:src/%.c=obj/%.d)
 
 ###
 
+ifeq ($(WITH_NETWORK), auto)
+    ifeq ($(shell $(PKG_CONFIG) --exists sdl3-net && echo yes), yes)
+        WITH_NETWORK := true
+    else
+        WITH_NETWORK := false
+    endif
+endif
+
 ifeq ($(WITH_NETWORK), true)
     EXTRA_CPPFLAGS += -DWITH_NETWORK
 endif
@@ -90,9 +96,12 @@ LDFLAGS ?=
 LDLIBS ?=
 
 ifeq ($(WITH_NETWORK), true)
-    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 SDL3_net --cflags)
-    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 SDL3_net --libs-only-L --libs-only-other)
-    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl3 SDL3_net --libs-only-l)
+    # Some sdl3-net .pc files (Homebrew's, at least) ship an empty prefix and
+    # therefore a bogus -L/lib search path that makes the linker complain; take
+    # the include/search paths from sdl3 and only the library names from sdl3-net.
+    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 sdl3-net --cflags)
+    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 --libs-only-L --libs-only-other)
+    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl3-net --libs-only-l)
 else
     SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 --cflags)
     SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 --libs-only-L --libs-only-other)

@@ -2199,29 +2199,29 @@ draw_player_shot_loop_end:
 			                  (inGameMenuRequest == true) << 1 |
 			                  (skipLevelRequest == true) << 2 |
 			                  (nortShipRequest == true) << 3;
-			SDLNet_Write16(requests,        &packet_state_out[0]->data[14]);
+			network_write16(requests,        &packet_state_out[0]->data[14]);
 
-			SDLNet_Write16(difficultyLevel, &packet_state_out[0]->data[16]);
-			SDLNet_Write16(player[0].x,     &packet_state_out[0]->data[18]);
-			SDLNet_Write16(player[1].x,     &packet_state_out[0]->data[20]);
-			SDLNet_Write16(player[0].y,     &packet_state_out[0]->data[22]);
-			SDLNet_Write16(player[1].y,     &packet_state_out[0]->data[24]);
-			SDLNet_Write16(curLoc,          &packet_state_out[0]->data[26]);
+			network_write16(difficultyLevel, &packet_state_out[0]->data[16]);
+			network_write16(player[0].x,     &packet_state_out[0]->data[18]);
+			network_write16(player[1].x,     &packet_state_out[0]->data[20]);
+			network_write16(player[0].y,     &packet_state_out[0]->data[22]);
+			network_write16(player[1].y,     &packet_state_out[0]->data[24]);
+			network_write16(curLoc,          &packet_state_out[0]->data[26]);
 
 			network_state_send();
 
 			if (network_state_update())
 			{
-				assert(SDLNet_Read16(&packet_state_in[0]->data[26]) == SDLNet_Read16(&packet_state_out[network_delay]->data[26]));
+				assert(network_read16(&packet_state_in[0]->data[26]) == network_read16(&packet_state_out[network_delay]->data[26]));
 
-				requests = SDLNet_Read16(&packet_state_in[0]->data[14]) ^ SDLNet_Read16(&packet_state_out[network_delay]->data[14]);
+				requests = network_read16(&packet_state_in[0]->data[14]) ^ network_read16(&packet_state_out[network_delay]->data[14]);
 				if (requests & 1)
 				{
 					JE_pauseGame();
 				}
 				if (requests & 2)
 				{
-					yourInGameMenuRequest = SDLNet_Read16(&packet_state_out[network_delay]->data[14]) & 2;
+					yourInGameMenuRequest = network_read16(&packet_state_out[network_delay]->data[14]) & 2;
 					JE_doInGameSetup();
 					yourInGameMenuRequest = false;
 					if (haltGame)
@@ -2245,7 +2245,7 @@ draw_player_shot_loop_end:
 
 				for (int i = 0; i < 2; i++)
 				{
-					if (SDLNet_Read16(&packet_state_in[0]->data[18 + i * 2]) != SDLNet_Read16(&packet_state_out[network_delay]->data[18 + i * 2]) || SDLNet_Read16(&packet_state_in[0]->data[20 + i * 2]) != SDLNet_Read16(&packet_state_out[network_delay]->data[20 + i * 2]))
+					if (network_read16(&packet_state_in[0]->data[18 + i * 2]) != network_read16(&packet_state_out[network_delay]->data[18 + i * 2]) || network_read16(&packet_state_in[0]->data[20 + i * 2]) != network_read16(&packet_state_out[network_delay]->data[20 + i * 2]))
 					{
 						char temp[64];
 						sprintf(temp, "Player %d is unsynchronized!", i + 1);
@@ -3196,8 +3196,8 @@ void networkStartScreen(void)
 			difficultyLevel++;  /*Make it one step harder for 2-player mode!*/
 
 			network_prepare(PACKET_DETAILS);
-			SDLNet_Write16(episodeNum, &packet_out_temp->data[4]);
-			SDLNet_Write16(difficultyLevel, &packet_out_temp->data[6]);
+			network_write16(episodeNum, &packet_out_temp->data[4]);
+			network_write16(difficultyLevel, &packet_out_temp->data[6]);
 			network_send(8);  // PACKET_DETAILS
 		}
 		else
@@ -3219,7 +3219,7 @@ void networkStartScreen(void)
 		{
 			setFrameCount(1);
 
-			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_DETAILS)
+			if (packet_in[0] && network_read16(&packet_in[0]->data[0]) == PACKET_DETAILS)
 				break;
 
 			network_update();
@@ -3227,8 +3227,8 @@ void networkStartScreen(void)
 			waitUntilElapsed();
 		}
 
-		JE_initEpisode(SDLNet_Read16(&packet_in[0]->data[4]));
-		difficultyLevel = SDLNet_Read16(&packet_in[0]->data[6]);
+		JE_initEpisode(network_read16(&packet_in[0]->data[4]));
+		difficultyLevel = network_read16(&packet_in[0]->data[6]);
 		initialDifficulty = difficultyLevel - 1;
 		fade_black(10);
 

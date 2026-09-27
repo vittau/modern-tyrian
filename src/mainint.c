@@ -1337,7 +1337,7 @@ void JE_doInGameSetup(void)
 		{
 			setFrameCount(1);
 
-			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_GAME_MENU)
+			if (packet_in[0] && network_read16(&packet_in[0]->data[0]) == PACKET_GAME_MENU)
 			{
 				network_update();
 				break;
@@ -1397,12 +1397,12 @@ void JE_doInGameSetup(void)
 
 				if (packet_in[0])
 				{
-					if (SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_WAITING)
+					if (network_read16(&packet_in[0]->data[0]) == PACKET_WAITING)
 					{
 						network_check();
 						break;
 					}
-					else if (SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_GAME_QUIT)
+					else if (network_read16(&packet_in[0]->data[0]) == PACKET_GAME_QUIT)
 					{
 						reallyEndLevel = true;
 						playerEndLevel = true;
@@ -3189,7 +3189,7 @@ void JE_pauseGame(void)
 		{
 			setFrameCount(1);
 
-			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_GAME_PAUSE)
+			if (packet_in[0] && network_read16(&packet_in[0]->data[0]) == PACKET_GAME_PAUSE)
 			{
 				network_update();
 				break;
@@ -3235,7 +3235,7 @@ void JE_pauseGame(void)
 		{
 			network_check();
 
-			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_WAITING)
+			if (packet_in[0] && network_read16(&packet_in[0]->data[0]) == PACKET_WAITING)
 			{
 				network_check();
 
@@ -3573,11 +3573,11 @@ redo:
 					buttons |= button[i];
 				}
 
-				SDLNet_Write16(this_player->x - *mouseX_, &packet_state_out[0]->data[4]);
-				SDLNet_Write16(this_player->y - *mouseY_, &packet_state_out[0]->data[6]);
-				SDLNet_Write16(accelXC,                   &packet_state_out[0]->data[8]);
-				SDLNet_Write16(accelYC,                   &packet_state_out[0]->data[10]);
-				SDLNet_Write16(buttons,                   &packet_state_out[0]->data[12]);
+				network_write16(this_player->x - *mouseX_, &packet_state_out[0]->data[4]);
+				network_write16(this_player->y - *mouseY_, &packet_state_out[0]->data[6]);
+				network_write16(accelXC,                   &packet_state_out[0]->data[8]);
+				network_write16(accelYC,                   &packet_state_out[0]->data[10]);
+				network_write16(buttons,                   &packet_state_out[0]->data[12]);
 
 				this_player->x = *mouseX_;
 				this_player->y = *mouseY_;
@@ -3603,33 +3603,33 @@ redo:
 			if (playerNum_ != thisPlayerNum)
 			{
 				if (thisPlayerNum == 2)
-					difficultyLevel = SDLNet_Read16(&packet_state_in[0]->data[16]);
+					difficultyLevel = network_read16(&packet_state_in[0]->data[16]);
 
-				Uint16 buttons = SDLNet_Read16(&packet_state_in[0]->data[12]);
+				Uint16 buttons = network_read16(&packet_state_in[0]->data[12]);
 				for (int i = 0; i < 4; i++)
 				{
 					button[i] = buttons & 1;
 					buttons >>= 1;
 				}
 
-				this_player->x += (Sint16)SDLNet_Read16(&packet_state_in[0]->data[4]);
-				this_player->y += (Sint16)SDLNet_Read16(&packet_state_in[0]->data[6]);
-				accelXC = (Sint16)SDLNet_Read16(&packet_state_in[0]->data[8]);
-				accelYC = (Sint16)SDLNet_Read16(&packet_state_in[0]->data[10]);
+				this_player->x += (Sint16)network_read16(&packet_state_in[0]->data[4]);
+				this_player->y += (Sint16)network_read16(&packet_state_in[0]->data[6]);
+				accelXC = (Sint16)network_read16(&packet_state_in[0]->data[8]);
+				accelYC = (Sint16)network_read16(&packet_state_in[0]->data[10]);
 			}
 			else
 			{
-				Uint16 buttons = SDLNet_Read16(&packet_state_out[network_delay]->data[12]);
+				Uint16 buttons = network_read16(&packet_state_out[network_delay]->data[12]);
 				for (int i = 0; i < 4; i++)
 				{
 					button[i] = buttons & 1;
 					buttons >>= 1;
 				}
 
-				this_player->x += (Sint16)SDLNet_Read16(&packet_state_out[network_delay]->data[4]);
-				this_player->y += (Sint16)SDLNet_Read16(&packet_state_out[network_delay]->data[6]);
-				accelXC = (Sint16)SDLNet_Read16(&packet_state_out[network_delay]->data[8]);
-				accelYC = (Sint16)SDLNet_Read16(&packet_state_out[network_delay]->data[10]);
+				this_player->x += (Sint16)network_read16(&packet_state_out[network_delay]->data[4]);
+				this_player->y += (Sint16)network_read16(&packet_state_out[network_delay]->data[6]);
+				accelXC = (Sint16)network_read16(&packet_state_out[network_delay]->data[8]);
+				accelYC = (Sint16)network_read16(&packet_state_out[network_delay]->data[10]);
 			}
 		}
 #endif

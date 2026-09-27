@@ -22,8 +22,9 @@
 #include "opentyr.h"
 
 #include <SDL3/SDL.h>
+#include <string.h>
 #ifdef WITH_NETWORK
-#	include "SDL_net.h"
+#	include <SDL3_net/SDL_net.h>
 #endif
 
 #define PACKET_ACKNOWLEDGE   0x00    // 
@@ -52,9 +53,32 @@ extern Uint16 network_player_port, network_opponent_port;
 extern char *network_player_name, *network_opponent_name;
 
 #ifdef WITH_NETWORK
-extern UDPpacket *packet_out_temp;
-extern UDPpacket *packet_in[], *packet_out[],
-                 *packet_state_in[], *packet_state_out[];
+// SDL3_net has no UDPpacket type, so keep the same buffer/length pair the rest
+// of the engine already shares through the packet arrays.
+typedef struct NetworkPacket
+{
+	Uint8 *data;
+	int len;
+} NetworkPacket;
+
+// The old SDL2_net byte-order helpers, so packet layouts stay wire-identical.
+// SDL2_net wrote big-endian words regardless of host byte order.
+static inline Uint16 network_read16(const void *data)
+{
+	Uint16 value;
+	memcpy(&value, data, sizeof value);
+	return SDL_Swap16BE(value);
+}
+
+static inline void network_write16(Uint16 value, void *data)
+{
+	value = SDL_Swap16BE(value);
+	memcpy(data, &value, sizeof value);
+}
+
+extern NetworkPacket *packet_out_temp;
+extern NetworkPacket *packet_in[], *packet_out[],
+                     *packet_state_in[], *packet_state_out[];
 #endif
 
 extern uint thisPlayerNum;

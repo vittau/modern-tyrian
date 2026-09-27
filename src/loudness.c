@@ -110,6 +110,10 @@ bool init_audio(void)
 		return false;
 	}
 
+	// SDL2 requested a 1024-sample device buffer (~23 ms at 44.1 kHz); keep the
+	// same latency in the SDL3 stream.
+	SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1024");
+
 	audioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audioCallback, NULL);
 
 	if (audioStream == NULL)
@@ -230,17 +234,22 @@ static void audioCallback(void *userdata, SDL_AudioStream *stream, int additiona
 	if (additional_amount <= 0)
 		return;
 
-	const int samplesCount = additional_amount / (int)sizeof (Sint16);
+	// Render in fixed-size chunks so the audio thread never allocates.
+	static Sint16 mixBuffer[1024];
 
-	Sint16 *samples = SDL_malloc((size_t)samplesCount * sizeof (Sint16));
-	if (samples == NULL)
-		return;
+	int remaining = additional_amount;
+	while (remaining > 0)
+	{
+		int samplesCount = MIN(remaining / (int)sizeof (Sint16), (int)COUNTOF(mixBuffer));
+		if (samplesCount <= 0)
+			break;
 
-	audio_mix(samples, samplesCount);
+		audio_mix(mixBuffer, samplesCount);
 
-	SDL_PutAudioStreamData(stream, samples, samplesCount * (int)sizeof (Sint16));
+		SDL_PutAudioStreamData(stream, mixBuffer, samplesCount * (int)sizeof (Sint16));
 
-	SDL_free(samples);
+		remaining -= samplesCount * (int)sizeof (Sint16);
+	}
 }
 
 void deinit_audio(void)
