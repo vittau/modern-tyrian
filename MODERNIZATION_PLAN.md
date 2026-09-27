@@ -35,7 +35,9 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 15. **A rede vazava para o gameplay.** Havia 38 chamadas `SDLNet_Read16/Write16` espalhadas por `mainint.c`, `tyrian2.c` e `game_menu.c`, lendo e escrevendo pacotes. Hoje elas usam `network_read16/write16` (`src/network.h`). O protocolo é UDP ponto a ponto, 2 jogadores, em lock-step com o loop do jogo; o SDL3_net não tem bind, então o filtro por endereço e porta do oponente é explícito.
 16. **Contrato dos passes do modo Modern** (`src/modern.h`): `void pass(ModernFrame *)`, rodam na ordem de registro, uma vez por quadro apresentado, sobre o canvas na grade lógica. Regras: determinísticos, sem RNG, sem tocar estado de jogo; podem ler `src` (índices de 8 bits) e `palette` e escrever `pixels`. O canvas pode ser mais largo que o quadro de 8 bits, o que prepara o widescreen.
 17. **GCC é mais estrito que o clang do macOS.** Com `-std=c99 -pedantic -Werror`, o GCC rejeita ponteiro-para-array com qualificador diferente (`const Palette *` a partir de `&palette`), e o clang aceita. A CI de Linux e Windows x86_64 usa GCC, então mudanças em `src/` devem ser auditadas também com `gcc-16` (Homebrew), usando as flags da CI.
-18. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
+18. **SDL3: eventos de hot-plug.** `SDL_EVENT_GAMEPAD_ADDED/REMOVED` chegam mesmo com os eventos desabilitados, mas `SDL_EVENT_JOYSTICK_ADDED/REMOVED` não chegam. Um gamepad gera os dois pares, então é preciso deduplicar por instance id.
+19. **O harness pode receber input real.** No macOS, mesmo com o driver `dummy`, o processo de teste é um app Cocoa chamado `opentyrian`. Um `osascript` que traz "o processo opentyrian" para a frente e manda teclas (como nas capturas de tela do widescreen) pode acertar um teste em andamento. Isso aconteceu: o cenário `flip` falhou por volta do quadro 855 só enquanto outro agente capturava telas, e passou 3/3 isolado, tanto na árvore limpa quanto na do gamepad. A correção está pendente (§6).
+20. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
 
@@ -126,7 +128,8 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] Correção de PAR (4:3) com integer scaling por eixo
 - [ ] Widescreen: playfield 264×184 recortado, HUD original ao lado, laterais com a arte além da borda escurecida
 - [ ] HUD que fica dentro do playfield (dinheiro, vidas, superbombs) movido para fora no modo Modern
-- [ ] Gamepad via API moderna do SDL, com hot-plug e remapeamento
+- [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Commit `1a33820` na branch local `gamepad`, ainda não integrado a `modernization`
+- [ ] Harness imune a input real: no modo regress, descartar eventos de teclado/mouse/foco e marcar o processo como app de fundo no macOS (ver §2.19)
 - [ ] Bloom simples pela máscara de brilho da paleta
 - [ ] **Visão estendida (modo Modern, opcional):** mostrar mais da largura real das fases dos dois lados do playfield, sem mudar o gameplay (lógica, limites de spawn/despawn e movimento da nave intactos). Passo 1: medir por fase quanta arte existe além da borda em todo o range do pan e mapear as suposições de 320 px no renderizador de 8 bits. Passo 2: implementar com a largura que as medições permitirem. A prova de que a lógica não mudou é o hash da janela central de 264 px igual aos baselines atuais
 
@@ -246,3 +249,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 ### 2026-09-27 — Pergunta sobre ampliar o campo horizontal
 - O usuário perguntou se dá para aproveitar o scroll horizontal nativo para mostrar mais campo no widescreen. Análise: o "scroll" é só o parallax do fundo (camada da frente ~70 px, meio ~47, fundo ~24), os mapas têm 336–360 px, e tiros e inimigos têm limites de remoção próximos da borda original. Só ~20–24 px por lado são viáveis sem inventar arte nem mudar o gameplay.
 - Decisão (§7): seguir com a visão estendida dentro desse limite. Começa com uma investigação de medições numa worktree separada; a implementação vem depois do widescreen.
+
+### 2026-09-27 — Gamepad entregue; harness vulnerável a input real
+- O agente do gamepad (worktree `gamepad`) caiu uma vez por HTTP 400 do provedor e foi retomado. Entregou a API de Gamepad do SDL3 com mapeamento padrão, hot-plug e remapeamento por nome no cfg; o caminho legado de joystick não mudou. Aprovado; commit `1a33820` na branch local `gamepad`. A integração em `modernization` fica para depois que o widescreen for commitado, porque os dois mexem em `README.md`, `params.c` e `opentyr.c`.
+- Na verificação apareceu falha intermitente no cenário `flip` (5 casos, por volta do quadro 855). A causa provável é input real injetado no processo de teste pelas capturas com `osascript` do agente de widescreen (§2.19). Isolado, o cenário passa 3/3. A correção do harness entra na fila.
+- O agente de widescreen também encerrou o turno antes de terminar e foi retomado. A técnica para destravar workers opencode foi registrada no CLAUDE.md global.
