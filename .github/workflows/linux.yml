@@ -23,6 +23,17 @@ jobs:
         include:
           - { runner: ubuntu-22.04,     arch: x86_64 }
           - { runner: ubuntu-22.04-arm, arch: arm64 }
+    # Job-level, so EVERY step that runs make/pkg-config sees the source-built
+    # static SDL3 under build/sdl.  While this was set only on the "Compile
+    # check" step, a later `make install` re-evaluated the Makefile without it:
+    # pkg-config then found no `sdl3` package, so the rebuild lost its include
+    # flags and died with `SDL3/SDL_stdinc.h: No such file or directory`.
+    # PKG_CONFIG_PATH only *prepends* to pkg-config's search path, so the
+    # distro's .pc files are still found, and make_linux.sh re-exports exactly
+    # this same $PWD/build/sdl/lib/pkgconfig for its own build, so the two do
+    # not fight.
+    env:
+      PKG_CONFIG_PATH: ${{ github.workspace }}/build/sdl/lib/pkgconfig
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,8 +73,6 @@ jobs:
         run: ./make_linux.sh --deps-only
       - name: Compile check (debug, -Werror, source-built SDL3)
         run: make -j"$(nproc)" debug
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/build/sdl/lib/pkgconfig
       - name: Smoke test
         run: ./opentyrian --help
       - name: Test install/uninstall
