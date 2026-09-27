@@ -335,3 +335,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - Passar o S1 para um agente novo com a nota de passagem. Remover os ganchos de teste, com atenção a eventos de teclado injetados em `keyboard.c`/`mouse.c`, que ficam fora do escopo combinado.
   - Revisar, fazer o commit e ver a CI ficar verde.
 - **Depois:** S2 (mapa, ship specs, starfields, créditos) e taxa de quadros independente da lógica com interpolação (Fase 2).
+
+### 2026-09-27 — Retomada: três agentes em paralelo
+- Depois do desligamento, tudo intacto e nenhuma sessão fantasma. O S1 das telas foi para um agente novo, com a nota de passagem, no checkout principal. Ele também vai criar a opção `--regress-screen` para abrir telas de menu direto, sem janela, porque a navegação por teclas simuladas não funcionou nesta máquina.
+- O usuário pediu prioridade para 60 fps ou mais e quer muito ver a iluminação melhorada. Em paralelo, em worktrees separadas:
+  - `framerate`: design e etapas 1–2 da taxa de quadros independente da lógica (lista de desenho por tick e renderizador que reproduz o quadro, com a prova de hash idêntico).
+  - `lighting`: bloom mais um mapa de luz dinâmica a partir dos pixels emissivos da paleta. Tiros, explosões e chamas iluminam o terreno com a própria cor. As luzes por objeto virão depois, alimentadas pela lista de desenho.
+- As telas S2 (mapa, ship specs, starfields, créditos) esperam o S1, porque usam o mesmo compositor.
