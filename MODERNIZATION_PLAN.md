@@ -117,7 +117,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Baseline de áudio offline (`--regress-audio`): 38 efeitos convertidos, as 41 músicas (10 s cada) e uma mixagem fixa. Total: 53 casos, ~37 s
 - [x] Migração SDL2 → SDL3, núcleo: vídeo, eventos, input, áudio e build. Linka só libSDL3, e os 53 baselines passam sem ser regenerados. Rede desligada temporariamente
 - [x] Rede via SDL3_net (handshake validado com dois peers locais; o lock-step em jogo ainda não foi testado)
-- [x] Migração SDL2 → SDL3: CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows/`visualc`). O macOS foi validado localmente (app universal, frameworks embutidos); Linux e Windows só serão validados quando o GitHub Actions for ligado no fork
+- [x] Migração SDL2 → SDL3: CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows/`visualc`). **CI verde em Linux (x86_64/arm64), macOS e Windows (x86_64/arm64)** desde `e5a6d11`. O projeto MSVC (`visualc/`) não é exercitado pela CI
 - [x] Pequenos ajustes de áudio pós-SDL3: buffer estático no callback e `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES=1024`
 - [ ] ~~Backend GPU com a paleta aplicada no shader~~ → substituído pelo pipeline de composição na CPU (§7)
 - [x] Pipeline de composição moderna na CPU (`src/modern.c`): canvas XRGB na grade lógica, lista de passes de efeito (vazia), textura própria com nearest. Setting `presentation` (cfg + `--presentation`), hash do canvas no harness (`--regress-modern`). Total: 63 casos. Custo ~37 µs/quadro
@@ -235,3 +235,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Um agente novo entregou o pipeline moderno e o setting Classic/Modern, aprovado na primeira revisão. Os 63 casos passam. Sem passes, o modo Modern sai byte a byte igual ao scaler "None" do Classic; o custo medido é ~37 µs por quadro. Verificado com janela real em modo Modern.
 - O GitHub Actions foi disparado manualmente pela API (em forks, o push não disparava). 1ª rodada: macOS verde; Linux quebrou por falta do `libxtst-dev` e Windows por um banco MSYS2 desatualizado sem `sdl3-net`. Um agente corrigiu os dois (`108e69a`).
 - 2ª rodada: macOS e Windows arm64 (clang) verdes. Linux e Windows x86_64 (GCC) falham num erro real de código, `palette.c:87` (ponteiro-para-array `const`, rejeitado pelo GCC com `-pedantic`). Uma auditoria com GCC 16 nos 55 arquivos confirmou que é o único. A correção está em andamento com o mesmo agente.
+
+### 2026-09-27 — CI verde nas três plataformas
+- Com o Actions disparado pela API (em forks o push não disparava na primeira vez; hoje o push já dispara), foram 4 rodadas até ficar tudo verde: (1) `libxtst-dev` e o banco MSYS2 desatualizado; (2) `palette.c:87`, que o GCC rejeita com `-pedantic`; (3) `PKG_CONFIG_PATH` só no passo de compilação, o que quebrava `make install`; (4) verde em Linux x86_64/arm64, macOS e Windows x86_64/arm64 (`e5a6d11`).
+- Lição registrada em §2.17: auditar com `gcc-16` e as flags da CI toda mudança em `src/`, porque o clang do macOS aceita construções que o GCC rejeita.
+- Fase 0 concluída. A Fase 1 começou em paralelo: widescreen/PAR no checkout principal e gamepad numa worktree local separada (`gamepad`), que será incorporada a `modernization` após revisão.
