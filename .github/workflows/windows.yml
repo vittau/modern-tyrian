@@ -30,8 +30,14 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: ${{ matrix.msystem }}
-          # no `update:` — the pinned base install is fine for CI and much
-          # faster; the action's built-in cache (default on) does the rest
+          # `update` defaults to false, which leaves pacman on the base image's
+          # stale package database; that database knows `*-sdl3` 3.4.16 but not
+          # the newer `*-sdl3-net` ("error: target not found").  `update: true`
+          # runs `pacman -Syu` first ("update the package database and all
+          # already installed packages" per the action docs), so the install
+          # list below resolves.  The action's built-in cache (default on)
+          # still caches the resulting environment between runs.
+          update: true
           install: >-
             make git curl unzip zip
             ${{ matrix.prefix }}-cc

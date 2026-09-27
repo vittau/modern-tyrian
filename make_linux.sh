@@ -15,12 +15,24 @@
 # SDL3 list from its docs/README-linux.md: SDL3 enables the X11, Wayland,
 # PipeWire/PulseAudio/ALSA and other backends at compile time when their
 # headers are present, then dlopen()s the libraries at run time.
+#
+# The X11 extension -dev packages below are hard requirements, not optional
+# extras: SDL3 3.4.16's CheckX11 (cmake/sdlchecks.cmake) calls
+# SDL_missing_dependency() for each enabled X11 extension, so configure stops
+# with a FATAL_ERROR at the first one whose header/library is missing.  The
+# mapping is:
+#   libxcursor-dev  XCURSOR       libxext-dev  XDBE (Xdbe.h), XSYNC (sync.h),
+#   libxi-dev       XINPUT                      XSHAPE (shape.h)
+#   libxfixes-dev   XFIXES        libxrandr-dev XRANDR
+#   libxss-dev      XSCRNSAVER    libxtst-dev   XTEST
+# Everything else in the list only enables a dlopen()ed backend and is
+# harmless (SDL just warns and disables it) if absent.
 #   Debian/Ubuntu:  sudo apt install build-essential cmake pkg-config curl unzip \
 #       libasound2-dev libpulse-dev libpipewire-0.3-dev libx11-dev libxext-dev \
 #       libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev \
-#       libwayland-dev libxkbcommon-dev libdecor-0-dev libegl1-mesa-dev \
-#       libgl1-mesa-dev libgles2-mesa-dev libgbm-dev libdrm-dev libdbus-1-dev \
-#       libudev-dev wayland-protocols
+#       libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev \
+#       libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libgbm-dev \
+#       libdrm-dev libdbus-1-dev libudev-dev wayland-protocols
 #
 # Usage: ./make_linux.sh [--deps-only] [data-dir]
 #   (default data dir: ./data, fetched if missing)
