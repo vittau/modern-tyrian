@@ -325,3 +325,13 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - As telas fora do jogo trocaram o ambilight pelo desfoque da própria tela.
 - Revisão: inventário barra→HUD completo, capturas conferidas (1P e 2P em 16:9, 16:10, 21:9, arcade, telas reais de título e menus), ganchos conferidos (o `--textErase` continua avaliado igual), auditoria GCC limpa, `make regress` 71/71 duas vezes. Os `state-*` e os baselines Classic e 4:3 não mudaram.
 - Próximo: telas fora do jogo com conteúdo real (§6): Vert- no título e nos menus da pic 2, o painel direito da moldura da loja alargado e a extensão real do mapa, do ship specs, dos starfields e dos créditos.
+
+### 2026-09-27 — Pausa: máquina vai ser desligada
+- **Em andamento:** telas fora do jogo, etapa S1. O painel direito da moldura da loja é alargado, e o título e os menus da pic 2 ganham Vert-. O agente foi interrompido de propósito antes do desligamento, para o serviço do opencode não retomar a sessão sozinho (§2.22).
+- **Onde está o trabalho:** no working tree de `modernization`, sem commit. Arquivos: `src/modern.c/.h`, `src/video.c/.h`, `src/picload.c`, `src/keyboard.c`, `src/mouse.c`. Há um backup em `refs/keep/screens-s1-wip` (stash `507e703`). A nota de passagem do agente está em `.worker-reports/phase1-screens-s1-handoff.md`.
+- **CI vermelha no Linux e no Windows:** falta `#include <stdio.h>` em `src/modern.c`. A correção já está no working tree do S1 e entra junto com ele.
+- **Ao retomar:**
+  - Conferir que nenhuma sessão opencode ficou ocupada (`opencode api session.list`).
+  - Passar o S1 para um agente novo com a nota de passagem. Remover os ganchos de teste, com atenção a eventos de teclado injetados em `keyboard.c`/`mouse.c`, que ficam fora do escopo combinado.
+  - Revisar, fazer o commit e ver a CI ficar verde.
+- **Depois:** S2 (mapa, ship specs, starfields, créditos) e taxa de quadros independente da lógica com interpolação (Fase 2).
