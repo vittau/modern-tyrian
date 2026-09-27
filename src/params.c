@@ -80,6 +80,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 267, 0,   "pixel-aspect",      true },
 		{ 268, 0,   "regress-aspect",    true },
 		{ 269, 0,   "selftest-gamepad",  false },
+		{ 270, 0,   "regress-state-out", true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -124,6 +125,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
 			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
+			logInfo("  --regress-state-out=FILE     Write per-frame game-state hashes to FILE");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -339,6 +341,9 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 		case 269: // --selftest-gamepad
 			selftest_gamepad = true;
+			break;
+		case 270: // --regress-state-out
+			regress_state_out_path = option.arg;
 			break;
 			
 		default:

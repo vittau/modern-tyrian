@@ -224,6 +224,67 @@ run_case "modern-wide-scenario-spotlight-d3" \
 	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
 
+# --- game-state hashes --------------------------------------------------------
+#
+# The state-hash stream covers the RNG, the players, the enemy/shot arrays,
+# boss_bar[], tempW and the level event position, and is independent of the
+# presentation.  These three cases run it through the Modern 16:9 path (where
+# the relocated HUD is active) and compare against baselines that were produced
+# by a Classic run, so any Modern change that perturbs game state fails here.
+# See src/regress.c (regress_state_hash).
+
+run_state_case() {
+	local label=$1
+	shift
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+	local baseline="$BASELINE_DIR/$label.txt"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-state-out="$out" "$@" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
+		echo "FAIL $label: exit code $rc (no state output)"
+		tail -n 5 "$log"
+		failures=$((failures + 1))
+		return
+	fi
+
+	lines=$(wc -l < "$out" | tr -d ' ')
+
+	if [ "$UPDATE" -eq 1 ]; then
+		cp "$out" "$baseline"
+		echo "UPDATE $label: $lines lines"
+		return
+	fi
+
+	if [ ! -f "$baseline" ]; then
+		echo "FAIL $label: missing baseline (run tools/regress.sh --update)"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if cmp -s "$baseline" "$out"; then
+		echo "PASS $label: $lines lines"
+	else
+		hunk=$(diff "$baseline" "$out" | head -n 1)
+		first=${hunk%%[cad]*}
+		first=${first%%,*}
+		echo "FAIL $label: first differing line $((first - 1))"
+		failures=$((failures + 1))
+	fi
+}
+
+run_state_case "state-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_state_case "state-demo3-d2" --regress-demo=3 --regress-detail=2 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_state_case "state-scenario-spotlight-d3" \
+	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+
 # --- offline audio -----------------------------------------------------------
 
 pairs=$((pairs + 1))

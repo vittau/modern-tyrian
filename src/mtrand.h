@@ -26,4 +26,9 @@ unsigned long mt_rand(void);
 float mt_rand_1(void);
 float mt_rand_lt1(void);
 
+// Hash of the generator's internal state, for the regression harness.  Read-only:
+// it neither advances nor otherwise changes the generator, so callers can compare
+// RNG state frame by frame without perturbing the game.
+unsigned long long mt_rand_state_hash(void);
+
 #endif /* MTRAND_H */
