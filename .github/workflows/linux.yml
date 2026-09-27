@@ -28,21 +28,31 @@ jobs:
         with:
           fetch-depth: 0   # git describe --tags for the version string
       - name: Install dependencies
-        # The distro libsdl2-dev is only for the -Werror compile check.  The
-        # release links a static SDL2 built from source (make_linux.sh), so
-        # the -dev packages after it are HEADERS for SDL's dlopen'ed backends
-        # - nothing from them is linked into the binary.
+        # Ubuntu 22.04 has no libsdl3 package, so the -Werror compile check
+        # below links the SDL3 that make_linux.sh builds from source (cached
+        # under build/sdl).  These -dev packages are HEADERS for SDL3's
+        # dlopen()ed backends (X11, Wayland, PipeWire/PulseAudio/ALSA, ...);
+        # nothing from them is linked into the binary.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config curl unzip libsdl2-dev libsdl2-net-dev \
+            build-essential cmake pkg-config curl unzip \
             libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxfixes-dev libxi-dev libxss-dev libwayland-dev \
             libxkbcommon-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev \
             libgles2-mesa-dev libgbm-dev libdrm-dev libdbus-1-dev libudev-dev \
             wayland-protocols libpipewire-0.3-dev
-      - name: Compile check (debug, -Werror, distro SDL2)
+      - name: Cache static SDL3 build
+        uses: actions/cache@v6
+        with:
+          path: build/sdl
+          key: sdl3-static-${{ matrix.arch }}-${{ hashFiles('make_linux.sh') }}
+      - name: Build static SDL3 + SDL3_net (deps only)
+        run: ./make_linux.sh --deps-only
+      - name: Compile check (debug, -Werror, source-built SDL3)
         run: make -j"$(nproc)" debug
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/sdl/lib/pkgconfig
       - name: Smoke test
         run: ./opentyrian --help
       - name: Test install/uninstall
@@ -57,12 +67,7 @@ jobs:
         with:
           path: data
           key: tyrian21-data-v1
-      - name: Cache static SDL2 build
-        uses: actions/cache@v6
-        with:
-          path: build/sdl
-          key: sdl2-static-${{ matrix.arch }}-${{ hashFiles('make_linux.sh') }}
-      - name: Build (make_linux.sh, static SDL2)
+      - name: Build (make_linux.sh, static SDL3)
         run: ./make_linux.sh
       - name: Package (binary + game data)
         run: |
@@ -71,9 +76,9 @@ jobs:
           cp -r data dist/opentyrian/data
           cp COPYING dist/opentyrian/
           cp doc/tyrian-freeware-license.txt dist/opentyrian/licenses/Tyrian.txt
-          # SDL2 and SDL2_net are linked in statically, so their licenses ship too
-          cp build/sdl/share/licenses/SDL2.txt dist/opentyrian/licenses/
-          cp build/sdl/share/licenses/SDL2_net.txt dist/opentyrian/licenses/
+          # SDL3 and SDL3_net are linked in statically, so their licenses ship too
+          cp build/sdl/share/licenses/SDL3.txt dist/opentyrian/licenses/
+          cp build/sdl/share/licenses/SDL3_net.txt dist/opentyrian/licenses/
           tar -czf "opentyrian-linux-${{ matrix.arch }}.tar.gz" -C dist opentyrian
       - name: Extract the package
         run: mkdir -p pkgtest && tar -xzf "opentyrian-linux-${{ matrix.arch }}.tar.gz" -C pkgtest

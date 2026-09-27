@@ -97,11 +97,13 @@ LDLIBS ?=
 
 ifeq ($(WITH_NETWORK), true)
     # Some sdl3-net .pc files (Homebrew's, at least) ship an empty prefix and
-    # therefore a bogus -L/lib search path that makes the linker complain; take
-    # the include/search paths from sdl3 and only the library names from sdl3-net.
-    SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 sdl3-net --cflags)
-    SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 --libs-only-L --libs-only-other)
-    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl3-net --libs-only-l)
+    # therefore bogus bare -I/include and -L/lib search paths that make the
+    # linker warn.  Take the real paths from both packages (so this still works
+    # when SDL3 and SDL3_net live under different prefixes, as in a static
+    # source build) and drop those two empty-prefix artifacts.
+    SDL_CPPFLAGS := $(filter-out -I/include, $(shell $(PKG_CONFIG) sdl3 sdl3-net --cflags))
+    SDL_LDFLAGS := $(filter-out -L/lib, $(shell $(PKG_CONFIG) sdl3 sdl3-net --libs-only-L --libs-only-other))
+    SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl3 sdl3-net --libs-only-l)
 else
     SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl3 --cflags)
     SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl3 --libs-only-L --libs-only-other)

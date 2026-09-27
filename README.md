@@ -56,12 +56,12 @@ the following locations, searched in order:
 
 ## Building
 
-Requirements: a C99 compiler, GNU make, pkg-config, SDL2, and, for network
-play, SDL2_net.
+Requirements: a C99 compiler, GNU make, pkg-config, SDL3, and, for network
+play, SDL3_net.
 
     make
 
-Network play is enabled automatically when SDL2_net is found.
+Network play is enabled automatically when SDL3_net is found.
 
 A Visual Studio solution is provided in `visualc/`.
 

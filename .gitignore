@@ -16,8 +16,8 @@ tyrian.sav
 
 # Windows build output
 /opentyrian.exe
-/SDL2.dll
-/SDL2_net.dll
+/SDL3.dll
+/SDL3_net.dll
 
 # MSVC build output and project
 /opentyrian-*.exe

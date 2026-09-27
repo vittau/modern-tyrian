@@ -56,8 +56,8 @@
     <ClCompile>
       <CompileAs>CompileAsC</CompileAs>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
-      <AdditionalIncludeDirectories>$(SDL2BaseDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalIncludeDirectories Condition="'$(WITH_NETWORK)'=='true'">$(SDL2netBaseDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SDL3BaseDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(WITH_NETWORK)'=='true'">$(SDL3netBaseDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>EnableAllWarnings</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>TARGET_WIN32;_CRT_SECURE_NO_WARNINGS;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -67,8 +67,8 @@
       <DisableSpecificWarnings>4018;4061;4204;4210;4242;4244;4245;4267;4305;4456;4457;4459;4668;4710;4711;4738;4820;5045;26451</DisableSpecificWarnings>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>SDL2.lib;SDL2main.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(WITH_NETWORK)'=='true'">SDL2_net.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(WITH_NETWORK)'=='true'">SDL3_net.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -99,16 +99,16 @@
     <ClCompile>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>$(SDL2BaseDir)\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalLibraryDirectories Condition="'$(WITH_NETWORK)'=='true'">$(SDL2netBaseDir)\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(SDL3BaseDir)\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(WITH_NETWORK)'=='true'">$(SDL3netBaseDir)\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
     <ClCompile>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>$(SDL2BaseDir)\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalLibraryDirectories Condition="'$(WITH_NETWORK)'=='true'">$(SDL2netBaseDir)\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(SDL3BaseDir)\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(WITH_NETWORK)'=='true'">$(SDL3netBaseDir)\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -224,12 +224,12 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ItemGroup Condition="'$(Platform)'=='Win32'">
-    <Dependency Include="$(SDL2BaseDir)\lib\x86\*.dll" />
-    <Dependency Condition="$(WITH_NETWORK)=='true'" Include="$(SDL2netBaseDir)\lib\x86\*.dll" />
+    <Dependency Include="$(SDL3BaseDir)\lib\x86\*.dll" />
+    <Dependency Condition="$(WITH_NETWORK)=='true'" Include="$(SDL3netBaseDir)\lib\x86\*.dll" />
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='x64'">
-    <Dependency Include="$(SDL2BaseDir)\lib\x64\*.dll" />
-    <Dependency Condition="$(WITH_NETWORK)=='true'" Include="$(SDL2netBaseDir)\lib\x64\*.dll" />
+    <Dependency Include="$(SDL3BaseDir)\lib\x64\*.dll" />
+    <Dependency Condition="$(WITH_NETWORK)=='true'" Include="$(SDL3netBaseDir)\lib\x64\*.dll" />
   </ItemGroup>
   <PropertyGroup>
     <BuildDependsOn>CopyPropsTemplates;EnsureSDLExists;$(BuildDependsOn)</BuildDependsOn>
@@ -239,8 +239,8 @@
     <Copy SourceFiles="sdl_paths.props.template" DestinationFiles="sdl_paths.props" Condition="!Exists('sdl_paths.props')" />
   </Target>
   <Target Name="EnsureSDLExists">
-    <Error Condition="!Exists($(SDL2BaseDir))" Text="Set 'SDL2BaseDir' in 'sdl_paths.props' to the directory where SDL2 is located." />
-    <Error Condition="'$(WITH_NETWORK)'=='true' AND !Exists($(SDL2netBaseDir))" Text="Set 'SDL2netBaseDir' in 'sdl_paths.props' to the directory where SDL2_net is located." />
+    <Error Condition="!Exists($(SDL3BaseDir))" Text="Set 'SDL3BaseDir' in 'sdl_paths.props' to the directory where SDL3 is located." />
+    <Error Condition="'$(WITH_NETWORK)'=='true' AND !Exists($(SDL3netBaseDir))" Text="Set 'SDL3netBaseDir' in 'sdl_paths.props' to the directory where SDL3_net is located." />
   </Target>
   <Target Name="CopyDependencies" AfterTargets="Build">
     <Copy SourceFiles="@(Dependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
