@@ -30,7 +30,9 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 10. **O padrão de `processorType` é inconsistente.** Sem arquivo de config, o motor usa 3 ("High Detail"), mas `JE_initProcessorType()` documenta o 2 como padrão. Na prática, os níveis 2, 3 e 5 produzem saída idêntica nas demos, porque `smoothScroll` é forçado para true depois.
 11. **Mapa dos "smoothies" nos níveis.** Estes efeitos são ligados por eventos de fase (tipo 64): lava (bit 1) em E1/L16 e em várias fases do episódio 4; água (bit 2) em E1/L17 e em muitas do E4; blur (bit 4) e iced blur (bits 3 e 5) só no E4; holofote (bit 6) em E1/L15 e E1/L16; flip vertical (bit 9) em E4/L12 e E4/L13. Os bits 7 e 8 nunca são usados. Uma varredura estática dos níveis não basta, porque eventos de salto (tipo 54) e saltos condicionais (61/66/70/71) pulam parte dos eventos. `tools/scan_smoothies.py` lista os candidatos, e só a execução confirma quais rodam.
 12. **Estrutura dos arquivos `.lvl`.** `lvlPos` guarda duas entradas por fase (`JE_loadMap()` usa `lvlPos[(lvlFileNum-1)*2]`), e a última entrada do episódio 4 é o bloco de itens (`src/episodes.c:87`).
-13. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
+13. **Pipeline de áudio.** A saída é mono, S16, 44100 Hz (`11025 × OUTPUT_QUALITY`), com buffer de 1024 amostras. A música é um emulador OPL mais o player LDS em C puro, sem SDL. Os efeitos sonoros são 29 em `tyrian.snd` e 9 vozes em `voices.snd`, em 8 bits a 11025 Hz. A única reamostragem acontece em `loadSndFile()` (`src/nortsong.c`), via `SDL_AudioCVT`. A percussão do OPL usa `rand()` da libc, não `mt_rand`.
+14. **Os baselines dependem da máquina.** `powf`/`pow`/`sin` (volume, OPL) e `cosf`/`sinf` (superpixels) passam por ponto flutuante da libm. Por isso os baselines valem para esta máquina e toolchain (macOS arm64, clang), e não como golden files multiplataforma. Uma CI em outro sistema precisaria de baselines próprios.
+15. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
 
@@ -108,6 +110,9 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Build local funcionando (macOS, `make`; Homebrew com sdl2-compat sobre SDL3)
 - [x] Teste de regressão: 5 demos × 6 níveis de detalhe, sem janela, hash por quadro de 8 bits + paleta, baselines em `test/regress/`, `make regress` (~26 s)
 - [x] Cobrir os caminhos que as demos não exercitam: 5 cenários sintéticos (`--regress-level=E:L --regress-frames=N`) cobrem lava, água, blur, iced blur, flip vertical e holofote. Total: 52 pares, ~35 s
+- [x] Baseline de áudio offline (`--regress-audio`): 38 efeitos convertidos, as 41 músicas (10 s cada) e uma mixagem fixa. Total: 53 casos, ~37 s
+- [ ] Migração SDL2 → SDL3, núcleo: vídeo, eventos, input, áudio e build; todos os baselines de vídeo e áudio inalterados
+- [ ] Migração SDL2 → SDL3: rede via SDL3_net, CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows)
 - [ ] Backend GPU com a paleta aplicada no shader; saída idêntica ao scaler atual
 - [ ] Modos Classic/Modern como configuração (Modern = Classic por enquanto)
 
@@ -190,3 +195,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Descobertas em §2 (itens 11–12): mapa de quais fases ligam cada smoothie; os saltos de evento tornam a varredura estática não confiável; `lvlPos` guarda duas entradas por fase. Sem invencibilidade, o jogador morre em 358–1185 quadros, antes da maioria dos eventos.
 - Incidente do coordenador: um `git commit -a` para ajustar o plano publicou o trabalho do agente ainda sem revisão. Desfeito com reset e `--force-with-lease`. Regra adotada: só adicionar arquivos por caminho explícito.
 - Próximo: migração SDL2 → SDL3 (Fase 0c), com um agente novo.
+
+### 2026-09-27 — Baseline de áudio entregue (Fase 0c-1)
+- Um agente novo entregou `--regress-audio`, aprovado na primeira revisão. O callback de áudio foi extraído sem mudanças para `audio_mix()`, que o harness chama diretamente, sem abrir dispositivo. Os testes negativos (volume, taxa de conversão) quebram exatamente as linhas esperadas.
+- A migração para SDL3 foi dividida em três tarefas sequenciais: (1) baseline de áudio [feito]; (2) núcleo; (3) rede, CI e release.
+- Descobertas em §2 (itens 13–14): o formato do pipeline de áudio, onde fica a única reamostragem, e o fato de os baselines dependerem da libm e toolchain desta máquina.
