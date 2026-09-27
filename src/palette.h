@@ -30,7 +30,7 @@ extern Uint32 rgb_palette[256], yuv_palette[256];
 
 extern Palette colors; // TODO: get rid of this
 
-const Palette *get_active_palette(void); // palette currently presented
+const SDL_Color *get_active_palette(void); // palette currently presented
 
 void loadPals(void);
 

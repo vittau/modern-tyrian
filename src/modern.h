@@ -67,7 +67,7 @@ typedef struct
 	Uint32 *pixels;        // owned XRGB8888 canvas, `h` rows of `pitch` bytes
 	const Uint8 *src;      // source 8-bit indices (read-only)
 	int src_pitch;         // bytes per source row
-	const Palette *palette; // active palette (read-only)
+	const SDL_Color *palette; // active palette (read-only)
 } ModernFrame;
 
 // An effect pass over the canvas.

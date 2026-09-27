@@ -170,10 +170,10 @@ void regress_capture_frame(SDL_Surface *surface)
 	}
 
 	// Hash the palette that is currently being presented.
-	const Palette *palette = get_active_palette();
+	const SDL_Color *palette = get_active_palette();
 	for (size_t i = 0; i < 256; ++i)
 	{
-		const Uint8 rgb[3] = { (*palette)[i].r, (*palette)[i].g, (*palette)[i].b };
+		const Uint8 rgb[3] = { palette[i].r, palette[i].g, palette[i].b };
 		hash_bytes(&hash, rgb, sizeof rgb);
 	}
 
