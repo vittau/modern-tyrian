@@ -37,6 +37,7 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 17. **GCC é mais estrito que o clang do macOS.** Com `-std=c99 -pedantic -Werror`, o GCC rejeita ponteiro-para-array com qualificador diferente (`const Palette *` a partir de `&palette`), e o clang aceita. A CI de Linux e Windows x86_64 usa GCC, então mudanças em `src/` devem ser auditadas também com `gcc-16` (Homebrew), usando as flags da CI.
 18. **SDL3: eventos de hot-plug.** `SDL_EVENT_GAMEPAD_ADDED/REMOVED` chegam mesmo com os eventos desabilitados, mas `SDL_EVENT_JOYSTICK_ADDED/REMOVED` não chegam. Um gamepad gera os dois pares, então é preciso deduplicar por instance id.
 19. **O harness pode receber input real.** No macOS, mesmo com o driver `dummy`, o processo de teste é um app Cocoa chamado `opentyrian`. Um `osascript` que traz "o processo opentyrian" para a frente e manda teclas (como nas capturas de tela do widescreen) pode acertar um teste em andamento. Isso aconteceu: o cenário `flip` falhou por volta do quadro 855 só enquanto outro agente capturava telas, e passou 3/3 isolado, tanto na árvore limpa quanto na do gamepad. A correção está pendente (§6).
+20. **Arte além da borda do playfield (medido).** Cada camada de fundo é desenhada como uma janela de 12 tiles (288 px) deslizando sobre um mapa de 336 px (bg1/bg2) ou 360 px (bg3). Somando todo o range do pan, há arte em x ∈ [-45,315) na bg1, [-41,342) na bg2 e [-69,369) na bg3, com o playfield em [24,288). A margem garantida em qualquer pan é assimétrica: ~45 px à esquerda e só 3 px à direita (7 px onde há bg2/bg3 densa). Seis fases não têm fundo nenhum (E1:L1, E2:L5, L7, L8, L9 e E4:L14). Com 24 px por lado, a faixa esquerda tem em média 94 % de arte real e a direita 64 %. Inimigos já simulados aparecem nessas faixas em 11–21 % dos quadros. Porém `JE_drawEnemy` só anima e desenha inimigos em x ∈ (-29,300), o que limita a revelação à direita a ~12 px, e tiros somem visivelmente na borda direita em ~1,5 % dos quadros. Dois cuidados para qualquer implementação: `blit_sprite2*` usam o `VGAScreen->pitch` global em vez do pitch da superfície (`sprite.c:559,636,672,708`), e `draw_background_2/3` avançam o scroll dentro da função de desenho, então não podem ser chamadas duas vezes por quadro. Relatório completo: `.worker-reports/phase1-extview-investigation.md`.
 20. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
@@ -131,7 +132,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Commit `1a33820` na branch local `gamepad`, ainda não integrado a `modernization`
 - [ ] Harness imune a input real: no modo regress, descartar eventos de teclado/mouse/foco e marcar o processo como app de fundo no macOS (ver §2.19)
 - [ ] Bloom simples pela máscara de brilho da paleta
-- [ ] **Visão estendida (modo Modern, opcional):** mostrar mais da largura real das fases dos dois lados do playfield, sem mudar o gameplay (lógica, limites de spawn/despawn e movimento da nave intactos). Passo 1: medir por fase quanta arte existe além da borda em todo o range do pan e mapear as suposições de 320 px no renderizador de 8 bits. Passo 2: implementar com a largura que as medições permitirem. A prova de que a lógica não mudou é o hash da janela central de 264 px igual aos baselines atuais
+- [ ] **Visão estendida (modo Modern, opcional):** mostrar mais da largura real das fases dos dois lados do playfield, sem mudar o gameplay (lógica, limites de spawn/despawn e movimento da nave intactos). Passo 1: medir por fase quanta arte existe além da borda em todo o range do pan e mapear as suposições de 320 px no renderizador de 8 bits. Passo 2: implementar com a largura que as medições permitirem. A prova de que a lógica não mudou é o hash da janela central de 264 px igual aos baselines atuais. Passo 1 feito (§2.20); o passo 2 aguarda a decisão em §7
 
 ### Fase 2 — O "Modern"
 - [ ] Snapshot e fila de eventos por tick
@@ -149,7 +150,10 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 ## 7. Decisões
 
 ### Em aberto
-_(nenhuma)_
+- **Visão estendida: só fundo ou fundo com objetos?** As medições (§2.20) mostram que dá para estender ~24 px por lado com arte real, mas com uma limitação:
+  - **(A) Só o fundo (recomendado).** As faixas laterais mostram a arte real das fases, escurecidas para marcar que ficam fora da área de jogo. Inimigos e tiros continuam aparecendo e sumindo na borda original. O jogador não vê nada antes do que via no DOS. Buffer de fundo largo separado, só no modo Modern. Esforço ~2 dias, risco baixo.
+  - **(B) Fundo e objetos.** Inimigos aparecem nas faixas antes de entrar no playfield, o que dá ao jogador informação que o original não dava. À direita isso fica limitado a ~12 px pelo portão de desenho de `JE_drawEnemy`, e há tiros sumindo à vista na borda direita. Exige alargar o framebuffer das fases (território da Fase 3). Esforço ~3–5 dias, risco real de regressão.
+  - **(C) Desistir** e deixar as laterais só com o preenchimento procedural do widescreen.
 
 ### Tomadas
 - **2026-09-26 — Fase 0 aprovada; backend = SDL3.** A migração SDL2 → SDL3 (API de GPU/renderer com shaders e API nova de gamepad) foi a recomendação aceita. SDL3 3.4.16 já está instalado via Homebrew.
@@ -254,3 +258,7 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - O agente do gamepad (worktree `gamepad`) caiu uma vez por HTTP 400 do provedor e foi retomado. Entregou a API de Gamepad do SDL3 com mapeamento padrão, hot-plug e remapeamento por nome no cfg; o caminho legado de joystick não mudou. Aprovado; commit `1a33820` na branch local `gamepad`. A integração em `modernization` fica para depois que o widescreen for commitado, porque os dois mexem em `README.md`, `params.c` e `opentyr.c`.
 - Na verificação apareceu falha intermitente no cenário `flip` (5 casos, por volta do quadro 855). A causa provável é input real injetado no processo de teste pelas capturas com `osascript` do agente de widescreen (§2.19). Isolado, o cenário passa 3/3. A correção do harness entra na fila.
 - O agente de widescreen também encerrou o turno antes de terminar e foi retomado. A técnica para destravar workers opencode foi registrada no CLAUDE.md global.
+
+### 2026-09-27 — Visão estendida medida
+- Um agente numa worktree separada instrumentou o renderizador de 8 bits (depois reverteu tudo), varreu o pan inteiro e rodou as 62 fases dos 4 episódios mais as 5 demos. Números em §2.20.
+- Resultado: dá para mostrar ~24 px de arte real por lado, com a direita mais pobre (64 % coberta em média). Mostrar também os inimigos nessas faixas esbarra no portão de desenho de `JE_drawEnemy` e exigiria alargar o framebuffer das fases. A escolha entre só fundo e fundo com objetos foi para o usuário (§7, em aberto). A implementação vem depois do widescreen, qualquer que seja a opção.
