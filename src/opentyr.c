@@ -33,6 +33,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "mainint.h"
+#include "modern.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "network.h"
@@ -801,6 +802,8 @@ int main(int argc, char *argv[])
 		regress_init();
 		xmas = false;
 	}
+
+	logInfo("Presentation mode: %s.", presentation_names[presentation]);
 
 	if (!findDataFiles())
 	{

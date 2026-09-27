@@ -8,7 +8,9 @@
 #      level (1 .. 6), as demoN-dM;
 #   2. synthetic level scenarios that cover render paths the demos never reach
 #      (smoothies[] stays zero for the whole of every demo), as
-#      scenario-<name>-dM.  See SCENARIOS below.
+#      scenario-<name>-dM.  See SCENARIOS below;
+#   3. the Modern presentation (--regress-modern), which hashes the CPU-composed
+#      XRGB8888 canvas instead of the 8-bit frame, as modern-<case>.
 #
 # It also runs the offline audio regression (--regress-audio) as the "audio"
 # case, which hashes the converted sound effects, per-second music rendering and
@@ -180,6 +182,30 @@ for spec in "${SCENARIOS[@]}"; do
 		run_case "scenario-$sname-d$m" \
 			--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
 	done
+done
+
+# --- modern presentation -----------------------------------------------------
+#
+# The Modern path composes on the CPU at the logical resolution; --regress-modern
+# hashes its XRGB8888 canvas instead of the 8-bit frame.  Keep the subset small:
+# all five demos at detail 2, plus every synthetic scenario at its lowest valid
+# detail.
+
+for d in $DEMOS; do
+	pairs=$((pairs + 1))
+	run_case "modern-demo$d-d2" --regress-demo="$d" --regress-detail=2 --regress-modern
+done
+
+for spec in "${SCENARIOS[@]}"; do
+	# shellcheck disable=SC2086
+	set -- $spec
+	sname=$1
+	slvl=$2
+	sframes=$3
+	sdetail=$4
+	pairs=$((pairs + 1))
+	run_case "modern-scenario-$sname-d$sdetail" \
+		--regress-level="$slvl" --regress-detail="$sdetail" --regress-frames="$sframes" --regress-modern
 done
 
 # --- offline audio -----------------------------------------------------------

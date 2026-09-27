@@ -45,6 +45,7 @@ extern int regress_frames;            // scenario length cap; 0 = run to the end
 extern const char *regress_out_path;  // where frame hashes are written
 extern int regress_detail;            // processorType to use (1..6)
 extern int regress_audio;             // non-zero = offline audio regression
+extern int regress_modern;            // non-zero = force the Modern presentation
 
 // True when regress mode was requested.
 bool regress_active(void);
@@ -92,5 +93,10 @@ void regress_clock_advance_to(Uint32 target);
 
 // Append one "<frame_index> <hash>" line for a presented 320x200 8-bit surface.
 void regress_capture_frame(SDL_Surface *surface);
+
+// Append one "<frame_index> <hash>" line for the current Modern canvas
+// (XRGB8888), hashing the visible w*4 bytes of each row and walking the pitch.
+// The palette is already baked into those bytes.
+void regress_capture_modern_frame(void);
 
 #endif /* REGRESS_H */

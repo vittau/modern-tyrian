@@ -24,6 +24,7 @@
 #include "loudness.h"
 #include "memreader.h"
 #include "memwriter.h"
+#include "modern.h"
 #include "mtrand.h"
 #include "nortsong.h"
 #include "opentyr.h"
@@ -250,6 +251,7 @@ static void loadOpenTyrianConfig(void)
 	// defaults
 	fullscreen_display = -1;
 	set_scaler_by_name("Scale2x");
+	presentation = PRESENTATION_CLASSIC;
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
 	Config *config = &opentyrian_config;
@@ -289,6 +291,10 @@ static void loadOpenTyrianConfig(void)
 		const char *scaling_mode;
 		if (config_get_string_option(section, "scaling_mode", &scaling_mode))
 			set_scaling_mode_by_name(scaling_mode);
+
+		const char *presentation_name;
+		if (config_get_string_option(section, "presentation", &presentation_name))
+			set_presentation_by_name(presentation_name);
 	}
 
 	section = config_find_section(config, "keyboard", NULL);
@@ -322,6 +328,8 @@ static void saveOpenTyrianConfig(void)
 	config_set_string_option(section, "scaler", scalers[scaler].name);
 	
 	config_set_string_option(section, "scaling_mode", scaling_mode_names[scaling_mode]);
+
+	config_set_string_option(section, "presentation", presentation_names[presentation]);
 
 	section = config_find_or_add_section(config, "keyboard", NULL);
 	if (section == NULL)

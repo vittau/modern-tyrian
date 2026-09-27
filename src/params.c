@@ -25,6 +25,7 @@
 #include "joystick.h"
 #include "logging.h"
 #include "loudness.h"
+#include "modern.h"
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
@@ -72,6 +73,8 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 261, 0,   "regress-level",     true },
 		{ 262, 0,   "regress-frames",    true },
 		{ 263, 0,   "regress-audio",     false },
+		{ 264, 0,   "presentation",      true },
+		{ 265, 0,   "regress-modern",    false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -109,11 +112,13 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               (1 or 2)");
 			logInfo("  -p, --net-port=PORT          Set local port to bind (default is 1333)");
 			logInfo("  -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)");
+			logInfo("  --presentation=MODE          Set presentation mode: classic or modern");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
 			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
+			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
 			exit(EXIT_SUCCESS);
 			break;
@@ -287,6 +292,16 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 		case 263: // --regress-audio
 			regress_audio = 1;
+			break;
+		case 264: // --presentation=classic|modern
+			if (!set_presentation_by_name(option.arg))
+			{
+				logError("%s: presentation mode must be 'classic' or 'modern'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 265: // --regress-modern
+			regress_modern = 1;
 			break;
 			
 		default:

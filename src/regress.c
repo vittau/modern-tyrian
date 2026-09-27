@@ -23,6 +23,7 @@
 #include "joystick.h"
 #include "logging.h"
 #include "loudness.h"
+#include "modern.h"
 #include "mtrand.h"
 #include "opentyr.h"
 #include "palette.h"
@@ -47,6 +48,7 @@ int regress_frames = 0;
 const char *regress_out_path = NULL;
 int regress_detail = 2;
 int regress_audio = 0;
+int regress_modern = 0;
 
 // 64-bit FNV-1a.
 static const Uint64 fnv_offset_basis = UINT64_C(14695981039346656037);
@@ -133,6 +135,22 @@ FILE *regress_output_file(void)
 	return regress_out;
 }
 
+// Writes one "<frame_index> <hash>" record and honors the scenario frame cap.
+static void regress_emit_frame_hash(Uint64 hash)
+{
+	fprintf(regress_out, "%lu %016" PRIx64 "\n", regress_frame, hash);
+	regress_frame++;
+
+	if (regress_frames > 0 && regress_frame >= (unsigned long)regress_frames)
+	{
+		// Scenario length cap.  This is the last frame we want, so flush and
+		// leave; there is no clean way to unwind the original in-level loop and
+		// every frame we care about has already been captured.
+		regress_finish();
+		exit(EXIT_SUCCESS);
+	}
+}
+
 void regress_capture_frame(SDL_Surface *surface)
 {
 	if (regress_out == NULL || surface == NULL)
@@ -159,17 +177,31 @@ void regress_capture_frame(SDL_Surface *surface)
 		hash_bytes(&hash, rgb, sizeof rgb);
 	}
 
-	fprintf(regress_out, "%lu %016" PRIx64 "\n", regress_frame, hash);
-	regress_frame++;
+	regress_emit_frame_hash(hash);
+}
 
-	if (regress_frames > 0 && regress_frame >= (unsigned long)regress_frames)
+void regress_capture_modern_frame(void)
+{
+	if (regress_out == NULL)
+		return;
+
+	const ModernFrame *frame = modern_current_frame();
+	if (frame == NULL || frame->pixels == NULL)
+		return;
+
+	Uint64 hash = fnv_offset_basis;
+
+	// Hash the visible XRGB bytes of each row, honoring the canvas pitch.  The
+	// palette is already applied to the canvas, so it is not hashed separately.
+	const Uint8 *pixels = (const Uint8 *)frame->pixels;
+	const size_t row_size = (size_t)frame->w * sizeof(Uint32);
+	for (int y = 0; y < frame->h; ++y)
 	{
-		// Scenario length cap.  This is the last frame we want, so flush and
-		// leave; there is no clean way to unwind the original in-level loop and
-		// every frame we care about has already been captured.
-		regress_finish();
-		exit(EXIT_SUCCESS);
+		hash_bytes(&hash, pixels, row_size);
+		pixels += frame->pitch;
 	}
+
+	regress_emit_frame_hash(hash);
 }
 
 void regress_begin_scenario(void)
@@ -249,6 +281,11 @@ void regress_init(void)
 	pentiumMode         = false;
 	starActive          = true;
 	filterActive        = true;
+
+	// Pin the presentation mode so the harness hashes the right buffer, without
+	// the user's config leaking in (loadConfiguration() is skipped in regress
+	// mode).
+	presentation = regress_modern ? PRESENTATION_MODERN : PRESENTATION_CLASSIC;
 
 	JE_initProcessorType();
 

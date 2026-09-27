@@ -78,6 +78,14 @@ A Visual Studio solution is provided in `visualc/`.
                                  (1 or 2)
     -p, --net-port=PORT          Set local port to bind (default is 1333)
     -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)
+    --presentation=MODE          Set the presentation mode: classic or modern
+
+The `presentation` setting is also stored in `opentyrian.cfg` (in the `video`
+section) and defaults to `classic`.  Classic is the original path: the 8-bit
+frame is run through a software scaler (`None`, `2x`, `Scale2x`, `hq2x`, ...).
+Modern composes an XRGB8888 canvas on the CPU at the logical resolution, runs
+its effect passes there, and scales it to the window with nearest-neighbour;
+the software scalers are ignored in Modern.
 
 ## Network Multiplayer
 

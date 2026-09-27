@@ -54,6 +54,16 @@ void toggle_fullscreen(void);
 bool init_scaler(unsigned int new_scaler);
 bool set_scaling_mode_by_name(const char *name);
 
+// Shared presentation helpers, used by both the Classic and Modern paths.
+SDL_Renderer *video_renderer(void);
+// Computes the destination rectangle for a logical surface of src_w x src_h
+// pixels uploaded to `texture`, honoring the current scaling mode.  Classic
+// passes the 8-bit surface size and its software-scaled texture; Modern passes
+// the canvas size and its canvas texture.
+void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_Rect *dst_rect);
+// Records the presented output rectangle for mouse mapping.
+void video_set_last_output_rect(const SDL_Rect *rect);
+
 void deinit_video(void);
 
 void JE_clr256(SDL_Surface *);

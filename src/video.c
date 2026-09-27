@@ -20,6 +20,7 @@
 
 #include "keyboard.h"
 #include "logging.h"
+#include "modern.h"
 #include "regress.h"
 #include "video_scale.h"
 
@@ -100,6 +101,7 @@ void init_video(void)
 	init_renderer();
 	init_texture();
 	init_scaler(scaler);
+	modern_init();
 
 	SDL_ShowWindow(main_window);
 
@@ -110,6 +112,7 @@ void init_video(void)
 
 void deinit_video(void)
 {
+	modern_deinit();
 	deinit_texture();
 	deinit_renderer();
 
@@ -348,10 +351,26 @@ void JE_showVGA(void)
 	scale_and_flip(VGAScreen); 
 }
 
+SDL_Renderer *video_renderer(void)
+{
+	return main_window_renderer;
+}
+
+void video_set_last_output_rect(const SDL_Rect *rect)
+{
+	last_output_rect = *rect;
+}
+
 static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const dst_rect)
 {
+	video_calc_dst_render_rect(src_surface->w, src_surface->h, main_window_texture, dst_rect);
+}
+
+void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_Rect *const dst_rect)
+{
 	// Decides how the logical output texture (after software scaling applied) will fit
-	// in the window.
+	// in the window.  `src_w` x `src_h` is the logical surface size that integer
+	// scaling counts in multiples of (the 320x200 game frame, or the modern canvas).
 
 	int win_w, win_h;
 	SDL_GetWindowSize(main_window, &win_w, &win_h);
@@ -363,18 +382,18 @@ static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const
 	case SCALE_CENTER:
 	{
 		float tex_w, tex_h;
-		SDL_GetTextureSize(main_window_texture, &tex_w, &tex_h);
+		SDL_GetTextureSize(texture, &tex_w, &tex_h);
 		dst_rect->w = (int)tex_w;
 		dst_rect->h = (int)tex_h;
 		break;
 	}
 	case SCALE_INTEGER:
-		dst_rect->w = src_surface->w;
-		dst_rect->h = src_surface->h;
-		while (dst_rect->w + src_surface->w <= win_w && dst_rect->h + src_surface->h <= win_h)
+		dst_rect->w = src_w;
+		dst_rect->h = src_h;
+		while (dst_rect->w + src_w <= win_w && dst_rect->h + src_h <= win_h)
 		{
-			dst_rect->w += src_surface->w;
-			dst_rect->h += src_surface->h;
+			dst_rect->w += src_w;
+			dst_rect->h += src_h;
 		}
 		break;
 	case SCALE_ASPECT_8_5:
@@ -419,6 +438,20 @@ static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const
 static void scale_and_flip(SDL_Surface *src_surface)
 {
 	assert(SDL_BITSPERPIXEL(src_surface->format) == 8);
+
+	if (presentation == PRESENTATION_MODERN)
+	{
+		// CPU-composited canvas at the logical resolution: convert, run the
+		// effect passes, then upload and present.  The software scalers are
+		// Classic-only and are ignored here.
+		modern_build_frame(src_surface);
+
+		if (regress_active())
+			regress_capture_modern_frame();
+
+		modern_present_frame();
+		return;
+	}
 
 	if (regress_active())
 		regress_capture_frame(src_surface);
