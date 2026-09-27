@@ -130,7 +130,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Widescreen: `aspect` = 4:3, 16:10, 16:9, 21:9, 32:9 ou auto. O quadro de 320×200 fica centralizado e nunca é ampliado, e as laterais recebem um preenchimento procedural escurecido ("ambilight") tirado das bordas do playfield, sem revelar nada fora dele (`b1e4313`)
 - [ ] HUD que fica dentro do playfield (dinheiro, vidas, superbombas, arma especial, barras de chefe) movido para os painéis laterais no modo Modern, quando houver largura. Em andamento na worktree `hud` (etapa 1 do HUD modernizado, §7)
 - [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Integrado a `modernization` no merge `85f741a`
-- [ ] Harness imune a input real: no modo regress, descartar eventos de teclado/mouse/foco e marcar o processo como app de fundo no macOS (ver §2.19)
+- [x] Harness imune a input real: no modo regress só `SDL_EVENT_QUIT` passa, joysticks ficam inertes, o foco fica fixo e no macOS o processo sobe com `SDL_HINT_MAC_BACKGROUND_APP` (§2.19)
 - [ ] Bloom simples pela máscara de brilho da paleta
 - [—] ~~Visão estendida~~: descartada pelo usuário depois das medições (§2.20, §7). As laterais ficam só com o preenchimento procedural do widescreen
 
@@ -276,3 +276,12 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 ### 2026-09-27 — HUD modernizado, etapa 1 despachada
 - O usuário aprovou o HUD modernizado em duas etapas (§7). A etapa 1 foi para um agente novo na worktree `hud`, em paralelo com o agente do harness no checkout principal.
 - Achado na preparação: o desenho do HUD tem efeitos colaterais na lógica. `JE_inGameDisplays` (`mainint.c:2847`) escreve na global `tempW`, que o cálculo do pan lê, e `draw_boss_bar` (`tyrian2.c:~5176`) atualiza `boss_bar[]` enquanto desenha. Mover o desenho exige separar atualização e desenho. A tarefa também cria uma prova permanente: um hash do estado do jogo por quadro (`--regress-state-out`), que tem de ser idêntico entre Classic e Modern.
+
+### 2026-09-27 — Harness imune a input real
+- O agente fechou o vazamento na fronteira de entrada:
+  - `handleSdlEvents` descarta tudo menos `SDL_EVENT_QUIT` no modo regress.
+  - `poll_joysticks` fica inerte.
+  - `windowHasFocus` fica fixo em true, porque o build de release pausa sozinho sem foco.
+  - `SDL_HINT_MAC_BACKGROUND_APP` é ligado antes do `SDL_Init`.
+- Nesta sessão o `osascript` não conseguiu mais entregar teclas ao processo, que nunca virou frontmost. Por isso a prova usou um injetor temporário dentro do processo: uma tecla Up via `SDL_PushEvent` no quadro 855 do cenário flip. Sem o descarte, 3/3 divergem a partir do quadro 858; com o descarte, 3/3 batem com o baseline.
+- Revisão: diff de 4 arquivos, build ok, auditoria GCC limpa, autoteste do gamepad ok, `make regress` 66/66.
