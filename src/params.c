@@ -75,6 +75,9 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 263, 0,   "regress-audio",     false },
 		{ 264, 0,   "presentation",      true },
 		{ 265, 0,   "regress-modern",    false },
+		{ 266, 0,   "aspect",            true },
+		{ 267, 0,   "pixel-aspect",      true },
+		{ 268, 0,   "regress-aspect",    true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -113,6 +116,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  -p, --net-port=PORT          Set local port to bind (default is 1333)");
 			logInfo("  -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)");
 			logInfo("  --presentation=MODE          Set presentation mode: classic or modern");
+			logInfo("  --aspect=RATIO               Modern aspect: 4:3, 16:10, 16:9, 21:9, 32:9, auto");
+			logInfo("  --pixel-aspect=SHAPE         Modern pixel aspect: original (1.2) or square");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
@@ -303,6 +308,32 @@ void JE_paramCheck(int argc, char *argv[])
 		case 265: // --regress-modern
 			regress_modern = 1;
 			break;
+		case 266: // --aspect=4:3|16:10|16:9|21:9|32:9|auto
+			if (!set_modern_aspect_by_name(option.arg))
+			{
+				logError("%s: aspect must be '4:3', '16:10', '16:9', '21:9', '32:9' or 'auto'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 267: // --pixel-aspect=original|square
+			if (!set_modern_pixel_aspect_by_name(option.arg))
+			{
+				logError("%s: pixel aspect must be 'original' or 'square'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 268: // --regress-aspect=<aspect>
+		{
+			const ModernAspect before = modern_aspect;
+			if (!set_modern_aspect_by_name(option.arg))
+			{
+				logError("%s: aspect must be '4:3', '16:10', '16:9', '21:9', '32:9' or 'auto'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_aspect = modern_aspect;
+			modern_aspect = before;  // applied by regress_init(), not now
+			break;
+		}
 			
 		default:
 			assert(false);

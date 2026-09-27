@@ -23,6 +23,7 @@
 #include "video.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -33,6 +34,36 @@ const char *const presentation_names[PRESENTATION_MAX] =
 };
 
 Presentation presentation = PRESENTATION_CLASSIC;
+
+const char *const modern_aspect_names[MODERN_ASPECT_MAX] =
+{
+	"4:3",
+	"16:10",
+	"16:9",
+	"21:9",
+	"32:9",
+	"auto",
+};
+
+const char *const modern_pixel_aspect_names[PIXEL_ASPECT_MAX] =
+{
+	"original",
+	"square",
+};
+
+ModernAspect modern_aspect = MODERN_ASPECT_4_3;
+ModernPixelAspect modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
+
+// Aspect ratios for the fixed values; "auto" is resolved from the window.
+static const float modern_aspect_ratios[MODERN_ASPECT_MAX] =
+{
+	4.0f / 3.0f,
+	16.0f / 10.0f,
+	16.0f / 9.0f,
+	21.0f / 9.0f,
+	32.0f / 9.0f,
+	4.0f / 3.0f,  // auto: replaced by the window aspect
+};
 
 // Ordered effect passes.  Empty in this task; see modern.h for the contract.
 #define MODERN_MAX_PASSES 16
@@ -46,6 +77,24 @@ static ModernFrame modern_frame_state;
 // The canvas texture.  Created/recreated only by modern_set_canvas_size().
 static SDL_Texture *modern_texture = NULL;
 
+// True once modern_init() ran and the renderer exists.  The resize entry points
+// that the window/fullscreen code calls become no-ops until then.
+static bool modern_ready = false;
+
+// One-shot flag set by JE_starShowVGA() just before it presents.
+static bool modern_gameplay_frame = false;
+
+// Row colours for the side panels: [left pre][right pre][left blur][right blur],
+// 3 bytes each.  Allocated by modern_set_canvas_size() for the canvas height,
+// never in the per-frame path.
+static Uint8 *modern_panel_scratch = NULL;
+
+// Precomputed per-column fade factors for the side panels (Q32 fixed point),
+// sized to the canvas width.  Allocated by modern_set_canvas_size().
+static Uint64 *modern_panel_scale_scratch = NULL;
+
+static void modern_fill_side_panels(ModernFrame *frame, int frame_x, bool gameplay);
+
 bool set_presentation_by_name(const char *name)
 {
 	for (int i = 0; i < PRESENTATION_MAX; ++i)
@@ -57,6 +106,42 @@ bool set_presentation_by_name(const char *name)
 		}
 	}
 	return false;
+}
+
+bool set_modern_aspect_by_name(const char *name)
+{
+	for (int i = 0; i < MODERN_ASPECT_MAX; ++i)
+	{
+		if (strcmp(name, modern_aspect_names[i]) == 0)
+		{
+			modern_aspect = (ModernAspect)i;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool set_modern_pixel_aspect_by_name(const char *name)
+{
+	for (int i = 0; i < PIXEL_ASPECT_MAX; ++i)
+	{
+		if (strcmp(name, modern_pixel_aspect_names[i]) == 0)
+		{
+			modern_pixel_aspect = (ModernPixelAspect)i;
+			return true;
+		}
+	}
+	return false;
+}
+
+float modern_pixel_aspect_factor(void)
+{
+	return modern_pixel_aspect == PIXEL_ASPECT_ORIGINAL ? 1.2f : 1.0f;
+}
+
+void modern_mark_gameplay_frame(void)
+{
+	modern_gameplay_frame = true;
 }
 
 void modern_register_pass(ModernPassFunction pass)
@@ -97,6 +182,25 @@ void modern_set_canvas_size(int w, int h)
 	modern_frame_state.src_pitch = 0;
 	modern_frame_state.palette = NULL;
 
+	// Scratch for the side panels' per-row colours (four h*3 buffers) and their
+	// per-column fade factors (w Q32 values).  Grows only when the canvas is
+	// resized.
+	free(modern_panel_scratch);
+	modern_panel_scratch = malloc((size_t)h * 3 * 4);
+	if (modern_panel_scratch == NULL)
+	{
+		logFatal("Failed to allocate the modern panel scratch (%dx%d).", w, h);
+		exit(EXIT_FAILURE);
+	}
+
+	free(modern_panel_scale_scratch);
+	modern_panel_scale_scratch = malloc((size_t)w * sizeof(Uint64));
+	if (modern_panel_scale_scratch == NULL)
+	{
+		logFatal("Failed to allocate the modern panel scale scratch (%dx%d).", w, h);
+		exit(EXIT_FAILURE);
+	}
+
 	// (Re)create the streaming texture at the canvas size, nearest-neighbour so
 	// the logical pixels stay crisp when scaled.
 	if (modern_texture != NULL)
@@ -119,16 +223,52 @@ void modern_set_canvas_size(int w, int h)
 
 void modern_init(void)
 {
-	modern_set_canvas_size(vga_width, vga_height);
+	modern_ready = true;
+	modern_update_canvas_size();
+}
+
+void modern_update_canvas_size(void)
+{
+	if (!modern_ready)
+		return;
+
+	int win_w = 0, win_h = 0;
+	SDL_GetWindowSize(main_window, &win_w, &win_h);
+	if (win_w <= 0 || win_h <= 0)
+	{
+		win_w = vga_width;
+		win_h = vga_height;
+	}
+
+	// width = round(200 * pixel_aspect * target_aspect), never below 320 so the
+	// frame always fits.  "auto" follows the window aspect.
+	const float pixel_aspect = modern_pixel_aspect_factor();
+	const float target_aspect = modern_aspect == MODERN_ASPECT_AUTO
+		? (float)win_w / (float)win_h
+		: modern_aspect_ratios[modern_aspect];
+
+	int width = (int)lroundf((float)vga_height * pixel_aspect * target_aspect);
+	if (width < vga_width)
+		width = vga_width;
+
+	modern_set_canvas_size(width, vga_height);
 }
 
 void modern_deinit(void)
 {
+	modern_ready = false;
+
 	if (modern_texture != NULL)
 	{
 		SDL_DestroyTexture(modern_texture);
 		modern_texture = NULL;
 	}
+
+	free(modern_panel_scratch);
+	modern_panel_scratch = NULL;
+
+	free(modern_panel_scale_scratch);
+	modern_panel_scale_scratch = NULL;
 
 	free(modern_frame_state.pixels);
 	modern_frame_state.pixels = NULL;
@@ -151,25 +291,262 @@ void modern_build_frame(SDL_Surface *src_surface)
 	frame->src_pitch = src_surface->pitch;
 	frame->palette = get_active_palette();
 
-	// Convert through the very same XRGB words the Classic "None" software
-	// scaler writes, so the canvas is pixel-for-pixel identical to Classic
-	// with no passes registered.  Only the source region is converted; since
-	// the canvas is currently the same size as the 8-bit frame it covers it
-	// all.  A later task that widens the canvas owns the extra region.
+	// Convert the 8-bit frame through the very same XRGB words the Classic
+	// "None" software scaler writes.  The frame is placed centered horizontally
+	// in the canvas; the side panels fill the rest.  With a 320-wide canvas
+	// (the default 4:3 / original combination) this is pixel-for-pixel identical
+	// to the previous Modern output.
 	const int copy_w = MIN((int)src_surface->w, frame->w);
 	const int copy_h = MIN((int)src_surface->h, frame->h);
+	const int offset_x = (frame->w - copy_w) / 2;
 
 	for (int y = 0; y < copy_h; ++y)
 	{
 		const Uint8 *src = frame->src + (size_t)y * frame->src_pitch;
-		Uint32 *dst = frame->pixels + (size_t)y * frame->w;
+		Uint32 *dst = frame->pixels + (size_t)y * frame->w + offset_x;
 
 		for (int x = 0; x < copy_w; ++x)
 			dst[x] = rgb_palette[src[x]];
 	}
 
+	modern_fill_side_panels(frame, offset_x, modern_gameplay_frame);
+	modern_gameplay_frame = false;
+
 	for (size_t i = 0; i < modern_passes_count; ++i)
 		modern_passes[i](frame);
+}
+
+// One faded side-panel pixel.  `scale` is the precomputed Q32 fade factor:
+// strongly darkened (40% peak at the playfield edge) with a quadratic falloff
+// towards the outer edge.  Fixed point keeps it deterministic and division-free
+// in the per-pixel path.
+static Uint32 modern_panel_pixel(int r, int g, int b, Uint64 scale)
+{
+	r = (int)(((Uint64)r * scale) >> 32);
+	g = (int)(((Uint64)g * scale) >> 32);
+	b = (int)(((Uint64)b * scale) >> 32);
+
+	return ((Uint32)(Uint8)r << 16) | ((Uint32)(Uint8)g << 8) | (Uint32)(Uint8)b;
+}
+
+// Q32 fade factor for a column at distance `d` from the playfield edge
+// (d == 0 at the edge, panel_width - 1 at the outer edge).  The 40% peak is
+// 2/5; the falloff is quadratic.
+static Uint64 modern_panel_scale(int panel_width, int d)
+{
+	const Uint64 num = (Uint64)(2 * (panel_width - d) * (panel_width - d));
+	const Uint64 den = (Uint64)(5 * panel_width * panel_width);
+
+	return (num << 32) / den;
+}
+
+// Procedural "ambilight" side panels.  Deterministic and read-only over the
+// already-converted canvas: the left panel samples the frame's column 0, the
+// right panel column 319 (or the playfield's column 263 during gameplay, which
+// skips the HUD sidebar).  It never reads game_screen, so it cannot reveal the
+// off-screen margins.
+static void modern_fill_side_panels(ModernFrame *frame, int frame_x, bool gameplay)
+{
+	const int w = frame->w, h = frame->h;
+	const int left_width = frame_x;
+	const int right_x = frame_x + vga_width;
+	const int right_width = w - right_x;
+
+	if (left_width <= 0 && right_width <= 0)
+		return;
+
+	const int left_edge = frame_x;
+	const int right_edge = gameplay ? frame_x + (vga_width - 1 - 56)  // playfield column 263
+	                                : frame_x + (vga_width - 1);
+
+	const int sample = 4;
+	const int lx0 = left_edge;
+	const int lx1 = MIN(left_edge + sample - 1, w - 1);
+	const int rx0 = MAX(right_edge - (sample - 1), 0);
+	const int rx1 = right_edge;
+	const int lcount = lx1 - lx0 + 1;
+	const int rcount = rx1 - rx0 + 1;
+
+	Uint8 *left_pre   = modern_panel_scratch;
+	Uint8 *right_pre  = modern_panel_scratch + (size_t)h * 3;
+	Uint8 *left_blur  = modern_panel_scratch + (size_t)h * 6;
+	Uint8 *right_blur = modern_panel_scratch + (size_t)h * 9;
+
+	// Per-row average of the few sampled edge columns.
+	for (int y = 0; y < h; ++y)
+	{
+		const Uint32 *row = frame->pixels + (size_t)y * frame->w;
+		int lr = 0, lg = 0, lb = 0, rr = 0, rg = 0, rb = 0;
+
+		for (int x = lx0; x <= lx1; ++x)
+		{
+			const Uint32 p = row[x];
+			lr += (p >> 16) & 0xff;
+			lg += (p >> 8) & 0xff;
+			lb += p & 0xff;
+		}
+		for (int x = rx0; x <= rx1; ++x)
+		{
+			const Uint32 p = row[x];
+			rr += (p >> 16) & 0xff;
+			rg += (p >> 8) & 0xff;
+			rb += p & 0xff;
+		}
+
+		left_pre[y * 3 + 0] = (Uint8)(lr / lcount);
+		left_pre[y * 3 + 1] = (Uint8)(lg / lcount);
+		left_pre[y * 3 + 2] = (Uint8)(lb / lcount);
+		right_pre[y * 3 + 0] = (Uint8)(rr / rcount);
+		right_pre[y * 3 + 1] = (Uint8)(rg / rcount);
+		right_pre[y * 3 + 2] = (Uint8)(rb / rcount);
+	}
+
+	// Vertical box blur so the panels blend over a few rows.
+	const int blur = 8;
+	for (int y = 0; y < h; ++y)
+	{
+		const int y0 = MAX(0, y - blur);
+		const int y1 = MIN(h - 1, y + blur);
+		const int n = y1 - y0 + 1;
+		int lr = 0, lg = 0, lb = 0, rr = 0, rg = 0, rb = 0;
+
+		for (int k = y0; k <= y1; ++k)
+		{
+			lr += left_pre[k * 3 + 0];
+			lg += left_pre[k * 3 + 1];
+			lb += left_pre[k * 3 + 2];
+			rr += right_pre[k * 3 + 0];
+			rg += right_pre[k * 3 + 1];
+			rb += right_pre[k * 3 + 2];
+		}
+
+		left_blur[y * 3 + 0] = (Uint8)(lr / n);
+		left_blur[y * 3 + 1] = (Uint8)(lg / n);
+		left_blur[y * 3 + 2] = (Uint8)(lb / n);
+		right_blur[y * 3 + 0] = (Uint8)(rr / n);
+		right_blur[y * 3 + 1] = (Uint8)(rg / n);
+		right_blur[y * 3 + 2] = (Uint8)(rb / n);
+	}
+
+	// Fill the panels, fading towards their outer edges.  The per-column fade
+	// factors are precomputed once, so the per-pixel work is multiply + shift.
+	for (int x = 0; x < left_width; ++x)
+		modern_panel_scale_scratch[x] = modern_panel_scale(left_width, left_width - 1 - x);
+
+	for (int y = 0; y < h; ++y)
+	{
+		Uint32 *row = frame->pixels + (size_t)y * frame->w;
+		const int lr = left_blur[y * 3 + 0],
+		          lg = left_blur[y * 3 + 1],
+		          lb = left_blur[y * 3 + 2];
+
+		for (int x = 0; x < left_width; ++x)
+			row[x] = modern_panel_pixel(lr, lg, lb, modern_panel_scale_scratch[x]);
+	}
+
+	for (int x = 0; x < right_width; ++x)
+		modern_panel_scale_scratch[x] = modern_panel_scale(right_width, x);
+
+	for (int y = 0; y < h; ++y)
+	{
+		Uint32 *row = frame->pixels + (size_t)y * frame->w;
+		const int rr = right_blur[y * 3 + 0],
+		          rg = right_blur[y * 3 + 1],
+		          rb = right_blur[y * 3 + 2];
+
+		for (int x = 0; x < right_width; ++x)
+			row[right_x + x] = modern_panel_pixel(rr, rg, rb, modern_panel_scale_scratch[x]);
+	}
+}
+
+// Chooses where the canvas lands in the window, honoring the pixel aspect.
+//
+// The canvas' natural aspect already contains the pixel-aspect factor
+// (width = 200 * pixel_aspect * target_aspect), so the on-screen aspect of the
+// content is canvas_aspect / pixel_aspect; fitting the window at that aspect
+// gives every canvas pixel the requested shape (sy/sx == pixel_aspect).
+//  * Integer uses independent integer factors per axis: sy is the largest that
+//    fits the window height, sx is the integer closest to sy / pixel_aspect
+//    (at least 1).  Square keeps sx == sy.
+//  * The Fit modes scale proportionally to fill the window at the content
+//    aspect.
+//  * Center stays the raw 1:1 canvas, as it was before this task.
+static void modern_calc_dst_rect(const ModernFrame *frame, SDL_Rect *dst_rect)
+{
+	int win_w = 0, win_h = 0;
+	SDL_GetWindowSize(main_window, &win_w, &win_h);
+	if (win_w <= 0 || win_h <= 0)
+	{
+		win_w = vga_width;
+		win_h = vga_height;
+	}
+
+	const float pixel_aspect = modern_pixel_aspect_factor();
+	const float content_aspect = ((float)frame->w / (float)frame->h) / pixel_aspect;
+
+	switch (scaling_mode)
+	{
+	case SCALE_CENTER:
+		dst_rect->w = frame->w;
+		dst_rect->h = frame->h;
+		break;
+	case SCALE_INTEGER:
+	{
+		int sx, sy;
+
+		if (pixel_aspect == 1.0f)
+		{
+			sy = win_h / frame->h;
+			sx = win_w / frame->w;
+			if (sx < sy)
+				sy = sx;
+		}
+		else
+		{
+			sy = win_h / frame->h;
+			sx = (int)floorf((float)sy / pixel_aspect + 0.5f);
+			if (sx < 1)
+				sx = 1;
+
+			// Keep the output inside the window when the window is narrower
+			// than the content aspect (this only ever lowers sy).
+			while (sy > 1 && frame->w * sx > win_w)
+			{
+				--sy;
+				sx = (int)floorf((float)sy / pixel_aspect + 0.5f);
+				if (sx < 1)
+					sx = 1;
+			}
+		}
+
+		if (sy < 1)
+			sy = 1;
+
+		dst_rect->w = frame->w * sx;
+		dst_rect->h = frame->h * sy;
+		break;
+	}
+	default:  // SCALE_ASPECT_8_5 / SCALE_ASPECT_4_3 (the Fit modes)
+	{
+		const float maxh_width = win_h * content_aspect;
+		const float maxw_height = win_w / content_aspect;
+
+		if (maxh_width > win_w)
+		{
+			dst_rect->w = win_w;
+			dst_rect->h = (int)maxw_height;
+		}
+		else
+		{
+			dst_rect->w = (int)maxh_width;
+			dst_rect->h = win_h;
+		}
+		break;
+	}
+	}
+
+	dst_rect->x = (win_w - dst_rect->w) / 2;
+	dst_rect->y = (win_h - dst_rect->h) / 2;
 }
 
 void modern_present_frame(void)
@@ -198,7 +575,7 @@ void modern_present_frame(void)
 	}
 
 	SDL_Rect dst_rect;
-	video_calc_dst_render_rect(frame->w, frame->h, modern_texture, &dst_rect);
+	modern_calc_dst_rect(frame, &dst_rect);
 
 	SDL_Renderer *renderer = video_renderer();
 	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -207,7 +584,9 @@ void modern_present_frame(void)
 	SDL_RenderTexture(renderer, modern_texture, NULL, &dst_frect);
 	SDL_RenderPresent(renderer);
 
-	video_set_last_output_rect(&dst_rect);
+	// The game frame sits centered in the wider canvas, so mouse mapping needs
+	// the canvas size and the frame offset, not the canvas alone.
+	video_set_last_output_rect_ex(&dst_rect, frame->w, frame->h, (frame->w - vga_width) / 2, 0);
 }
 
 const ModernFrame *modern_current_frame(void)

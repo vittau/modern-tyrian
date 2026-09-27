@@ -34,6 +34,7 @@
 #include "lvllib.h"
 #include "menus.h"
 #include "mainint.h"
+#include "modern.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "musmast.h"
@@ -151,6 +152,11 @@ void JE_starShowVGA(void)
 				src += game_screen->pitch;
 			}
 		}
+		// Modern presentation: tell the side-panel code this is a gameplay
+		// frame, so it samples the playfield edge (column 263) instead of the
+		// HUD sidebar that fills the frame's right edge.  Display-only, one-shot;
+		// consumed by modern_build_frame().  No gameplay effect.
+		modern_mark_gameplay_frame();
 		JE_showVGA();
 	}
 

@@ -46,6 +46,7 @@ extern const char *regress_out_path;  // where frame hashes are written
 extern int regress_detail;            // processorType to use (1..6)
 extern int regress_audio;             // non-zero = offline audio regression
 extern int regress_modern;            // non-zero = force the Modern presentation
+extern int regress_aspect;            // ModernAspect to force in regress mode; -1 = default (4:3)
 
 // True when regress mode was requested.
 bool regress_active(void);

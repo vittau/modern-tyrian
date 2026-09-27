@@ -63,6 +63,10 @@ SDL_Renderer *video_renderer(void);
 void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_Rect *dst_rect);
 // Records the presented output rectangle for mouse mapping.
 void video_set_last_output_rect(const SDL_Rect *rect);
+// Modern variant: also records the canvas size and the offset of the 320x200
+// game frame inside the canvas, so window points still map to game coordinates
+// when the canvas is wider than the frame.
+void video_set_last_output_rect_ex(const SDL_Rect *rect, int canvas_w, int canvas_h, int frame_x, int frame_y);
 
 void deinit_video(void);
 

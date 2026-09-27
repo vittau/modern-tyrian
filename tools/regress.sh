@@ -10,7 +10,9 @@
 #      (smoothies[] stays zero for the whole of every demo), as
 #      scenario-<name>-dM.  See SCENARIOS below;
 #   3. the Modern presentation (--regress-modern), which hashes the CPU-composed
-#      XRGB8888 canvas instead of the 8-bit frame, as modern-<case>.
+#      XRGB8888 canvas instead of the 8-bit frame, as modern-<case>; the
+#      modern-wide-<case> subset runs the same canvas at 16:9 (wider canvas plus
+#      the procedural side panels).
 #
 # It also runs the offline audio regression (--regress-audio) as the "audio"
 # case, which hashes the converted sound effects, per-second music rendering and
@@ -207,6 +209,20 @@ for spec in "${SCENARIOS[@]}"; do
 	run_case "modern-scenario-$sname-d$sdetail" \
 		--regress-level="$slvl" --regress-detail="$sdetail" --regress-frames="$sframes" --regress-modern
 done
+
+# --- modern widescreen presentation ------------------------------------------
+#
+# The same Modern canvas widened to 16:9 (original 1.2 pixel aspect), hashing
+# the whole canvas including the procedural side panels.  Three representative
+# cases keep the extra runtime small; the old modern-* cases above pin 4:3.
+
+run_case "modern-wide-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "modern-wide-demo3-d2" --regress-demo=3 --regress-detail=2 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "modern-wide-scenario-spotlight-d3" \
+	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
 
 # --- offline audio -----------------------------------------------------------
 

@@ -49,6 +49,7 @@ const char *regress_out_path = NULL;
 int regress_detail = 2;
 int regress_audio = 0;
 int regress_modern = 0;
+int regress_aspect = -1;
 
 // 64-bit FNV-1a.
 static const Uint64 fnv_offset_basis = UINT64_C(14695981039346656037);
@@ -284,8 +285,11 @@ void regress_init(void)
 
 	// Pin the presentation mode so the harness hashes the right buffer, without
 	// the user's config leaking in (loadConfiguration() is skipped in regress
-	// mode).
+	// mode).  The Modern geometry is pinned too: the historic modern-* baselines
+	// are 4:3 + original, and --regress-aspect opts into a wider canvas.
 	presentation = regress_modern ? PRESENTATION_MODERN : PRESENTATION_CLASSIC;
+	modern_aspect = regress_aspect >= 0 ? (ModernAspect)regress_aspect : MODERN_ASPECT_4_3;
+	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 
 	JE_initProcessorType();
 

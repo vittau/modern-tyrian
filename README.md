@@ -79,6 +79,10 @@ A Visual Studio solution is provided in `visualc/`.
     -p, --net-port=PORT          Set local port to bind (default is 1333)
     -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)
     --presentation=MODE          Set the presentation mode: classic or modern
+    --aspect=RATIO               Set the Modern aspect: 4:3, 16:10, 16:9, 21:9,
+                                 32:9 or auto (default is 4:3)
+    --pixel-aspect=SHAPE         Set the Modern pixel aspect: original (1.2, the
+                                 CRT look) or square (default is original)
 
 The `presentation` setting is also stored in `opentyrian.cfg` (in the `video`
 section) and defaults to `classic`.  Classic is the original path: the 8-bit
@@ -86,6 +90,18 @@ frame is run through a software scaler (`None`, `2x`, `Scale2x`, `hq2x`, ...).
 Modern composes an XRGB8888 canvas on the CPU at the logical resolution, runs
 its effect passes there, and scales it to the window with nearest-neighbour;
 the software scalers are ignored in Modern.
+
+The Modern presentation is widescreen.  The original 320x200 frame keeps its
+size and is centered horizontally in a wider canvas (height stays 200 rows), so
+the playfield is never enlarged.  The `aspect` setting picks the on-screen
+aspect (or `auto` follows the window); the canvas width is
+`round(200 * pixel_aspect * aspect)`, never below 320.  The extra side space is
+filled with procedural, darkened "ambilight" panels derived from the frame's
+edge columns (during gameplay, from the playfield edges, not the HUD sidebar).
+The `pixel_aspect` setting reproduces the non-square pixels of the original DOS
+output: `original` draws each pixel 1.2x taller than wide, `square` draws them
+1:1.  Both settings are stored in the `video` section as `aspect` and
+`pixel_aspect`.
 
 ## Network Multiplayer
 

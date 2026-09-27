@@ -52,14 +52,56 @@ extern Presentation presentation;
 // for any other value.
 bool set_presentation_by_name(const char *name);
 
+// Modern-mode widescreen geometry.
+//
+// `aspect` is the on-screen aspect the original 320x200 frame is presented at;
+// it decides how wide the canvas is (the side panels fill the rest).  "auto"
+// follows the current window aspect.
+//
+// `pixel_aspect` is the shape of one presented logical pixel.  The original DOS
+// output was 320x200 on a 4:3 CRT, i.e. each pixel was 1.2x taller than wide;
+// "square" presents pixels 1:1 instead.
+typedef enum
+{
+	MODERN_ASPECT_4_3 = 0,
+	MODERN_ASPECT_16_10,
+	MODERN_ASPECT_16_9,
+	MODERN_ASPECT_21_9,
+	MODERN_ASPECT_32_9,
+	MODERN_ASPECT_AUTO,
+	MODERN_ASPECT_MAX
+} ModernAspect;
+
+typedef enum
+{
+	PIXEL_ASPECT_ORIGINAL = 0,  // 1.2 (height/width), the CRT look
+	PIXEL_ASPECT_SQUARE,
+	PIXEL_ASPECT_MAX
+} ModernPixelAspect;
+
+extern const char *const modern_aspect_names[MODERN_ASPECT_MAX];
+extern const char *const modern_pixel_aspect_names[PIXEL_ASPECT_MAX];
+
+extern ModernAspect modern_aspect;
+extern ModernPixelAspect modern_pixel_aspect;
+
+// Parse "4:3", "16:10", "16:9", "21:9", "32:9", "auto"; "original", "square".
+// Return false (leaving the setting unchanged) for any other value.
+bool set_modern_aspect_by_name(const char *name);
+bool set_modern_pixel_aspect_by_name(const char *name);
+
+// The pixel aspect as a scale factor (1.2 for original, 1.0 for square).
+float modern_pixel_aspect_factor(void);
+
 // The Modern canvas plus read-only access to the frame it was built from.
 //
 // `pixels` is an XRGB8888 canvas of `w` x `h` logical pixels, `pitch` bytes
-// per row.  It is sized to the 8-bit frame today (320x200) but is independent
-// of it, so a later task can make the canvas wider than the source frame.
-// `src` and `src_pitch` point at the source 8-bit indices and `palette` at the
-// active palette for the frame currently being built.  Both are read-only and
-// only valid during a pass; the conversion is what fills `pixels`.
+// per row.  `h` is always the 200 logical rows of the 8-bit frame; `w` is at
+// least 320 and grows with the configured aspect (the frame is centered
+// horizontally and the side panels fill the rest).  `src` and `src_pitch` point
+// at the source 8-bit indices and `palette` at the active palette for the frame
+// currently being built.  Both are read-only and only valid during a pass; the
+// conversion is what fills `pixels`.
 typedef struct
 {
 	int w, h;              // canvas size in logical pixels
@@ -102,6 +144,18 @@ void modern_deinit(void);
 // not for the per-frame path.  `modern_init()` sizes it to vga_width x
 // vga_height.
 void modern_set_canvas_size(int w, int h);
+
+// Recomputes the canvas width from the current aspect/pixel-aspect settings and
+// the current window size, then resizes if needed.  Allocates only when the
+// size actually changes; call it on window resize, fullscreen toggle and
+// setting changes, never per frame.
+void modern_update_canvas_size(void);
+
+// Marks the next presented frame as a gameplay frame.  JE_starShowVGA() calls
+// this immediately before JE_showVGA() so the side panels sample the playfield
+// edges (columns 0 and 263) instead of the HUD sidebar.  The flag is consumed
+// by modern_build_frame(); it does not affect gameplay.
+void modern_mark_gameplay_frame(void);
 
 // Converts `src_surface` (8-bit indexed) through the active palette into the
 // canvas and runs the registered passes, in order.  No allocation.

@@ -805,6 +805,9 @@ int main(int argc, char *argv[])
 
 	logInfo("Presentation mode: %s.", presentation_names[presentation]);
 
+	if (presentation == PRESENTATION_MODERN)
+		logInfo("Modern geometry: aspect %s, pixel aspect %s.", modern_aspect_names[modern_aspect], modern_pixel_aspect_names[modern_pixel_aspect]);
+
 	if (!findDataFiles())
 	{
 		logFatal("The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");

@@ -39,6 +39,13 @@ const char *const scaling_mode_names[ScalingMode_MAX] = {
 int fullscreen_display;
 ScalingMode scaling_mode = SCALE_INTEGER;
 static SDL_Rect last_output_rect = { 0, 0, vga_width, vga_height };
+// Geometry of the last presented output, for mouse mapping.  Classic always
+// presents the 320x200 8-bit frame (canvas == frame, offset 0); Modern can
+// present a wider canvas with the game frame centered in it.
+static int last_output_canvas_w = vga_width;
+static int last_output_canvas_h = vga_height;
+static int last_output_frame_x = 0;
+static int last_output_frame_y = 0;
 
 SDL_Surface *VGAScreen, *VGAScreenSeg;
 SDL_Surface *VGAScreen2;
@@ -233,6 +240,9 @@ void reinit_fullscreen(int new_display)
 	}
 
 	SDL_free(displays);
+
+	// The window size just changed; the Modern canvas width follows it.
+	modern_update_canvas_size();
 }
 
 void video_on_win_resize(void)
@@ -254,6 +264,9 @@ void video_on_win_resize(void)
 
 		SDL_SetWindowSize(main_window, w, h);
 	}
+
+	// "auto" derives the Modern canvas width from the window size.
+	modern_update_canvas_size();
 }
 
 void toggle_fullscreen(void)
@@ -325,6 +338,10 @@ bool init_scaler(unsigned int new_scaler)
 		return false;
 	}
 
+	// Changing the scaler windowed resizes the window; the Modern canvas width
+	// follows the window size.
+	modern_update_canvas_size();
+
 	return true;
 }
 
@@ -359,6 +376,19 @@ SDL_Renderer *video_renderer(void)
 void video_set_last_output_rect(const SDL_Rect *rect)
 {
 	last_output_rect = *rect;
+	last_output_canvas_w = vga_width;
+	last_output_canvas_h = vga_height;
+	last_output_frame_x = 0;
+	last_output_frame_y = 0;
+}
+
+void video_set_last_output_rect_ex(const SDL_Rect *rect, int canvas_w, int canvas_h, int frame_x, int frame_y)
+{
+	last_output_rect = *rect;
+	last_output_canvas_w = canvas_w;
+	last_output_canvas_h = canvas_h;
+	last_output_frame_x = frame_x;
+	last_output_frame_y = frame_y;
 }
 
 static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const dst_rect)
@@ -477,20 +507,22 @@ static void scale_and_flip(SDL_Surface *src_surface)
 /** Maps a specified point in game screen coordinates to window coordinates. */
 void mapScreenPointToWindow(Sint32 *const inout_x, Sint32 *const inout_y)
 {
-	*inout_x = (2 * *inout_x + 1) * last_output_rect.w / (2 * VGAScreen->w) + last_output_rect.x;
-	*inout_y = (2 * *inout_y + 1) * last_output_rect.h / (2 * VGAScreen->h) + last_output_rect.y;
+	// The game frame is `last_output_frame_x/y` pixels into the presented
+	// canvas; add that before mapping the canvas onto the output rectangle.
+	*inout_x = (2 * (*inout_x + last_output_frame_x) + 1) * last_output_rect.w / (2 * last_output_canvas_w) + last_output_rect.x;
+	*inout_y = (2 * (*inout_y + last_output_frame_y) + 1) * last_output_rect.h / (2 * last_output_canvas_h) + last_output_rect.y;
 }
 
 /** Maps a specified point in window coordinates to game screen coordinates. */
 void mapWindowPointToScreen(Sint32 *const inout_x, Sint32 *const inout_y)
 {
-	*inout_x = (2 * (*inout_x - last_output_rect.x) + 1) * VGAScreen->w / (2 * last_output_rect.w);
-	*inout_y = (2 * (*inout_y - last_output_rect.y) + 1) * VGAScreen->h / (2 * last_output_rect.h);
+	*inout_x = (2 * (*inout_x - last_output_rect.x) + 1) * last_output_canvas_w / (2 * last_output_rect.w) - last_output_frame_x;
+	*inout_y = (2 * (*inout_y - last_output_rect.y) + 1) * last_output_canvas_h / (2 * last_output_rect.h) - last_output_frame_y;
 }
 
 /** Scales a distance in window coordinates to game screen coordinates. */
 void scaleWindowDistanceToScreen(Sint32 *const inout_x, Sint32 *const inout_y)
 {
-	*inout_x = (2 * *inout_x + 1) * VGAScreen->w / (2 * last_output_rect.w);
-	*inout_y = (2 * *inout_y + 1) * VGAScreen->h / (2 * last_output_rect.h);
+	*inout_x = (2 * *inout_x + 1) * last_output_canvas_w / (2 * last_output_rect.w);
+	*inout_y = (2 * *inout_y + 1) * last_output_canvas_h / (2 * last_output_rect.h);
 }
