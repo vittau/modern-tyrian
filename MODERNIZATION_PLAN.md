@@ -33,7 +33,9 @@ Viável como camada de apresentação, mas **o código não tem a fronteira "gam
 13. **Pipeline de áudio.** A saída é mono, S16, 44100 Hz (`11025 × OUTPUT_QUALITY`), com buffer de 1024 amostras. A música é um emulador OPL mais o player LDS em C puro, sem SDL. Os efeitos sonoros são 29 em `tyrian.snd` e 9 vozes em `voices.snd`, em 8 bits a 11025 Hz. A única reamostragem acontece em `loadSndFile()` (`src/nortsong.c`), via `SDL_AudioCVT`. A percussão do OPL usa `rand()` da libc, não `mt_rand`.
 14. **Os baselines dependem da máquina.** `powf`/`pow`/`sin` (volume, OPL) e `cosf`/`sinf` (superpixels) passam por ponto flutuante da libm. Por isso os baselines valem para esta máquina e toolchain (macOS arm64, clang), e não como golden files multiplataforma. Uma CI em outro sistema precisaria de baselines próprios.
 15. **A rede vazava para o gameplay.** Havia 38 chamadas `SDLNet_Read16/Write16` espalhadas por `mainint.c`, `tyrian2.c` e `game_menu.c`, lendo e escrevendo pacotes. Hoje elas usam `network_read16/write16` (`src/network.h`). O protocolo é UDP ponto a ponto, 2 jogadores, em lock-step com o loop do jogo; o SDL3_net não tem bind, então o filtro por endereço e porta do oponente é explícito.
-16. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
+16. **Contrato dos passes do modo Modern** (`src/modern.h`): `void pass(ModernFrame *)`, rodam na ordem de registro, uma vez por quadro apresentado, sobre o canvas na grade lógica. Regras: determinísticos, sem RNG, sem tocar estado de jogo; podem ler `src` (índices de 8 bits) e `palette` e escrever `pixels`. O canvas pode ser mais largo que o quadro de 8 bits, o que prepara o widescreen.
+17. **GCC é mais estrito que o clang do macOS.** Com `-std=c99 -pedantic -Werror`, o GCC rejeita ponteiro-para-array com qualificador diferente (`const Palette *` a partir de `&palette`), e o clang aceita. A CI de Linux e Windows x86_64 usa GCC, então mudanças em `src/` devem ser auditadas também com `gcc-16` (Homebrew), usando as flags da CI.
+18. **Display e input**: fullscreen desktop, janela, scalers e os modos Center/Integer/8:5/4:3 já existem, assim como o remapeamento de teclado (`src/config.c:297`). O joystick usa a API legada `SDL_Joystick`, não `SDL_GameController`.
 
 ## 3. Viabilidade por item
 
@@ -118,7 +120,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Migração SDL2 → SDL3: CI (`.github/workflows`) e scripts de release (`make_macos.sh`, `make_linux.sh`, Windows/`visualc`). O macOS foi validado localmente (app universal, frameworks embutidos); Linux e Windows só serão validados quando o GitHub Actions for ligado no fork
 - [x] Pequenos ajustes de áudio pós-SDL3: buffer estático no callback e `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES=1024`
 - [ ] ~~Backend GPU com a paleta aplicada no shader~~ → substituído pelo pipeline de composição na CPU (§7)
-- [ ] Pipeline de composição moderna na CPU (canvas XRGB na grade lógica, passes de efeito, upload + escala nearest via SDL_Renderer) e modos Classic/Modern como configuração (Modern = Classic por enquanto), com hash do canvas no harness
+- [x] Pipeline de composição moderna na CPU (`src/modern.c`): canvas XRGB na grade lógica, lista de passes de efeito (vazia), textura própria com nearest. Setting `presentation` (cfg + `--presentation`), hash do canvas no harness (`--regress-modern`). Total: 63 casos. Custo ~37 µs/quadro
 
 ### Fase 1 — Ganhos visíveis e baratos
 - [ ] Correção de PAR (4:3) com integer scaling por eixo
@@ -228,3 +230,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-09-27 — Decisão: composição moderna na CPU
 - O "backend GPU com paleta no shader" foi substituído por um pipeline de composição na CPU (§7), porque os efeitos ficam na grade de 320×200. A próxima tarefa (Fase 0d) cria esse pipeline e os modos Classic/Modern.
+
+### 2026-09-27 — Pipeline moderno na CPU (Fase 0d) e primeira CI real
+- Um agente novo entregou o pipeline moderno e o setting Classic/Modern, aprovado na primeira revisão. Os 63 casos passam. Sem passes, o modo Modern sai byte a byte igual ao scaler "None" do Classic; o custo medido é ~37 µs por quadro. Verificado com janela real em modo Modern.
+- O GitHub Actions foi disparado manualmente pela API (em forks, o push não disparava). 1ª rodada: macOS verde; Linux quebrou por falta do `libxtst-dev` e Windows por um banco MSYS2 desatualizado sem `sdl3-net`. Um agente corrigiu os dois (`108e69a`).
+- 2ª rodada: macOS e Windows arm64 (clang) verdes. Linux e Windows x86_64 (GCC) falham num erro real de código, `palette.c:87` (ponteiro-para-array `const`, rejeitado pelo GCC com `-pedantic`). Uma auditoria com GCC 16 nos 55 arquivos confirmou que é o único. A correção está em andamento com o mesmo agente.
