@@ -140,7 +140,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] **Taxa de quadros independente da lógica (pedido do usuário, prioridade logo após as telas de menu):** a lógica continua no tick fixo de ~35 Hz, o que preserva demos, rede e regressão, e o desenho vai para a taxa do monitor (≥ 60 Hz, idealmente o refresh da tela, com vsync) com interpolação entre ticks. Etapas:
   1. Lista de desenho por tick: cada blit com sprite, posição, blend, camada e identidade do objeto, mais o scroll das camadas. Só observa, sem tocar a lógica.
   2. Renderizador que reproduz o quadro a partir da lista. Prova: hash idêntico ao quadro original em todos os casos da regressão.
-  3. Interpolação entre o tick anterior e o atual na taxa do monitor. Itens sem correspondência entre ticks aparecem sem interpolar.
+  3. Interpolação entre o tick anterior e o atual na taxa do monitor, obrigatória para a suavidade (pedido do usuário). Vale para todo movimento: inimigos (inclusive os de chão, que andam com o scroll), nave e sidekicks, tiros do jogador e dos inimigos, explosões que seguem objetos e scroll das três camadas. Nascimento, remoção, reuso de slot ou salto maior que um limiar entram direto na posição nova, sem deslizar. Os quadros de animação dos sprites não são misturados: só as posições são interpoladas.
   4. Efeitos, paleta e HUD sobre o quadro interpolado.
   Custo: ~1 tick (~28 ms) de atraso de imagem por interpolar, configurável. A infraestrutura das etapas 1 e 2 é a mesma do snapshot por tick e do tag buffer abaixo.
 - [ ] Snapshot e fila de eventos por tick
