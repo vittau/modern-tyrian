@@ -26,6 +26,7 @@
 #include "file.h"
 #include "font.h"
 #include "fonthand.h"
+#include "gamepad_selftest.h"
 #include "helptext.h"
 #include "joystick.h"
 #include "jukebox.h"
@@ -784,8 +785,9 @@ int main(int argc, char *argv[])
 	// Detect regress mode before loading configuration so the user's config and
 	// save files can be skipped.  JE_paramCheck() below does the real parsing.
 	bool regress = regress_scan_args(argc, argv);
+	bool selftest = gamepad_selftest_scan_args(argc, argv);
 
-	if (!regress)
+	if (!regress && !selftest)
 	{
 		loadConfiguration();
 		loadSaves();
@@ -794,6 +796,13 @@ int main(int argc, char *argv[])
 	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
+
+	if (selftest)
+	{
+		int result = gamepad_selftest_run();
+
+		return result;
+	}
 
 	if (regress)
 	{

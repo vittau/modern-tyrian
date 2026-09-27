@@ -22,6 +22,7 @@
 #include "demo.h"
 #include "episodes.h"
 #include "file.h"
+#include "gamepad_selftest.h"
 #include "joystick.h"
 #include "logging.h"
 #include "loudness.h"
@@ -75,6 +76,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 263, 0,   "regress-audio",     false },
 		{ 264, 0,   "presentation",      true },
 		{ 265, 0,   "regress-modern",    false },
+		{ 266, 0,   "selftest-gamepad",  false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -120,6 +122,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
+			logInfo("  --selftest-gamepad           Run the virtual-controller input self-test and exit");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -302,6 +305,9 @@ void JE_paramCheck(int argc, char *argv[])
 			break;
 		case 265: // --regress-modern
 			regress_modern = 1;
+			break;
+		case 266: // --selftest-gamepad
+			selftest_gamepad = true;
 			break;
 			
 		default:

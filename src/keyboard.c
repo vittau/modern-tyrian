@@ -196,6 +196,22 @@ void handleSdlEvents(void)
 				video_on_win_resize();
 				break;
 
+			case SDL_EVENT_JOYSTICK_ADDED:
+				joystick_device_added(ev.jdevice.which);
+				break;
+
+			case SDL_EVENT_JOYSTICK_REMOVED:
+				joystick_device_removed(ev.jdevice.which);
+				break;
+
+			case SDL_EVENT_GAMEPAD_ADDED:
+				joystick_device_added(ev.gdevice.which);
+				break;
+
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				joystick_device_removed(ev.gdevice.which);
+				break;
+
 			case SDL_EVENT_KEY_DOWN:
 				if (ev.key.mod & SDL_KMOD_ALT &&
 				    ev.key.scancode == SDL_SCANCODE_RETURN)
