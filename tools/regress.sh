@@ -10,6 +10,10 @@
 #      (smoothies[] stays zero for the whole of every demo), as
 #      scenario-<name>-dM.  See SCENARIOS below.
 #
+# It also runs the offline audio regression (--regress-audio) as the "audio"
+# case, which hashes the converted sound effects, per-second music rendering and
+# per-second sound-effect mixing.  See src/regress_audio.c.
+#
 #   tools/regress.sh              build, run all cases, compare
 #   tools/regress.sh --update     regenerate the baselines from the current tree
 #
@@ -105,7 +109,7 @@ run_case() {
 	local out="$ACTUAL_DIR/$label.txt"
 	local log="$ACTUAL_DIR/$label.log"
 	local baseline="$BASELINE_DIR/$label.txt"
-	local start elapsed rc frames hunk first
+	local start elapsed rc lines hunk first
 
 	start=$(now)
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
@@ -127,11 +131,11 @@ run_case() {
 		return
 	fi
 
-	frames=$(wc -l < "$out" | tr -d ' ')
+	lines=$(wc -l < "$out" | tr -d ' ')
 
 	if [ "$UPDATE" -eq 1 ]; then
 		cp "$out" "$baseline"
-		echo "UPDATE $label: $frames frames, ${elapsed}s"
+		echo "UPDATE $label: $lines lines, ${elapsed}s"
 		return
 	fi
 
@@ -142,13 +146,13 @@ run_case() {
 	fi
 
 	if cmp -s "$baseline" "$out"; then
-		echo "PASS $label: $frames frames, ${elapsed}s"
+		echo "PASS $label: $lines lines, ${elapsed}s"
 	else
-		# First differing hunk, e.g. "12c12" or "5,7c5,9"; line N is frame N-1.
+		# First differing hunk, e.g. "12c12" or "5,7c5,9"; line N is record N-1.
 		hunk=$(diff "$baseline" "$out" | head -n 1)
 		first=${hunk%%[cad]*}
 		first=${first%%,*}
-		echo "FAIL $label: first differing frame $((first - 1)) (${elapsed}s)"
+		echo "FAIL $label: first differing line $((first - 1)) (${elapsed}s)"
 		failures=$((failures + 1))
 	fi
 }
@@ -178,17 +182,22 @@ for spec in "${SCENARIOS[@]}"; do
 	done
 done
 
+# --- offline audio -----------------------------------------------------------
+
+pairs=$((pairs + 1))
+run_case "audio" --regress-audio
+
 total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 
 if [ "$UPDATE" -eq 1 ]; then
-	echo "Baselines updated in $BASELINE_DIR ($pairs pairs, ${total}s total)"
+	echo "Baselines updated in $BASELINE_DIR ($pairs cases, ${total}s total)"
 	exit 0
 fi
 
 if [ "$failures" -eq 0 ]; then
-	echo "All $pairs demo/scenario pairs passed in ${total}s."
+	echo "All $pairs regression cases passed in ${total}s."
 	exit 0
 fi
 
-echo "$failures of $pairs demo/scenario pairs failed in ${total}s."
+echo "$failures of $pairs regression cases failed in ${total}s."
 exit 1

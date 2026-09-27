@@ -22,6 +22,7 @@
 #include "SDL.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 
 // Headless demo-playback / synthetic-scenario regression harness.
 //
@@ -43,6 +44,7 @@ extern int regress_scenario_level;    // lvlFileNum within that episode (1-based
 extern int regress_frames;            // scenario length cap; 0 = run to the end
 extern const char *regress_out_path;  // where frame hashes are written
 extern int regress_detail;            // processorType to use (1..6)
+extern int regress_audio;             // non-zero = offline audio regression
 
 // True when regress mode was requested.
 bool regress_active(void);
@@ -50,9 +52,24 @@ bool regress_active(void);
 // True when a synthetic level scenario was requested.
 bool regress_scenario_active(void);
 
-// Cheap argv scan for "--regress-demo"/"--regress-level" only, run before config
-// loading so the user's config/save files can be skipped.  Does not set state.
+// True when the offline audio regression was requested (--regress-audio).
+bool regress_audio_active(void);
+
+// Cheap argv scan for "--regress-demo"/"--regress-level"/"--regress-audio" only,
+// run before config loading so the user's config/save files can be skipped.
+// Does not set state.
 bool regress_scan_args(int argc, char *argv[]);
+
+// Run the offline audio regression to completion (loads sounds and songs,
+// drives the mixer without an audio device, writes the baseline, closes the
+// output).  Never returns past a missing --regress-out file.
+void regress_audio_run(void);
+
+// 64-bit FNV-1a hash of a byte buffer (the harness-wide hash).
+Uint64 regress_fnv1a(const void *data, size_t size);
+
+// The open regression output stream, or NULL outside a regress mode.
+FILE *regress_output_file(void);
 
 // Set up headless drivers, disable audio/joystick input, pin the configuration
 // values that affect output or gameplay, and open the output file.

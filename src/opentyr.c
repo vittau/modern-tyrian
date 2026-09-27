@@ -818,6 +818,14 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
+	if (regress_audio_active())
+	{
+		// Offline audio regression: no video, input or audio device needed.
+		regress_audio_run();
+
+		return EXIT_SUCCESS;
+	}
+
 	JE_scanForEpisodes();
 
 	init_video();

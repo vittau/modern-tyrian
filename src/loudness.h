@@ -39,4 +39,13 @@ void set_volume(Uint8 musicVolume, Uint8 sampleVolume);
 
 void multiSamplePlay(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint8 vol);
 
+// Offline audio regression support (see src/regress_audio.c).  These drive the
+// exact same mixer/callback code without opening an SDL audio device.
+void audio_regress_init(int sample_rate);
+unsigned int audio_regress_song_count(void);
+void audio_regress_play_song(unsigned int song_num);
+void audio_regress_set_volume(Uint8 musicVolume, Uint8 sampleVolume);
+void audio_regress_play_sample(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint8 vol);
+void audio_regress_mix(Sint16 *samples, int samplesCount);
+
 #endif /* LOUDNESS_H */

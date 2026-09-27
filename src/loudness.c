@@ -77,6 +77,21 @@ static void audioCallback(void *userdata, Uint8 *stream, int size);
 
 static void load_song(unsigned int song_num);
 
+// Configure the mixer for an output sample rate.  Shared by init_audio() (with
+// the rate the device granted) and the offline audio regression (which pins the
+// requested rate without opening a device).
+static void configure_audio(int sample_rate)
+{
+	audioSampleRate = sample_rate;
+
+	samplesPerLdsUpdate = 2 * (audioSampleRate / ldsUpdate2Rate);
+	samplesPerLdsUpdateFrac = 2 * (audioSampleRate % ldsUpdate2Rate);
+
+	volumeFactorTable[0] = 0;
+	for (size_t i = 1; i < 256; ++i)
+		volumeFactorTable[i] = TO_FIXED(powf(10, (255 - i) * (-volumeRange / (20.0f * 255))));
+}
+
 bool init_audio(void)
 {
 	if (audio_disabled)
@@ -110,14 +125,7 @@ bool init_audio(void)
 		return false;
 	}
 
-	audioSampleRate = got.freq;
-
-	samplesPerLdsUpdate = 2 * (audioSampleRate / ldsUpdate2Rate);
-	samplesPerLdsUpdateFrac = 2 * (audioSampleRate % ldsUpdate2Rate);
-
-	volumeFactorTable[0] = 0;
-	for (size_t i = 1; i < 256; ++i)
-		volumeFactorTable[i] = TO_FIXED(powf(10, (255 - i) * (-volumeRange / (20.0f * 255))));
+	configure_audio(got.freq);
 
 	opl_init();
 
@@ -126,13 +134,8 @@ bool init_audio(void)
 	return true;
 }
 
-static void audioCallback(void *userdata, Uint8 *stream, int size)
+static void audio_mix(Sint16 *samples, int samplesCount)
 {
-	(void)userdata;
-
-	Sint16 *const samples = (Sint16 *)stream;
-	const int samplesCount = size / sizeof (Sint16);
-
 	if (!music_disabled && !music_stopped)
 	{
 		Sint16 *remaining = samples;
@@ -223,6 +226,13 @@ static void audioCallback(void *userdata, Uint8 *stream, int size)
 			remainingCount -= 1;
 		}
 	}
+}
+
+static void audioCallback(void *userdata, Uint8 *stream, int size)
+{
+	(void)userdata;
+
+	audio_mix((Sint16 *)stream, size / sizeof (Sint16));
 }
 
 void deinit_audio(void)
@@ -363,6 +373,12 @@ void fade_song(void)  // FKA Player.selectSong($C001)
 	SDL_UnlockAudioDevice(audioDevice);
 }
 
+static void set_volume_locked(Uint8 musicVolume_, Uint8 sampleVolume_)
+{
+	musicVolume = musicVolume_;
+	sampleVolume = sampleVolume_;
+}
+
 void set_volume(Uint8 musicVolume_, Uint8 sampleVolume_)  // FKA NortSong.setVol and Player.setVol
 {
 	if (audio_disabled)
@@ -370,10 +386,16 @@ void set_volume(Uint8 musicVolume_, Uint8 sampleVolume_)  // FKA NortSong.setVol
 
 	SDL_LockAudioDevice(audioDevice);
 
-	musicVolume = musicVolume_;
-	sampleVolume = sampleVolume_;
+	set_volume_locked(musicVolume_, sampleVolume_);
 
 	SDL_UnlockAudioDevice(audioDevice);
+}
+
+static void multiSamplePlay_locked(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint8 vol)
+{
+	channelSamples[chan] = samples;
+	channelSampleCount[chan] = sampleCount;
+	channelVolume[chan] = vol;
 }
 
 void multiSamplePlay(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint8 vol)  // FKA Player.multiSamplePlay
@@ -386,9 +408,70 @@ void multiSamplePlay(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint
 
 	SDL_LockAudioDevice(audioDevice);
 
-	channelSamples[chan] = samples;
-	channelSampleCount[chan] = sampleCount;
-	channelVolume[chan] = vol;
+	multiSamplePlay_locked(samples, sampleCount, chan, vol);
 
 	SDL_UnlockAudioDevice(audioDevice);
+}
+
+// --- offline audio regression (--regress-audio) -----------------------------
+//
+// These drive configure_audio()/audio_mix()/load_song() directly, without an
+// SDL audio device or the lock wrappers above, so the harness renders the exact
+// same samples the callback would.
+
+void audio_regress_init(int sample_rate)
+{
+	configure_audio(sample_rate);
+
+	opl_init();
+}
+
+unsigned int audio_regress_song_count(void)
+{
+	if (songsCount == 0)
+		load_song(0);  // first call parses the music.mus header
+
+	return songsCount;
+}
+
+void audio_regress_play_song(unsigned int song_num)
+{
+	if (songsCount == 0)
+		load_song(0);
+
+	if (song_num >= songsCount)
+	{
+		logError("Audio regression: song %u does not exist.", song_num);
+		return;
+	}
+
+	// Reload unconditionally: load_song() resets the LDS/OPL state and the
+	// mixer accumulators, which is what makes each rendered song independent.
+	load_song(song_num);
+
+	song_playing = song_num;
+	music_stopped = false;
+
+	samplesUntilLdsUpdate = 0;
+	samplesUntilLdsUpdateFrac = 0;
+
+	memset(channelSampleCount, 0, sizeof channelSampleCount);
+}
+
+void audio_regress_set_volume(Uint8 musicVolume_, Uint8 sampleVolume_)
+{
+	set_volume_locked(musicVolume_, sampleVolume_);
+}
+
+void audio_regress_play_sample(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint8 vol)
+{
+	assert(chan < CHANNEL_COUNT);
+	assert(vol < CHANNEL_VOLUME_LEVELS);
+
+	multiSamplePlay_locked(samples, sampleCount, chan, vol);
+}
+
+void audio_regress_mix(Sint16 *samples, int samplesCount)
+{
+	audio_mix(samples, samplesCount);
 }

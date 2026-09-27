@@ -46,6 +46,7 @@ int regress_scenario_level = 0;
 int regress_frames = 0;
 const char *regress_out_path = NULL;
 int regress_detail = 2;
+int regress_audio = 0;
 
 // 64-bit FNV-1a.
 static const Uint64 fnv_offset_basis = UINT64_C(14695981039346656037);
@@ -67,6 +68,11 @@ bool regress_scenario_active(void)
 	return regress_scenario_episode != 0;
 }
 
+bool regress_audio_active(void)
+{
+	return regress_audio != 0;
+}
+
 static bool arg_is_option(const char *arg, const char *option, size_t option_len)
 {
 	return strncmp(arg, option, option_len) == 0 &&
@@ -77,11 +83,13 @@ bool regress_scan_args(int argc, char *argv[])
 {
 	static const char *const demo_option     = "--regress-demo";
 	static const char *const scenario_option = "--regress-level";
+	static const char *const audio_option    = "--regress-audio";
 
 	for (int i = 1; i < argc; ++i)
 	{
 		if (arg_is_option(argv[i], demo_option, strlen(demo_option)) ||
-		    arg_is_option(argv[i], scenario_option, strlen(scenario_option)))
+		    arg_is_option(argv[i], scenario_option, strlen(scenario_option)) ||
+		    arg_is_option(argv[i], audio_option, strlen(audio_option)))
 			return true;
 	}
 
@@ -109,6 +117,20 @@ static void hash_bytes(Uint64 *hash, const Uint8 *data, size_t size)
 		*hash ^= data[i];
 		*hash *= fnv_prime;
 	}
+}
+
+Uint64 regress_fnv1a(const void *data, size_t size)
+{
+	Uint64 hash = fnv_offset_basis;
+
+	hash_bytes(&hash, data, size);
+
+	return hash;
+}
+
+FILE *regress_output_file(void)
+{
+	return regress_out;
 }
 
 void regress_capture_frame(SDL_Surface *surface)
@@ -205,8 +227,9 @@ void regress_init(void)
 	if (SDL_getenv("SDL_AUDIODRIVER") == NULL)
 		SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
 
-	// Regress playback needs neither audio nor joystick input.
-	audio_disabled = true;
+	// Regress playback needs neither audio nor joystick input, except the
+	// offline audio regression, which drives the mixer directly.
+	audio_disabled = !regress_audio_active();
 	ignore_joystick = true;
 
 	// Pin every setting that can change the 8-bit framebuffer or the gameplay.
@@ -236,7 +259,7 @@ void regress_init(void)
 
 	if (regress_out_path == NULL)
 	{
-		logFatal("--regress-demo/--regress-level require --regress-out=FILE.");
+		logFatal("--regress-demo/--regress-level/--regress-audio require --regress-out=FILE.");
 		exit(EXIT_FAILURE);
 	}
 
@@ -262,5 +285,8 @@ void regress_finish(void)
 
 	regress_out = NULL;
 
-	logInfo("Regression: wrote %lu frames to '%s'.", regress_frame, regress_out_path);
+	if (regress_audio_active())
+		logInfo("Regression: wrote audio baseline to '%s'.", regress_out_path);
+	else
+		logInfo("Regression: wrote %lu frames to '%s'.", regress_frame, regress_out_path);
 }

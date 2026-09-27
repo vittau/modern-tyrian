@@ -71,6 +71,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 260, 0,   "regress-detail",    true },
 		{ 261, 0,   "regress-level",     true },
 		{ 262, 0,   "regress-frames",    true },
+		{ 263, 0,   "regress-audio",     false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -113,6 +114,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
 			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
+			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -283,11 +285,20 @@ void JE_paramCheck(int argc, char *argv[])
 			}
 			break;
 		}
+		case 263: // --regress-audio
+			regress_audio = 1;
+			break;
 			
 		default:
 			assert(false);
 			break;
 		}
+	}
+	
+	if ((regress_demo != 0 || regress_scenario_episode != 0) && regress_audio)
+	{
+		logError("%s: --regress-audio cannot be combined with --regress-demo/--regress-level", argv[0]);
+		exit(EXIT_FAILURE);
 	}
 	
 	if (regress_demo != 0 && regress_scenario_episode != 0)
