@@ -107,7 +107,9 @@ A Visual Studio solution is provided in `visualc/`.
                                  matched object moves monotonically across the sub-frames
     --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)
     --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay
-                                 composition (drops the classic sidebar)
+                                 composition (drops the classic sidebar) and, during a
+                                 level brightness fade, mirrors that brightness on the
+                                 HUD panels/message strip too (no HUD flash)
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log

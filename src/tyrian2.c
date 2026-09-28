@@ -730,6 +730,17 @@ start_level_first:
 		player[i].last_y_shot_move = player[i].y;
 	}
 	
+	/* Filter Status.  The level-start brightness fade belongs to the level's
+	   presentation, so it starts here, before the intro: the Modern HUD then
+	   uses the same fade factor during the intro fade-in and on the first
+	   gameplay frame, and its level name cannot pop when gameplay starts. */
+	filterActive = true;
+	filterFade = true;
+	filterFadeStart = false;
+	levelFilter = -99;
+	levelBrightness = -14;
+	levelBrightnessChg = 1;
+
 	JE_loadPic(VGAScreen, twoPlayerMode ? 6 : 3, false);
 
 	JE_drawOptions();
@@ -737,11 +748,19 @@ start_level_first:
 	JE_outText(VGAScreen, 268, twoPlayerMode ? 76 : 118, levelName, 12, 4);
 
 	// The level intro and its palette fade-in are the level's first presented
-	// frames: hold the Modern gameplay composition across the whole fade.
+	// frames: hold the Modern gameplay composition across the whole fade, show
+	// the level name on the message strip, and start it on the same brightness
+	// filter the first gameplay frame uses.
+	modern_hud_show_intro();
+	modern_note_playfield_filter(levelBrightness);
+	modern_note_playfield_filter_fade(true);
+	modern_capture_playfield_filter();
 	modern_set_gameplay_hold(true);
+	modern_set_level_intro(true);
 	JE_showVGA();
 	JE_gammaCorrect(&colors, gammaCorrection);
 	fade_palette(colors, 50, 0, 255);
+	modern_set_level_intro(false);
 	modern_set_gameplay_hold(false);
 
 	if (explosionSpriteSheet.data == NULL)
@@ -830,14 +849,6 @@ start_level_first:
 	forceEvents = false;  /*Force events to continue if background movement = 0*/
 
 	superEnemy254Jump = 0;   /*When Enemy with PL 254 dies*/
-
-	/* Filter Status */
-	filterActive = true;
-	filterFade = true;
-	filterFadeStart = false;
-	levelFilter = -99;
-	levelBrightness = -14;
-	levelBrightnessChg = 1;
 
 	background2notTransparent = false;
 
