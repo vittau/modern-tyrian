@@ -223,6 +223,37 @@ void modern_message_set(const char *text);
 void modern_message_clear(void);
 const char *modern_message_text(void);
 
+// --- Non-gameplay backdrop composition (Phase 1, step S1) -------------------
+//
+// Every non-gameplay screen is a fixed 320x200 backdrop (a tyrian.pic picture)
+// with code-drawn elements (text, lists, sprites, boxes) on top.  To extend
+// those screens into the widescreen canvas without hand-drawn art, the
+// compositor needs to tell backdrop from element.  `modern_backdrop_set()` is
+// called (read-only) from JE_loadPic with the decoded picture; it keeps one
+// pristine 320x200 8-bit copy of it.  A pixel of the presented frame whose
+// index equals the pristine picture is backdrop; one that differs is an
+// element.  `modern_backdrop_clear()` (JE_clr256) drops it.  The picture is
+// only kept for ids the compositor knows how to extend (1, 2, 4, 5, 11); the
+// match ratio is still checked per frame, so a screen that no longer resembles
+// the picture falls back to the blurred fill.
+#define MODERN_BACKDROP_W 320
+#define MODERN_BACKDROP_H 200
+
+void modern_backdrop_set(int pic_id, const Uint8 *pixels, int pitch);
+void modern_backdrop_clear(void);
+
+// Records where JE_mouseStart last blitted the mouse cursor (game coordinates;
+// w/h <= 0 clears it).  The cursor is a code-drawn element that moves every
+// frame, so the widening guard and the flat-edge test ignore its rectangle.
+void modern_mouse_cursor_set(int x, int y, int w, int h);
+
+// True when the last built frame used the widened pic-1 right-panel layout.
+// When it did, the canvas-to-game x mapping is piecewise (the extra columns are
+// inserted at a split column) and the mouse must go through the inserted band.
+// The split is currently a single point, reported through `split_l`/`split_r`
+// (equal) and `insert_l`/`insert_r` (insert_l == 0, insert_r == the extra width).
+bool modern_frame_is_split(int *split_l, int *split_r, int *insert_l, int *insert_r);
+
 // Converts `src_surface` (8-bit indexed) through the active palette into the
 // canvas and runs the registered passes, in order.  No allocation.
 void modern_build_frame(SDL_Surface *src_surface);

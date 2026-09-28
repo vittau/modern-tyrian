@@ -24,6 +24,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -128,9 +129,77 @@ static int modern_frame_offset_y = 0;
 static Uint8 *modern_blur_low = NULL;
 static Uint32 *modern_blur_xmap = NULL;
 
+// Per-canvas-column source map for the widened pic-1 layout.  Allocated by
+// modern_set_canvas_size(), never in the per-frame path.
+static int *modern_remap_x = NULL;
+
+// --- Non-gameplay backdrop (Phase 1, step S1) -------------------------------
+
+// Pristine 8-bit copy of the picture JE_loadPic last decoded (the current
+// fixed backdrop), so code-drawn elements can be separated from it.  Static:
+// no allocation, no per-frame cost.
+static Uint8 modern_backdrop[MODERN_BACKDROP_W * MODERN_BACKDROP_H];
+static int modern_backdrop_pic = 0;
+static bool modern_backdrop_valid = false;
+
+// Mouse cursor rectangle in game coordinates for the frame being built (w <= 0
+// when no cursor was drawn).  The cursor moves every frame, so the element
+// tests that decide the layout ignore it.
+static int modern_cursor_x = 0, modern_cursor_y = 0;
+static int modern_cursor_w = 0, modern_cursor_h = 0;
+
+// Pic-1 right-panel widening.  The extra canvas width is inserted at a single
+// column inside the flat right panel: the first backdrop column to the right of
+// every code-drawn element.  Repeating that flat column extends the panel while
+// leaving every element at its original x (elements are not split, because the
+// split is past the rightmost one).  The column must stay inside the panel, to
+// the left of its right border (~312); past it there is no interior column to
+// repeat, so the screen falls back to the blurred fill.
+//
+// MIN skips the panel's left divider and its shadow; MAX is the last flat column
+// before the right border.
+#define MODERN_PIC1_SPLIT_MIN 170
+#define MODERN_PIC1_SPLIT_MAX 311
+
+// Rows below the pic-1 right panel (the bottom frame band) carry the one-line
+// help text, which can span almost the whole width.  The widening still shifts
+// the band's backdrop (the frame border stays aligned with the panel), but its
+// code-drawn pixels are kept at their original x, so the help line is never
+// split.  Above this row every element must lie left of the split.
+#define MODERN_PIC1_HELP_Y 184
+
+// The pic-2 credits line baked into rows 192..198 in palette indices 35..39.
+// Vert- crops those rows, so they are re-composited at 1x when still intact.
+#define MODERN_PIC2_CREDIT_Y0 192
+#define MODERN_PIC2_CREDIT_Y1 198
+#define MODERN_PIC2_CREDIT_IDX0 35
+#define MODERN_PIC2_CREDIT_IDX1 39
+
+// Layout of the last built frame, for the mouse mapping.
+typedef enum
+{
+	MODERN_FRAME_BLUR = 0,
+	MODERN_FRAME_SOLID,
+	MODERN_FRAME_VERT,
+	MODERN_FRAME_WIDEN
+} ModernFrameKind;
+
+static ModernFrameKind modern_last_kind = MODERN_FRAME_BLUR;
+static int modern_last_split_l = 0, modern_last_split_r = 0;
+static int modern_last_insert_l = 0, modern_last_insert_r = 0;
+
 static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right_edge,
                                     int left_width, int right_x, int right_width);
 static void modern_fill_blurred_background(ModernFrame *frame, int frame_x);
+static void modern_fill_solid_edge(ModernFrame *frame, int frame_x);
+static void modern_compose_vert(ModernFrame *frame);
+static void modern_compose_widen(ModernFrame *frame, int split, int extra);
+static bool modern_backdrop_active(const ModernFrame *frame, int *pic_out);
+static bool modern_pixel_is_element(const ModernFrame *frame, int x, int y);
+static int modern_max_element_x(const ModernFrame *frame, int y_limit);
+static bool modern_pic1_widens(const ModernFrame *frame, int *split_out);
+static bool modern_frame_edge_flat(const ModernFrame *frame);
+static bool modern_edge_column_flat(const ModernFrame *frame, int x0, int x1);
 static void modern_composite_hud(ModernFrame *frame, int frame_x);
 static void modern_composite_message(ModernFrame *frame, int frame_x);
 static void modern_set_hud_surface(SDL_Surface **surface, int *stored_w, int panel_w);
@@ -257,6 +326,14 @@ void modern_set_canvas_size(int w, int h)
 	if (modern_blur_xmap == NULL)
 	{
 		logFatal("Failed to allocate the modern blur column map (%dx%d).", w, h);
+		exit(EXIT_FAILURE);
+	}
+
+	free(modern_remap_x);
+	modern_remap_x = malloc((size_t)w * sizeof(int));
+	if (modern_remap_x == NULL)
+	{
+		logFatal("Failed to allocate the modern remap column map (%dx%d).", w, h);
 		exit(EXIT_FAILURE);
 	}
 
@@ -409,6 +486,50 @@ const char *modern_message_text(void)
 	return modern_message;
 }
 
+void modern_backdrop_set(int pic_id, const Uint8 *pixels, int pitch)
+{
+	if (pixels == NULL || pitch < MODERN_BACKDROP_W)
+		return;
+
+	for (int y = 0; y < MODERN_BACKDROP_H; ++y)
+		memcpy(modern_backdrop + (size_t)y * MODERN_BACKDROP_W,
+		       pixels + (size_t)y * pitch, MODERN_BACKDROP_W);
+
+	modern_backdrop_pic = pic_id;
+	modern_backdrop_valid = true;
+}
+
+void modern_backdrop_clear(void)
+{
+	modern_backdrop_valid = false;
+	modern_backdrop_pic = 0;
+}
+
+void modern_mouse_cursor_set(int x, int y, int w, int h)
+{
+	modern_cursor_x = x;
+	modern_cursor_y = y;
+	modern_cursor_w = w;
+	modern_cursor_h = h;
+}
+
+bool modern_frame_is_split(int *split_l, int *split_r, int *insert_l, int *insert_r)
+{
+	if (modern_last_kind != MODERN_FRAME_WIDEN)
+		return false;
+
+	if (split_l != NULL)
+		*split_l = modern_last_split_l;
+	if (split_r != NULL)
+		*split_r = modern_last_split_r;
+	if (insert_l != NULL)
+		*insert_l = modern_last_insert_l;
+	if (insert_r != NULL)
+		*insert_r = modern_last_insert_r;
+
+	return true;
+}
+
 void modern_hud_begin_frame(void)
 {
 	if (!modern_hud_in_panels())
@@ -476,6 +597,9 @@ void modern_deinit(void)
 	free(modern_blur_xmap);
 	modern_blur_xmap = NULL;
 
+	free(modern_remap_x);
+	modern_remap_x = NULL;
+
 	if (modern_message_surface != NULL)
 	{
 		SDL_DestroySurface(modern_message_surface);
@@ -518,6 +642,10 @@ void modern_build_frame(SDL_Surface *src_surface)
 	const bool gameplay = modern_gameplay_frame;
 	modern_gameplay_frame = false;
 
+	modern_last_kind = MODERN_FRAME_BLUR;
+	modern_last_split_l = modern_last_split_r = 0;
+	modern_last_insert_l = modern_last_insert_r = 0;
+
 	if (gameplay && modern_hud_in_panels())
 	{
 		// Panel mode: copy only the playfield rectangle (the original sidebar and
@@ -550,8 +678,9 @@ void modern_build_frame(SDL_Surface *src_surface)
 	else
 	{
 		// Fallback and non-gameplay frames: the full 320x200 frame stays centred.
-		// Gameplay falls back to the ambilight (as before); non-gameplay frames
-		// get the blurred background fill.
+		// Gameplay falls back to the ambilight (as before).  Non-gameplay frames
+		// pick a treatment from the tracked backdrop (Vert-, widened pic 1, a
+		// solid edge fill) or the blurred fill.
 		const int copy_w = MIN((int)src_surface->w, frame->w);
 		const int copy_h = MIN((int)src_surface->h, frame->h);
 		const int offset_x = (frame->w - copy_w) / 2;
@@ -565,10 +694,15 @@ void modern_build_frame(SDL_Surface *src_surface)
 				dst[x] = rgb_palette[src[x]];
 		}
 
+		modern_last_kind = MODERN_FRAME_BLUR;
+		modern_last_split_l = modern_last_split_r = 0;
+		modern_last_insert_l = modern_last_insert_r = 0;
+
 		if (offset_x > 0)
 		{
 			const int right_x = offset_x + vga_width;
 			const int right_width = frame->w - right_x;
+			int pic = 0;
 
 			if (gameplay)
 			{
@@ -576,6 +710,41 @@ void modern_build_frame(SDL_Surface *src_surface)
 				// sidebar (playfield column 263) as before.
 				modern_fill_side_panels(frame, offset_x, offset_x + (vga_width - 1 - 56),
 				                        offset_x, right_x, right_width);
+			}
+			else if (modern_backdrop_active(frame, &pic))
+			{
+				int split = 0;
+
+				if (pic == 1 && modern_pic1_widens(frame, &split))
+				{
+					const int extra = frame->w - vga_width;
+
+					modern_compose_widen(frame, split, extra);
+
+					modern_last_kind = MODERN_FRAME_WIDEN;
+					modern_last_split_l = modern_last_split_r = split;
+					modern_last_insert_l = 0;
+					modern_last_insert_r = extra;
+				}
+				else if (pic == 2 || pic == 4)
+				{
+					modern_compose_vert(frame);
+					modern_last_kind = MODERN_FRAME_VERT;
+				}
+				else if (pic == 5 || pic == 11)
+				{
+					modern_fill_solid_edge(frame, offset_x);
+					modern_last_kind = MODERN_FRAME_SOLID;
+				}
+				else
+				{
+					modern_fill_blurred_background(frame, offset_x);
+				}
+			}
+			else if (modern_frame_edge_flat(frame))
+			{
+				modern_fill_solid_edge(frame, offset_x);
+				modern_last_kind = MODERN_FRAME_SOLID;
 			}
 			else
 			{
@@ -589,6 +758,11 @@ void modern_build_frame(SDL_Surface *src_surface)
 
 	for (size_t i = 0; i < modern_passes_count; ++i)
 		modern_passes[i](frame);
+
+	// The cursor rectangle only describes this frame's cursor; drop it so a
+	// screen that does not draw one cannot inherit a stale rectangle.
+	modern_cursor_w = 0;
+	modern_cursor_h = 0;
 }
 
 // Copies the non-transparent pixels of one HUD panel surface over the canvas
@@ -667,6 +841,266 @@ static Uint64 modern_panel_scale(int panel_width, int d)
 	const Uint64 den = (Uint64)(5 * panel_width * panel_width);
 
 	return (num << 32) / den;
+}
+
+// --- Non-gameplay backdrop composition (Phase 1, step S1) -------------------
+
+// True when the pixel at game (x, y) differs from the pristine backdrop, i.e.
+// it is a code-drawn element.  The moving mouse cursor is ignored (it is an
+// element, but its position changes every frame, so layout decisions must not
+// depend on it); callers that draw elements want the cursor anyway.
+static bool modern_pixel_is_element(const ModernFrame *frame, int x, int y)
+{
+	const Uint8 *s = frame->src + (size_t)y * frame->src_pitch + x;
+	const Uint8 *p = modern_backdrop + (size_t)y * MODERN_BACKDROP_W + x;
+
+	if (*s == *p)
+		return false;
+
+	if (modern_cursor_w > 0 &&
+	    x >= modern_cursor_x && x < modern_cursor_x + modern_cursor_w &&
+	    y >= modern_cursor_y && y < modern_cursor_y + modern_cursor_h)
+		return false;
+
+	return true;
+}
+
+// True when the presented frame still is the tracked picture (most of it
+// matches the pristine copy).  Returns the picture id through `pic_out`.  Only
+// the pictures the compositor knows how to extend qualify; every other picture
+// (story art, logos, the gameplay HUD frames) falls through to the blur.
+static bool modern_backdrop_active(const ModernFrame *frame, int *pic_out)
+{
+	if (!modern_backdrop_valid)
+		return false;
+
+	const int pic = modern_backdrop_pic;
+	if (pic != 1 && pic != 2 && pic != 4 && pic != 5 && pic != 11)
+		return false;
+
+	long matched = 0;
+	for (int y = 0; y < MODERN_BACKDROP_H; ++y)
+	{
+		const Uint8 *s = frame->src + (size_t)y * frame->src_pitch;
+		const Uint8 *p = modern_backdrop + (size_t)y * MODERN_BACKDROP_W;
+
+		for (int x = 0; x < MODERN_BACKDROP_W; ++x)
+			if (s[x] == p[x])
+				++matched;
+	}
+
+	if (matched * 100 < (long)MODERN_BACKDROP_W * MODERN_BACKDROP_H * 30)
+		return false;
+
+	*pic_out = pic;
+	return true;
+}
+
+// x of the rightmost code-drawn element pixel in rows [0, y_limit) (or -1 when
+// those rows are the bare picture), ignoring the mouse cursor.  Scanning from
+// the right keeps this cheap: the right panel is flat, so the first column
+// checked is already element-free.
+static int modern_max_element_x(const ModernFrame *frame, int y_limit)
+{
+	for (int x = MODERN_BACKDROP_W - 1; x >= 0; --x)
+		for (int y = 0; y < y_limit; ++y)
+			if (modern_pixel_is_element(frame, x, y))
+				return x;
+
+	return -1;
+}
+
+// Picks the pic-1 widening split: the first flat column of the right panel to
+// the right of the rightmost element.  Repeating that column extends the panel
+// without splitting any element, and returns through `split_out`.  False when
+// the panel has no interior column left (an element reaches the border), in
+// which case the caller keeps the blurred fill.
+static bool modern_pic1_widens(const ModernFrame *frame, int *split_out)
+{
+	// Only the panel rows decide the split; the bottom help band is kept
+	// unshifted by modern_compose_widen().
+	const int element_max = modern_max_element_x(frame, MODERN_PIC1_HELP_Y);
+	const int split = MAX(MODERN_PIC1_SPLIT_MIN, element_max + 1);
+
+	if (split > MODERN_PIC1_SPLIT_MAX)
+		return false;
+
+	*split_out = split;
+	return true;
+}
+
+// True when the outer four columns of one side of the frame are near-uniform
+// (a flat picture edge), ignoring the cursor.
+static bool modern_edge_column_flat(const ModernFrame *frame, int x0, int x1)
+{
+	int vmin = 255, vmax = 0;
+	bool any = false;
+
+	for (int y = 0; y < MODERN_BACKDROP_H; ++y)
+	{
+		for (int x = x0; x <= x1; ++x)
+		{
+			if (modern_cursor_w > 0 &&
+			    x >= modern_cursor_x && x < modern_cursor_x + modern_cursor_w &&
+			    y >= modern_cursor_y && y < modern_cursor_y + modern_cursor_h)
+				continue;
+
+			const int v = frame->src[(size_t)y * frame->src_pitch + x];
+			vmin = MIN(vmin, v);
+			vmax = MAX(vmax, v);
+			any = true;
+		}
+	}
+
+	return any && (vmax - vmin) <= 8;
+}
+
+// True when both picture edges are flat, so the sides can be a plain solid fill
+// of the edge colour instead of the blurred fill (black splash/transition
+// screens, destruct, pictures with solid edges).
+static bool modern_frame_edge_flat(const ModernFrame *frame)
+{
+	return modern_edge_column_flat(frame, 0, 3) &&
+	       modern_edge_column_flat(frame, MODERN_BACKDROP_W - 4, MODERN_BACKDROP_W - 1);
+}
+
+// Plain solid fill of the frame's edge colours: each side row repeats the
+// colour of that row's outermost frame pixel, with no blur and no darkening.
+// For a flat edge this is an exact continuation of the picture.
+static void modern_fill_solid_edge(ModernFrame *frame, int frame_x)
+{
+	const int left_width = frame_x;
+	const int right_x = frame_x + vga_width;
+	const int right_width = frame->w - right_x;
+
+	for (int y = 0; y < frame->h; ++y)
+	{
+		const Uint8 *s = frame->src + (size_t)y * frame->src_pitch;
+		Uint32 *row = frame->pixels + (size_t)y * frame->w;
+		const Uint32 left = rgb_palette[s[0]];
+		const Uint32 right = rgb_palette[s[MODERN_BACKDROP_W - 1]];
+
+		for (int x = 0; x < left_width; ++x)
+			row[x] = left;
+		for (int x = 0; x < right_width; ++x)
+			row[right_x + x] = right;
+	}
+}
+
+// "Vert-" backdrop for the title (pic 4) and the pic-2 menus: the picture is
+// scaled up (nearest) to fill the canvas width and centre-cropped to 200 rows,
+// while the code-drawn elements are kept at 1x at the centred 320x200 position,
+// so text and sprites stay sharp.  The pic-2 credits line cropped by the zoom
+// is re-composited at 1x when it is still intact.
+static void modern_compose_vert(ModernFrame *frame)
+{
+	const int w = frame->w, h = frame->h;
+	const int offset_x = (w - MODERN_BACKDROP_W) / 2;
+
+	// The zoomed picture is w wide; its height is 200 * w / 320 rounded, then
+	// centre-cropped to h rows.
+	const int zoom_h = (int)(((long)MODERN_BACKDROP_H * w + MODERN_BACKDROP_W / 2) / MODERN_BACKDROP_W);
+	const int crop = (zoom_h - h) / 2;
+
+	for (int y = 0; y < h; ++y)
+	{
+		int sy = (int)(((long)(y + crop) * MODERN_BACKDROP_H) / zoom_h);
+		sy = MIN(MAX(sy, 0), MODERN_BACKDROP_H - 1);
+
+		const Uint8 *p = modern_backdrop + (size_t)sy * MODERN_BACKDROP_W;
+		Uint32 *row = frame->pixels + (size_t)y * w;
+
+		for (int x = 0; x < w; ++x)
+		{
+			const int sx = MIN((int)(((long)x * MODERN_BACKDROP_W) / w), MODERN_BACKDROP_W - 1);
+			row[x] = rgb_palette[p[sx]];
+		}
+	}
+
+	// Overlay the elements at 1x, centred.  This includes the mouse cursor.
+	for (int y = 0; y < MODERN_BACKDROP_H; ++y)
+	{
+		const Uint8 *s = frame->src + (size_t)y * frame->src_pitch;
+		const Uint8 *p = modern_backdrop + (size_t)y * MODERN_BACKDROP_W;
+		Uint32 *row = frame->pixels + (size_t)y * w + offset_x;
+
+		for (int x = 0; x < MODERN_BACKDROP_W; ++x)
+			if (s[x] != p[x])
+				row[x] = rgb_palette[s[x]];
+	}
+
+	// Re-composite the baked pic-2 credits line (rows 192..198) at 1x, bottom
+	// centre, only where the current frame still shows it (a screen that blacks
+	// the strip out draws it as an element above).
+	if (modern_backdrop_pic == 2)
+	{
+		for (int y = MODERN_PIC2_CREDIT_Y0; y <= MODERN_PIC2_CREDIT_Y1; ++y)
+		{
+			const Uint8 *s = frame->src + (size_t)y * frame->src_pitch;
+			const Uint8 *p = modern_backdrop + (size_t)y * MODERN_BACKDROP_W;
+			Uint32 *row = frame->pixels + (size_t)y * w + offset_x;
+
+			for (int x = 0; x < MODERN_BACKDROP_W; ++x)
+			{
+				if (s[x] == p[x] && p[x] >= MODERN_PIC2_CREDIT_IDX0 && p[x] <= MODERN_PIC2_CREDIT_IDX1)
+					row[x] = rgb_palette[p[x]];
+			}
+		}
+	}
+}
+
+// Widened pic-1 layout: the extra canvas width is inserted at the chosen split
+// column of the flat right panel (a repeated pristine column), so the mechanical
+// frame with the ship stays at the left edge and the panel reaches the right
+// edge.  Columns at or right of the split shift right by `extra`; every element
+// has already been chosen to lie at or left of the split (modern_pic1_widens),
+// so no element is split and all stay sharp at their original x.
+static void modern_compose_widen(ModernFrame *frame, int split, int extra)
+{
+	const int w = frame->w;
+
+	for (int x = 0; x < w; ++x)
+	{
+		int sx;
+
+		if (x < split)
+			sx = x;
+		else if (x < split + extra)
+			sx = split;
+		else
+			sx = x - extra;
+
+		modern_remap_x[x] = sx;
+	}
+
+	for (int y = 0; y < MODERN_BACKDROP_H; ++y)
+	{
+		const Uint8 *s = frame->src + (size_t)y * frame->src_pitch;
+		const Uint8 *p = modern_backdrop + (size_t)y * MODERN_BACKDROP_W;
+		Uint32 *row = frame->pixels + (size_t)y * w;
+
+		if (y >= MODERN_PIC1_HELP_Y)
+		{
+			// Bottom help band: the backdrop (frame border) shifts with the
+			// panel, but its code-drawn pixels (the help line) stay at their
+			// original x so the line is never split.  Columns past the 320-wide
+			// source exist only because of the widening, so they are backdrop.
+			for (int x = 0; x < w; ++x)
+			{
+				const bool element = x < MODERN_BACKDROP_W && s[x] != p[x];
+				row[x] = rgb_palette[element ? s[x] : p[modern_remap_x[x]]];
+			}
+		}
+		else
+		{
+			for (int x = 0; x < w; ++x)
+			{
+				const int sx = modern_remap_x[x];
+				const bool band = (x >= split && x < split + extra);
+				row[x] = rgb_palette[band ? p[sx] : s[sx]];
+			}
+		}
+	}
 }
 
 // Procedural "ambilight" side panels.  Deterministic and read-only over the
@@ -1005,8 +1439,18 @@ void modern_present_frame(void)
 	// Mouse mapping needs the canvas size and the offset of the game content
 	// inside it (the playfield offset on gameplay frames in panel mode, the
 	// 320x200 frame offset otherwise); both are recorded by modern_build_frame.
-	video_set_last_output_rect_ex(&dst_rect, frame->w, frame->h,
-	                              modern_frame_offset_x, modern_frame_offset_y);
+	// The widened pic-1 layout inserts columns, so it needs the piecewise map.
+	if (modern_last_kind == MODERN_FRAME_WIDEN)
+	{
+		video_set_last_output_rect_split(&dst_rect, frame->w, frame->h,
+		                                 modern_last_split_l, modern_last_split_r,
+		                                 modern_last_insert_l, modern_last_insert_r);
+	}
+	else
+	{
+		video_set_last_output_rect_ex(&dst_rect, frame->w, frame->h,
+		                              modern_frame_offset_x, modern_frame_offset_y);
+	}
 }
 
 const ModernFrame *modern_current_frame(void)

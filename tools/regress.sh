@@ -228,6 +228,36 @@ pairs=$((pairs + 1))
 run_case "modern-wide-16x10-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:10
 pairs=$((pairs + 1))
 
+# --- non-gameplay screens -----------------------------------------------------
+#
+# --regress-screen renders one non-gameplay screen in a deterministic state and
+# exits after its frame cap (REGRESS_SCREEN_FRAMES).  The Modern 16:9 canvas
+# guards the widescreen compositions added in step S1: Vert- for the title and
+# the pic-2 menus (elements sharp at 1x), the widened pic-1 right panel (the
+# extra columns inserted past the rightmost element), and the solid edge fill.
+# The Classic runs of the same screens prove the harness itself does not alter
+# the 8-bit screens.  The 21:9 cases guard the widest compositions.
+
+SCREENS=(
+	title episode-select high-scores game-menu upgrade purchase options
+	cube-list cube-reader keyboard joystick load-save solid
+)
+
+for s in "${SCREENS[@]}"; do
+	pairs=$((pairs + 1))
+	run_case "modern-screen-$s-16x9" \
+		--regress-screen="$s" --regress-modern --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_case "screen-$s" --regress-screen="$s"
+done
+
+pairs=$((pairs + 1))
+run_case "modern-screen-title-21x9" \
+	--regress-screen=title --regress-modern --regress-aspect=21:9
+pairs=$((pairs + 1))
+run_case "modern-screen-game-menu-21x9" \
+	--regress-screen=game-menu --regress-modern --regress-aspect=21:9
+
 # --- game-state hashes --------------------------------------------------------
 #
 # The state-hash stream covers the RNG, the players, the enemy/shot arrays,

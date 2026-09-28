@@ -22,6 +22,7 @@
 #include "logging.h"
 #include "memreader.h"
 #include "memwriter.h"
+#include "modern.h"
 #include "opentyr.h"
 #include "palette.h"
 #include "pcxmast.h"
@@ -106,6 +107,10 @@ void JE_loadPic(SDL_Surface *screen, JE_byte id, JE_boolean storepal)
 	assert(screen->w == 320 && screen->h == 200 && SDL_BYTESPERPIXEL(screen->format) == 1);
 	for (size_t y = 0; y < 200; ++y)
 		memcpy((Uint8 *)screen->pixels + y * screen->pitch, image + y * 320, 320);
+
+	// Read-only notification for the Modern compositor: remember this picture
+	// so it can separate the fixed backdrop from code-drawn elements.
+	modern_backdrop_set(id, image, 320);
 
 	free(image);
 

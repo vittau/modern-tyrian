@@ -46,24 +46,6 @@
 
 #include <assert.h>
 
-enum
-{
-	MENU_FULL_GAME       =  0,
-	MENU_UPGRADES        =  1,
-	MENU_OPTIONS         =  2,
-	MENU_PLAY_NEXT_LEVEL =  3,
-	MENU_UPGRADE_SUB     =  4,
-	MENU_KEYBOARD_CONFIG =  5,
-	MENU_LOAD_SAVE       =  6,
-	MENU_DATA_CUBES      =  7,
-	MENU_DATA_CUBE_SUB   =  8,
-	MENU_2_PLAYER_ARCADE =  9,
-	MENU_1_PLAYER_ARCADE = 10,  // Also networked games.
-	MENU_LIMITED_OPTIONS = 11,  // Hides save/load menus.
-	MENU_JOYSTICK_CONFIG = 12,
-	MENU_SUPER_TYRIAN    = 13,
-};
-
 /*** Structs ***/
 struct cube_struct
 {
@@ -93,6 +75,11 @@ static JE_byte curSel[MENU_MAX]; /* [1..maxmenu] */
 static JE_byte curItemType, curItem, cursor;
 static JE_boolean leftPower, rightPower, rightPowerAfford;
 static JE_byte currentCube;
+
+// Regression harness start-menu override (see JE_itemScreenStartAt).  -1 keeps
+// the normal MENU_FULL_GAME start.
+static int regress_start_menu = -1;
+static int regress_start_cube = 0;
 
 static JE_byte planetAni, planetAniWait;
 static JE_byte currentDotNum, currentDotWait;
@@ -162,6 +149,12 @@ JE_longint JE_cashLeft(void)
 	return tempL;
 }
 
+void JE_itemScreenStartAt(int menu, int cube)
+{
+	regress_start_menu = menu;
+	regress_start_cube = cube;
+}
+
 void JE_itemScreen(void)
 {
 	bool quit = false;
@@ -216,6 +209,33 @@ void JE_itemScreen(void)
 		{
 			itemAvail[itemAvailMap[i]-1][slot] = item;
 			itemAvailMax[itemAvailMap[i]-1]++;
+		}
+	}
+
+	// Regression harness: open directly on the requested menu so its frame can be
+	// rendered headlessly (see JE_itemScreenStartAt).  The itemAvail list above
+	// is already populated, so the purchase list can be generated here instead of
+	// by the normal input path.  Normal runs leave regress_start_menu at -1.
+	if (regress_start_menu >= 0)
+	{
+		curMenu = regress_start_menu;
+		switch (curMenu)
+		{
+		case MENU_DATA_CUBE_SUB:
+			curSel[MENU_DATA_CUBES] = regress_start_cube + 2;
+			currentCube = regress_start_cube;
+			break;
+		case MENU_UPGRADE_SUB:
+			// Mirrors JE_menuFunction()'s upgrade-category handler.
+			curSel[MENU_UPGRADES] = regress_start_cube;
+			old_items[0] = player[0].items;
+			lastDirection = 1;
+			JE_genItemMenu(curSel[MENU_UPGRADES]);
+			JE_initWeaponView();
+			lastCurSel = curSel[MENU_UPGRADE_SUB];
+			break;
+		default:
+			break;
 		}
 	}
 

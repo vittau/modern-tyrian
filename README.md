@@ -136,6 +136,14 @@ review: `--regress-snapshot=FRAME:FILE` (repeatable; the Modern canvas with
 `--regress-modern`, the 8-bit frame otherwise), e.g. with `--regress-demo` or
 `--regress-level`.
 
+`--regress-screen=NAME` renders one non-gameplay screen in a deterministic
+state, presents `--regress-frames` frames (default 90) and exits, so the
+widescreen menu compositions can be hashed and snapshotted without a window.
+`NAME` is one of `title`, `episode-select`, `high-scores`, `game-menu`,
+`upgrade`, `purchase`, `options`, `cube-list`, `cube-reader`, `keyboard`,
+`joystick`, `load-save` or `solid`; combine it with `--regress-modern`,
+`--regress-aspect` and `--regress-out` as usual.
+
 ## Gamepads and Joysticks
 
 OpenTyrian uses the SDL3 Gamepad API for devices SDL recognises as gamepads

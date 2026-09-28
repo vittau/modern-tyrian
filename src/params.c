@@ -84,6 +84,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 271, 0,   "regress-snapshot",  true },
 		{ 272, 0,   "regress-players",   true },
 		{ 273, 0,   "regress-arcade",    false },
+		{ 274, 0,   "regress-screen",    true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -133,6 +134,10 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               (repeatable; the Modern canvas with --regress-modern)");
 			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
 			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
+			logInfo("  --regress-screen=NAME        Render one non-gameplay screen headless and exit");
+			logInfo("                               (title, episode-select, high-scores, game-menu, upgrade,");
+			logInfo("                               purchase, options, cube-list, cube-reader, keyboard,");
+			logInfo("                               joystick, load-save, solid)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -381,6 +386,9 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 		case 273: // --regress-arcade
 			regress_arcade = 1;
+			break;
+		case 274: // --regress-screen=NAME
+			regress_screen = option.arg;
 			break;
 			
 		default:

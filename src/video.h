@@ -68,6 +68,14 @@ void video_set_last_output_rect(const SDL_Rect *rect);
 // when the canvas is wider than the frame.
 void video_set_last_output_rect_ex(const SDL_Rect *rect, int canvas_w, int canvas_h, int frame_x, int frame_y);
 
+// Modern variant for the widened pic-1 layout: the canvas starts with the game
+// frame at x=0 and inserts `insert_l` extra columns at game column `split_l`
+// and `insert_r` at `split_r`.  The mapping is then piecewise: a window point
+// inside an inserted band maps to the split column, and game x continues across
+// the bands.
+void video_set_last_output_rect_split(const SDL_Rect *rect, int canvas_w, int canvas_h,
+                                      int split_l, int split_r, int insert_l, int insert_r);
+
 void deinit_video(void);
 
 void JE_clr256(SDL_Surface *);

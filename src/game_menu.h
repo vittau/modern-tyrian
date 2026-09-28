@@ -24,8 +24,34 @@
 
 typedef JE_byte JE_MenuChoiceType[MENU_MAX];
 
+// The item-screen menu ids.  Used both by JE_itemScreen()'s state machine and by
+// the regression harness's start-menu hook.
+enum
+{
+	MENU_FULL_GAME       =  0,
+	MENU_UPGRADES        =  1,
+	MENU_OPTIONS         =  2,
+	MENU_PLAY_NEXT_LEVEL =  3,
+	MENU_UPGRADE_SUB     =  4,
+	MENU_KEYBOARD_CONFIG =  5,
+	MENU_LOAD_SAVE       =  6,
+	MENU_DATA_CUBES      =  7,
+	MENU_DATA_CUBE_SUB   =  8,
+	MENU_2_PLAYER_ARCADE =  9,
+	MENU_1_PLAYER_ARCADE = 10,  // Also networked games.
+	MENU_LIMITED_OPTIONS = 11,  // Hides save/load menus.
+	MENU_JOYSTICK_CONFIG = 12,
+	MENU_SUPER_TYRIAN    = 13,
+};
+
 JE_longint JE_cashLeft(void);
 void JE_itemScreen(void);
+
+// Regression harness hook (--regress-screen): makes the next JE_itemScreen()
+// open directly on `menu` instead of MENU_FULL_GAME, with data-cube `cube` for
+// MENU_DATA_CUBE_SUB, so one frame of a deep menu can be rendered headlessly.
+// Does not change normal behaviour.
+void JE_itemScreenStartAt(int menu, int cube);
 
 void load_cubes(void);
 bool load_cube(int cube_slot, int cube_index);

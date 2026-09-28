@@ -19,6 +19,7 @@
 #include "mouse.h"
 
 #include "keyboard.h"
+#include "modern.h"
 #include "sprite.h"
 #include "video.h"
 
@@ -125,6 +126,7 @@ void JE_mouseStart(void)  // FKA NewShape.mouseStart
 	{
 		const Sint32 x = mouseX - spriteInfo->x - spriteInfo->fx;
 		const Sint32 y = mouseY - spriteInfo->y - spriteInfo->fy;
+		modern_mouse_cursor_set(x, y, spriteInfo->w, spriteInfo->h);
 		blit_sprite2x2_clip(VGAScreen, x, y, shopSpriteSheet, spriteInfo->index);
 	}
 }
@@ -145,6 +147,7 @@ void JE_mouseStartFilter(Uint8 filter)
 	{
 		const Sint32 x = mouseX - spriteInfo->x - spriteInfo->fx;
 		const Sint32 y = mouseY - spriteInfo->y - spriteInfo->fy;
+		modern_mouse_cursor_set(x, y, spriteInfo->w, spriteInfo->h);
 		blit_sprite2x2_filter_clip(VGAScreen, x, y, shopSpriteSheet, spriteInfo->index, filter);
 	}
 }

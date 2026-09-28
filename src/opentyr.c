@@ -920,7 +920,16 @@ int main(int argc, char *argv[])
 #endif
 	}
 
-	if (regress_active())
+	if (regress_screen_active())
+	{
+		// Render one non-gameplay screen in a deterministic state, present
+		// --regress-frames frames and exit (see src/regress_screen.c).  This
+		// never returns.
+		regress_screen_run();
+		return EXIT_SUCCESS;
+	}
+
+	if (regress_demo != 0 || regress_scenario_active())
 	{
 		// Replay the requested demo (or start the requested synthetic level)
 		// directly, skipping intro, title and menus.

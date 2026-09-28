@@ -24,6 +24,11 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+// Default presented-frame cap for a --regress-screen run when --regress-frames
+// is not given.  Long enough for every screen's fade-in to settle so a
+// --regress-snapshot near the end captures the steady state.
+#define REGRESS_SCREEN_FRAMES 90
+
 // Headless demo-playback / synthetic-scenario regression harness.
 //
 // When --regress-demo=N is given, the game replays recorded demo N without a
@@ -50,12 +55,27 @@ extern int regress_aspect;            // ModernAspect to force in regress mode; 
 extern const char *regress_state_out_path;  // where per-frame state hashes are written
 extern int regress_players;           // players to start a scenario with (1 or 2)
 extern int regress_arcade;            // non-zero = start a scenario in 1-player arcade mode
+extern const char *regress_screen;    // non-NULL = render one non-gameplay screen and exit
 
 // True when regress mode was requested.
 bool regress_active(void);
 
 // True when a synthetic level scenario was requested.
 bool regress_scenario_active(void);
+
+// True when --regress-screen was requested: draw one non-gameplay screen into a
+// deterministic state, present --regress-frames frames and exit.  The harness
+// reuses the game's own screen functions, so their blocking input waits return
+// immediately in this mode (the frame cap ends the run).
+bool regress_screen_active(void);
+
+// Renders the requested screen and exits once the frame cap (--regress-frames,
+// default REGRESS_SCREEN_FRAMES) is reached.  Never returns.
+void regress_screen_run(void);
+
+// Resets the presented-frame counter to 0 (the screen run starts its own
+// frame timeline so setup frames do not eat into --regress-frames).
+void regress_frame_reset(void);
 
 // True when the offline audio regression was requested (--regress-audio).
 bool regress_audio_active(void);

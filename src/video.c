@@ -46,6 +46,11 @@ static int last_output_canvas_w = vga_width;
 static int last_output_canvas_h = vga_height;
 static int last_output_frame_x = 0;
 static int last_output_frame_y = 0;
+// Piecewise mapping for the widened pic-1 layout (see
+// video_set_last_output_rect_split); false unless that call was the last one.
+static bool last_output_split = false;
+static int last_output_split_l = 0, last_output_split_r = 0;
+static int last_output_insert_l = 0, last_output_insert_r = 0;
 
 SDL_Surface *VGAScreen, *VGAScreenSeg;
 SDL_Surface *VGAScreen2;
@@ -361,6 +366,12 @@ bool set_scaling_mode_by_name(const char *name)
 void JE_clr256(SDL_Surface *screen)
 {
 	SDL_FillSurfaceRect(screen, NULL, 0);
+
+	// A cleared presented screen no longer shows the tracked backdrop; the
+	// compositor falls back to the flat-edge / blurred fill until the next
+	// JE_loadPic.  Temp buffers (ship specs) do not affect it.
+	if (screen == VGAScreen)
+		modern_backdrop_clear();
 }
 
 void JE_showVGA(void) 
@@ -380,6 +391,7 @@ void video_set_last_output_rect(const SDL_Rect *rect)
 	last_output_canvas_h = vga_height;
 	last_output_frame_x = 0;
 	last_output_frame_y = 0;
+	last_output_split = false;
 }
 
 void video_set_last_output_rect_ex(const SDL_Rect *rect, int canvas_w, int canvas_h, int frame_x, int frame_y)
@@ -389,6 +401,58 @@ void video_set_last_output_rect_ex(const SDL_Rect *rect, int canvas_w, int canva
 	last_output_canvas_h = canvas_h;
 	last_output_frame_x = frame_x;
 	last_output_frame_y = frame_y;
+	last_output_split = false;
+}
+
+void video_set_last_output_rect_split(const SDL_Rect *rect, int canvas_w, int canvas_h,
+                                      int split_l, int split_r, int insert_l, int insert_r)
+{
+	last_output_rect = *rect;
+	last_output_canvas_w = canvas_w;
+	last_output_canvas_h = canvas_h;
+	last_output_frame_x = 0;
+	last_output_frame_y = 0;
+	last_output_split = true;
+	last_output_split_l = split_l;
+	last_output_split_r = split_r;
+	last_output_insert_l = insert_l;
+	last_output_insert_r = insert_r;
+}
+
+// Canvas x -> game x for the widened layout: the frame is at the canvas left
+// edge and the extra columns are the bands [split_l, split_l+insert_l) and
+// [split_r+insert_l, split_r+insert_l+insert_r).  A point inside a band maps to
+// its split column.
+static Sint32 split_canvas_to_game_x(Sint32 cx)
+{
+	if (cx < last_output_split_l)
+		return cx;
+
+	if (cx < last_output_split_l + last_output_insert_l)
+		return last_output_split_l;
+
+	cx -= last_output_insert_l;
+
+	if (cx < last_output_split_r)
+		return cx;
+
+	if (cx < last_output_split_r + last_output_insert_r)
+		return last_output_split_r;
+
+	return cx - last_output_insert_r;
+}
+
+// Game x -> canvas x, the inverse of split_canvas_to_game_x (game columns at or
+// right of a split move with the columns inserted before them).
+static Sint32 split_game_to_canvas_x(Sint32 gx)
+{
+	if (gx < last_output_split_l)
+		return gx;
+
+	if (gx < last_output_split_r)
+		return gx + last_output_insert_l;
+
+	return gx + last_output_insert_l + last_output_insert_r;
 }
 
 static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const dst_rect)
@@ -508,15 +572,20 @@ static void scale_and_flip(SDL_Surface *src_surface)
 void mapScreenPointToWindow(Sint32 *const inout_x, Sint32 *const inout_y)
 {
 	// The game frame is `last_output_frame_x/y` pixels into the presented
-	// canvas; add that before mapping the canvas onto the output rectangle.
-	*inout_x = (2 * (*inout_x + last_output_frame_x) + 1) * last_output_rect.w / (2 * last_output_canvas_w) + last_output_rect.x;
+	// canvas, or its columns are the source of the widened canvas's pieces.
+	Sint32 cx = last_output_split ? split_game_to_canvas_x(*inout_x)
+	                              : *inout_x + last_output_frame_x;
+
+	*inout_x = (2 * cx + 1) * last_output_rect.w / (2 * last_output_canvas_w) + last_output_rect.x;
 	*inout_y = (2 * (*inout_y + last_output_frame_y) + 1) * last_output_rect.h / (2 * last_output_canvas_h) + last_output_rect.y;
 }
 
 /** Maps a specified point in window coordinates to game screen coordinates. */
 void mapWindowPointToScreen(Sint32 *const inout_x, Sint32 *const inout_y)
 {
-	*inout_x = (2 * (*inout_x - last_output_rect.x) + 1) * last_output_canvas_w / (2 * last_output_rect.w) - last_output_frame_x;
+	Sint32 cx = (2 * (*inout_x - last_output_rect.x) + 1) * last_output_canvas_w / (2 * last_output_rect.w);
+
+	*inout_x = last_output_split ? split_canvas_to_game_x(cx) : cx - last_output_frame_x;
 	*inout_y = (2 * (*inout_y - last_output_rect.y) + 1) * last_output_canvas_h / (2 * last_output_rect.h) - last_output_frame_y;
 }
 

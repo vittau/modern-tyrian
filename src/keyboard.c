@@ -403,11 +403,22 @@ void handleSdlEvents(void)
 
 bool hasInput(InputFlags flags)
 {
+	// --regress-screen: the harness reuses the game's own menu loops, which
+	// block on input.  Report input as available so those waits return and the
+	// loop redraws; the --regress-frames cap then ends the run.  handleSdlEvents
+	// still drops every real event in regress mode, so nothing ever reaches the
+	// menu logic and the rendered screen does not advance.
+	if (regress_screen_active())
+		return true;
+
 	return keyboardHasInput() || mouseHasInput(flags);
 }
 
 bool getInput(void)
 {
+	if (regress_screen_active())
+		return true;
+
 	return keyboardGetInput(NULL) || mouseGetInput(INPUT_NO_MOTION, NULL);
 }
 
