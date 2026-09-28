@@ -29,8 +29,7 @@
 typedef enum {
 	SCALE_CENTER,
 	SCALE_INTEGER,
-	SCALE_ASPECT_8_5,
-	SCALE_ASPECT_4_3,
+	SCALE_FIT,
 	ScalingMode_MAX
 } ScalingMode;
 

@@ -1494,7 +1494,7 @@ static void modern_calc_dst_rect(const ModernFrame *frame, SDL_Rect *dst_rect)
 		dst_rect->h = frame->h * sy;
 		break;
 	}
-	default:  // SCALE_ASPECT_8_5 / SCALE_ASPECT_4_3 (the Fit modes)
+	default:  // SCALE_FIT (the Fit mode)
 	{
 		const float maxh_width = win_h * content_aspect;
 		const float maxw_height = win_w / content_aspect;

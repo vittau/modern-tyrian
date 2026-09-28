@@ -131,7 +131,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)");
 			logInfo("  --presentation=MODE          Set presentation mode: classic or modern");
 			logInfo("  --aspect=RATIO               Modern aspect: 4:3, 16:10, 16:9, 21:9, 32:9, auto");
-			logInfo("  --pixel-aspect=SHAPE         Modern pixel aspect: original (1.2) or square");
+			logInfo("  --pixel-aspect=SHAPE         Pixel aspect: original (1.2) or square");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
