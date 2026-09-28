@@ -550,3 +550,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - **README novo no branch principal (`67fa07f`).** No estilo do antivirus-95: banner e cabeçalhos SVG gerados por `docs/readme/generate.py`, capturas regeneráveis por `docs/screenshots/capture.sh`, todas as opções documentadas. A atualizar quando o detalhe Pentium fixo entrar.
 - **Barra de força com linha azul (`a999780`).** O teto do realce das barras era `base + 15`, e a base da força (113) não é alinhada ao bloco de 16 cores, então a barra cheia chegava ao índice 128, que é azul. O teto agora é o fim do bloco (`base | 15`).
 - **Analógico no Deck corrigido (`467d25a`).** O alvo de momento é projetado por eixo como o passo, e o stick a até 5° de um eixo encaixa nele: zero de desvio nos 9 casos com ruído, inclusive o D-pad. Abaixo do passo máximo a nave anda só com o passo sub-pixel, com no máximo 1 px de diferença entre ticks. O stick todo inclinado continua idêntico ao original. A regressão ficou com 150 casos.
+- **Pausa (usuário parou a sessão).** O `pentium` foi entregue e está commitado no branch `pentium` (`bc79b21`), mas **ainda não foi mesclado**: o merge foi abortado no meio para parar logo. Para retomar:
+  1. `git merge --no-ff pentium`;
+  2. aceitar a remoção dos baselines Modern `-d2`/`-d3` em conflito (`git rm`);
+  3. aplicar `.worker-reports/pentium-merge-regress-rename.patch`, que renomeia os casos `stick-modern-noise`/`crawl` para `-d$MODERN_DETAIL` e remove os baselines `-d2` deles;
+  4. `make && tools/regress.sh --update`, conferir que só baselines Modern mudaram e rodar `make regress`;
+  5. atualizar o README com o texto proposto em `.worker-reports/pentium.md` §7.
+- **Pendências:** validar no Deck o analógico corrigido (`467d25a`); o README com o detalhe Pentium fixo; as partículas de ambiente continuam sem posição na fila.
