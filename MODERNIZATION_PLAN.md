@@ -161,7 +161,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] **Steam Deck (prioridade, pedido do usuário, 2026-09-28).** Build Linux x86_64 distribuída como binário direto num `.tar.gz`, sem AppImage, Flatpak ou similar:
   - o executável é linkado estaticamente com SDL3/SDL3_net e só depende da glibc (≥ 2.34), carregando os backends do SteamOS em tempo de execução; roda sem instalar nada;
-  - **decisão do usuário (2026-09-28):** o pacote leva os dados do Tyrian 2.1 (freeware, com a licença), como a CI já fazia;
+  - **decisão do usuário (2026-09-28):** o pacote leva o mesmo que o OpenTyrian original distribui: só os dados do **Tyrian 2.1 freeware** (o `tyrian21.zip` de camanis.net, via `get_data.sh`) e a licença dele. Nada comercial (Tyrian 2000, versões vendidas), para evitar problema jurídico;
   - release gerada pela CI a partir de uma tag.
 
   Validar no Deck:
