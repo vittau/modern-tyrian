@@ -394,6 +394,42 @@ pairs=$((pairs + 1))
 run_case "modern-screen-jukebox-21x9" \
 	--regress-screen=jukebox --regress-modern --regress-aspect=21:9
 
+# --- Load / Save / Quit (S3) --------------------------------------------------
+#
+# The in-game Load screen is the "load-save" case above.  These cover the
+# screens the user reported: the in-game Save (same pic-1 layout), the title
+# Load Game (pic 2), and the quit confirmation dialog (over the pic-1 menu).
+# The quit 21:9 case guards the capped Modern centring shift, and the ship-specs
+# 21:9 case guards the full-width grid.
+
+pairs=$((pairs + 1))
+run_case "modern-screen-save-16x9" \
+	--regress-screen=save --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "screen-save" --regress-screen=save
+pairs=$((pairs + 1))
+run_case "modern-screen-save-21x9" \
+	--regress-screen=save --regress-modern --regress-aspect=21:9
+
+pairs=$((pairs + 1))
+run_case "modern-screen-load-16x9" \
+	--regress-screen=load --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "screen-load" --regress-screen=load
+
+pairs=$((pairs + 1))
+run_case "modern-screen-quit-16x9" \
+	--regress-screen=quit --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "screen-quit" --regress-screen=quit
+pairs=$((pairs + 1))
+run_case "modern-screen-quit-21x9" \
+	--regress-screen=quit --regress-modern --regress-aspect=21:9
+
+pairs=$((pairs + 1))
+run_case "modern-screen-ship-specs-21x9" \
+	--regress-screen=ship-specs --regress-modern --regress-aspect=21:9
+
 # --- modern bloom + dynamic lighting -----------------------------------------
 #
 # The bloom/dynamic-light pass is pinned OFF unless --regress-lighting opts in,

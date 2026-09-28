@@ -2145,11 +2145,16 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark)
 	const int gx0 = wide ? 1 : 18;
 	const int gx1 = wide ? surface->w - 1 : 135;
 
+	// Number of 15 px grid columns to visit.  The vertical lines land at
+	// x = 15*i + 10, so enough columns must be visited to reach the right edge
+	// on a canvas wider than 320; the original 320 frame keeps its 20 columns.
+	const int grid_columns = wide ? (surface->w + 14) / 15 : 20;
+
 	tempX2 = -10;
 	tempY2 = 0;
 
 	tempW = 0;
-	for (x = 0; x < 20; x++)
+	for (x = 0; x < grid_columns; x++)
 	{
 		tempW += 15;
 		tempX = tempW - tempX2;
@@ -2178,7 +2183,7 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark)
 
 			tempW2 = 0;
 
-			for (x = 0; x < 20; x++)
+			for (x = 0; x < grid_columns; x++)
 			{
 				tempW2 += 15;
 				tempX = tempW2 - tempX2;
@@ -2476,7 +2481,21 @@ JE_boolean JE_quitRequest(void)
 {
 	bool quit_selected = true, done = false;
 
-	JE_barShade(VGAScreen, 65, 55, 255, 155);
+	// Modern widescreen keeps the 320x200 frame left-aligned and widens the
+	// right panel, so a dialog drawn at its original x hugs the left edge.  The
+	// dialog's dark backdrop is centred in the 320 frame (65..255), so shifting
+	// the whole dialog right by the frame's centred offset lands it on the
+	// canvas centre, matching Classic.  The shift is capped so the dialog stays
+	// left of the last usable widening column (its rightmost element is the
+	// x=255 shade): a canvas wider than the 320 buffer cannot be reached from
+	// it, so on ultrawide the dialog stays fully visible just left of centre.
+	// Classic and Modern 4:3 keep offset 0 and are byte-identical.
+	const int centred = modern_screen_wide()
+		? MAX(0, modern_current_frame()->w - vga_width) / 2
+		: 0;
+	const int off = MIN(centred, MODERN_PIC1_SPLIT_MAX - 1 - 255);
+
+	JE_barShade(VGAScreen, 65 + off, 55, 255 + off, 155);
 
 	while (!done)
 	{
@@ -2488,9 +2507,9 @@ JE_boolean JE_quitRequest(void)
 			// TODO: Rework this for smoother mouse movement.
 			setFrameCount(4);
 
-			blit_sprite(VGAScreen, 50, 50, OPTION_SHAPES, 35);  // message box
-			JE_textShade(VGAScreen, 70, 66, miscText[28], 0, 5, FULL_SHADE);
-			JE_helpBox(VGAScreen, 70, 90, miscText[30], 30, 7, 12, 1, FULL_SHADE);
+			blit_sprite(VGAScreen, 50 + off, 50, OPTION_SHAPES, 35);  // message box
+			JE_textShade(VGAScreen, 70 + off, 66, miscText[28], 0, 5, FULL_SHADE);
+			JE_helpBox(VGAScreen, 70 + off, 90, miscText[30], 30, 7, 12, 1, FULL_SHADE);
 
 			col += colC;
 			if (col > 8 || col < 2)
@@ -2498,12 +2517,12 @@ JE_boolean JE_quitRequest(void)
 
 			int temp_x, temp_c;
 
-			temp_x = 54 + 45 - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
+			temp_x = 54 + 45 + off - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
 			temp_c = quit_selected ? col - 12 : -5;
 
 			JE_outTextAdjust(VGAScreen, temp_x, 128, miscText[9], 15, temp_c, FONT_SHAPES, true);
 
-			temp_x = 149 + 45 - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
+			temp_x = 149 + 45 + off - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
 			temp_c = !quit_selected ? col - 12 : -5;
 
 			JE_outTextAdjust(VGAScreen, temp_x, 128, miscText[10], 15, temp_c, FONT_SHAPES, true);
@@ -2525,12 +2544,12 @@ JE_boolean JE_quitRequest(void)
 		{
 			if (mouseInput.y > 123 && mouseInput.y < 149)
 			{
-				if (mouseInput.x > 56 && mouseInput.x < 142)
+				if (mouseInput.x > 56 + off && mouseInput.x < 142 + off)
 				{
 					quit_selected = true;
 					done = true;
 				}
-				else if (mouseInput.x > 151 && mouseInput.x < 237)
+				else if (mouseInput.x > 151 + off && mouseInput.x < 237 + off)
 				{
 					quit_selected = false;
 					done = true;

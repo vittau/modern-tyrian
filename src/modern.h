@@ -273,6 +273,12 @@ const char *modern_message_text(void);
 #define MODERN_BACKDROP_W 320
 #define MODERN_BACKDROP_H 200
 
+// The pic-1 right-panel widening inserts its band at (or left of) this source
+// column: the last flat panel column before the frame's right border.  A screen
+// that draws code-drawn elements on a pic-1 backdrop must keep them left of it;
+// JE_quitRequest() caps its Modern centring shift accordingly.
+#define MODERN_PIC1_SPLIT_MAX 311
+
 void modern_backdrop_set(int pic_id, const Uint8 *pixels, int pitch);
 void modern_backdrop_clear(void);
 

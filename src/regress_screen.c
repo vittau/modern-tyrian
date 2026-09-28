@@ -195,6 +195,29 @@ void regress_screen_run(void)
 		JE_itemScreenStartAt(MENU_LOAD_SAVE, 0);
 		JE_itemScreen();
 	}
+	else if (strcmp(name, "save") == 0)
+	{
+		// Menu 6 with performSave true is the in-game save screen (same layout
+		// as load-save, different header/action text).
+		performSave = true;
+		JE_itemScreenStartAt(MENU_LOAD_SAVE, 0);
+		JE_itemScreen();
+	}
+	else if (strcmp(name, "load") == 0)
+	{
+		// The title-screen Load Game screen (pic 2, JE_loadScreen), reached from
+		// the main menu; it does not use the item-screen frame.
+		JE_loadScreen();
+	}
+	else if (strcmp(name, "quit") == 0)
+	{
+		// The quit confirmation dialog, drawn over the pic-1 frame.  In screen
+		// mode JE_quitRequest() never accepts input, so it redraws the same
+		// dialog every frame and the --regress-frames cap ends the run.
+		JE_loadPic(VGAScreen, 1, false);
+		set_palette(colors, 0, 255);
+		JE_quitRequest();
+	}
 	else if (strcmp(name, "solid") == 0)
 	{
 		// A story picture (pic 5, flat black edges): the compositor uses the
