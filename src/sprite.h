@@ -126,6 +126,12 @@ void blit_sprite2_darken(SDL_Surface *, int x, int y, Sprite2_array, unsigned in
 void blit_sprite2_filter(SDL_Surface *, int x, int y, Sprite2_array, unsigned int index, Uint8 filter);
 void blit_sprite2_filter_clip(SDL_Surface *, int x, int y, Sprite2_array, unsigned int index, Uint8 filter);
 
+// Bounding box (in pixels, relative to the sprite's top-left) of the opaque
+// pixels of a compressed ("CompShapes") sprite.  Returns false for an empty
+// sprite or an out-of-range index.
+bool sprite2_bounds(Sprite2_array sprite2s, unsigned int index,
+                    int *min_x, int *min_y, int *max_x, int *max_y);
+
 void blit_sprite2x2(SDL_Surface *, int x, int y, Sprite2_array, unsigned int index);
 void blit_sprite2x2_clip(SDL_Surface *, int x, int y, Sprite2_array, unsigned int index);
 void blit_sprite2x2_blend(SDL_Surface *, int x, int y, Sprite2_array, unsigned int index);

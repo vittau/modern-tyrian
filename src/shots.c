@@ -30,6 +30,27 @@
 PlayerShotDataType playerShotData[MAX_PWEAPON + 1]; /* [1..MaxPWeapon+1] */
 JE_byte shotAvail[MAX_PWEAPON]; /* [1..MaxPWeapon] */   /*0:Avail 1-255:Duration left*/
 
+// Sprite sheet and frame index the shot's graphic is drawn from, mirroring the
+// selection player_shot_move_and_draw() makes when it blits the shot.
+static void player_shot_sprite(const PlayerShotDataType *shot, Sprite2_array *sheet, unsigned int *frame)
+{
+	JE_word sprite_frame = shot->shotGr + shot->shotAni;
+
+	if (sprite_frame > 1000)
+		sprite_frame = sprite_frame % 1000;
+
+	if (sprite_frame > 500)
+	{
+		*sheet = spriteSheet12;
+		*frame = sprite_frame - 500;
+	}
+	else
+	{
+		*sheet = spriteSheet8;
+		*frame = sprite_frame;
+	}
+}
+
 void simulate_player_shots(void)
 {
 	/* Player Shot Images */
@@ -503,10 +524,36 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 
 		shotRepeat[bay_i] = weapon->shotrepeat;
 
-		// Read-only VFX hook: muzzle flash at the shot spawn.  +1 matches the
-		// sprite column player_shot_move_and_draw() draws the shot at, so the
-		// flash and the bullet share the same origin.
-		vfx_event_shot(shot->shotX + 1, shot->shotY, shot->shotXM, shot->shotYM);
+		// Read-only VFX hook: muzzle flash centred on the drawn shot sprite.
+		// The sprite is blitted from its top-left at (shotX + 1, shotY), so the
+		// flash is shifted to the visible horizontal centre of that sprite and
+		// to its leading edge (the top for the usual upward shots).  It still
+		// carries the shot's per-tick velocity, so it travels with the bullet.
+		int flash_x = shot->shotX + 1;
+		int flash_y = shot->shotY;
+
+		if (shot->shotGr > 60000)
+		{
+			const Sprite *spr = sprite(OPTION_SHAPES, shot->shotGr - 60001);
+			flash_x += (spr->width - 1) / 2;
+			if (shot->shotYM > 0)
+				flash_y += spr->height - 1;
+		}
+		else
+		{
+			Sprite2_array sheet;
+			unsigned int frame;
+			player_shot_sprite(shot, &sheet, &frame);
+
+			int min_x, min_y, max_x, max_y;
+			if (sprite2_bounds(sheet, frame, &min_x, &min_y, &max_x, &max_y))
+			{
+				flash_x += (min_x + max_x) / 2;
+				flash_y += (shot->shotYM > 0) ? max_y : min_y;
+			}
+		}
+
+		vfx_event_shot(flash_x, flash_y, shot->shotXM, shot->shotYM);
 	}
 
 	return shot_id;

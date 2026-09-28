@@ -479,8 +479,29 @@ enemy_still_exists:
 									enemyShot[b].sym = roundf((float)aimY / maxMagAim * aim);
 								}
 
-								// Read-only VFX hook: enemy muzzle flash.
-								vfx_event_enemy_shot(enemyShot[b].sx, enemyShot[b].sy, enemyShot[b].sxm, enemyShot[b].sym);
+								// Read-only VFX hook: enemy muzzle flash centred on
+								// the drawn shot sprite (blitted from its top-left
+								// at (sx, sy)).
+								int flash_x = enemyShot[b].sx, flash_y = enemyShot[b].sy;
+								Sprite2_array shot_sheet;
+								unsigned int shot_frame;
+								if (enemyShot[b].sgr >= 500)
+								{
+									shot_sheet = spriteSheet12;
+									shot_frame = enemyShot[b].sgr - 500;
+								}
+								else
+								{
+									shot_sheet = spriteSheet8;
+									shot_frame = enemyShot[b].sgr;
+								}
+								int min_x, min_y, max_x, max_y;
+								if (sprite2_bounds(shot_sheet, shot_frame, &min_x, &min_y, &max_x, &max_y))
+								{
+									flash_x += (min_x + max_x) / 2;
+									flash_y += (enemyShot[b].sym > 0) ? max_y : min_y;
+								}
+								vfx_event_enemy_shot(flash_x, flash_y, enemyShot[b].sxm, enemyShot[b].sym);
 							}
 							break;
 						}

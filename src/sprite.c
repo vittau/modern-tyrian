@@ -552,6 +552,62 @@ void free_sprite2s(Sprite2_array *sprite2s)
 	sprite2s->size = 0;
 }
 
+// Walks a compressed sprite exactly like blit_sprite2() does (12-pixel rows)
+// and reports the bounding box of the opaque pixels.  Used to centre effects on
+// the drawn sprite: the transparent margins mean the cell is not the artwork.
+bool sprite2_bounds(Sprite2_array sprite2s, unsigned int index,
+                    int *min_x, int *min_y, int *max_x, int *max_y)
+{
+	if (sprite2s.data == NULL || index == 0)
+		return false;
+
+	const Uint16 *offsets = (const Uint16 *)sprite2s.data;
+	const unsigned int count = SDL_Swap16LE(offsets[0]) / 2;
+	if (index > count)
+		return false;
+
+	const Uint8 *data = sprite2s.data + SDL_Swap16LE(offsets[index - 1]);
+
+	int x = 0, y = 0;
+	bool any = false;
+
+	for (; *data != 0x0f; ++data)
+	{
+		x += *data & 0x0f;                   // second nibble: transparent pixel count
+		unsigned int fill = (*data & 0xf0) >> 4; // first nibble: opaque pixel count
+
+		if (fill == 0) // move to next pixel row
+		{
+			++y;
+			x -= 12;
+			continue;
+		}
+
+		while (fill--)
+		{
+			++data;
+
+			if (any)
+			{
+				if (x < *min_x) *min_x = x;
+				if (x > *max_x) *max_x = x;
+				if (y < *min_y) *min_y = y;
+				if (y > *max_y) *max_y = y;
+			}
+			else
+			{
+				*min_x = *max_x = x;
+				*min_y = *max_y = y;
+				any = true;
+			}
+
+			++x;
+		}
+	}
+
+	return any;
+}
+
 // does not clip on left or right edges of surface
 void blit_sprite2(SDL_Surface *surface, int x, int y, Sprite2_array sprite2s, unsigned int index)
 {
