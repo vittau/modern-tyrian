@@ -21,6 +21,7 @@
 #include "backgrnd.h"
 #include "config.h"
 #include "demo.h"
+#include "drawlist.h"
 #include "editship.h"
 #include "episodes.h"
 #include "file.h"
@@ -2854,6 +2855,8 @@ void JE_inGameDisplays(void)
 	char stemp[21];
 	char tempstr[256];
 
+	drawlist_set_context(DL_OBJ_HUD, 0, 0);
+
 	// In Modern mode with wide enough side panels the whole relocated HUD is
 	// drawn by modern_hud.c, which also reproduces the tempW writes below.
 	if (modern_hud_in_panels())
@@ -3908,6 +3911,8 @@ redo:
 		this_player->last_x_explosion_follow = this_player->x;
 		this_player->last_y_explosion_follow = this_player->y;
 
+		drawlist_set_context(DL_OBJ_PLAYER, playerNum_ - 1, 0);
+
 		if (shipGr_ == 0)
 		{
 			if (background2)
@@ -4399,6 +4404,8 @@ redo:
 				const int x = this_player->sidekick[i].x,
 				          y = this_player->sidekick[i].y;
 				const uint sprite = this_option->gr[this_player->sidekick[i].animation_frame] + this_player->sidekick[i].charge;
+
+				drawlist_set_context(DL_OBJ_SIDEKICK, (playerNum_ - 1) * 2 + (int)i, 0);
 
 				if (this_player->sidekick[i].style == 1 || this_player->sidekick[i].style == 2)
 					blit_sprite2x2(VGAScreen, x - 6, y, spriteSheet10, sprite);

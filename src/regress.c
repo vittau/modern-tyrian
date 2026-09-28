@@ -19,6 +19,7 @@
 #include "regress.h"
 
 #include "config.h"
+#include "drawlist.h"
 #include "episodes.h"
 #include "joystick.h"
 #include "keyboard.h"
@@ -57,6 +58,7 @@ int regress_aspect = -1;
 const char *regress_state_out_path = NULL;
 int regress_players = 1;
 int regress_arcade = 0;
+int regress_replay_check = 0;
 
 // Snapshot requests (--regress-snapshot=FRAME:FILE), repeatable.  Fixed size:
 // a run needs only a handful and parsing must not allocate per frame.
@@ -548,6 +550,15 @@ void regress_init(void)
 	modern_aspect = regress_aspect >= 0 ? (ModernAspect)regress_aspect : MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 
+	// Record and replay-check every level tick.  This only observes: the draw
+	// list is built from the existing drawing primitives and replayed into a
+	// scratch surface; the real frame hash stream is unchanged.
+	if (regress_replay_check)
+	{
+		drawlist_set_enabled(true);
+		drawlist_set_check(true);
+	}
+
 	JE_initProcessorType();
 
 	// Start the virtual clock at a fixed value; setFrameSpeed() re-anchors the
@@ -628,5 +639,16 @@ void regress_finish(void)
 			logInfo("Regression: wrote %lu frames to '%s'.", regress_frame, regress_out_path);
 		if (regress_state_out_path != NULL)
 			logInfo("Regression: wrote %lu state records to '%s'.", regress_frame, regress_state_out_path);
+	}
+
+	if (regress_replay_check)
+	{
+		logInfo("Replay check: %lu level frames replayed, %lu mismatched.",
+		        drawlist_checked_frames(), drawlist_mismatched_frames());
+		if (drawlist_mismatched_frames() != 0)
+		{
+			logError("Replay check FAILED: %s", drawlist_first_mismatch());
+			exit(EXIT_FAILURE);
+		}
 	}
 }

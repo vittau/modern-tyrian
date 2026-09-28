@@ -19,11 +19,13 @@
 #include "backgrnd.h"
 
 #include "config.h"
+#include "drawlist.h"
 #include "mtrand.h"
 #include "opentyr.h"
 #include "video.h"
 
 #include <assert.h>
+#include <string.h>
 
 /*Special Background 2 and Background 3*/
 
@@ -43,7 +45,13 @@ JE_byte     smoothie_data[9]; /* [1..9] */
 
 void JE_darkenBackground(JE_word neat)  /* wild detail level */
 {
-	Uint8 *s = VGAScreen->pixels; /* screen pointer, 8-bit specific */
+	drawlist_record_darken(VGAScreen, neat);
+	drawlist_apply_darken(VGAScreen, neat);
+}
+
+void drawlist_apply_darken(SDL_Surface *surface, JE_word neat)
+{
+	Uint8 *s = surface->pixels; /* screen pointer, 8-bit specific */
 	int x, y;
 	
 	s += 24;
@@ -52,15 +60,17 @@ void JE_darkenBackground(JE_word neat)  /* wild detail level */
 	{
 		for (x = 264; x; x--)
 		{
-			*s = ((((*s & 0x0f) << 4) - (*s & 0x0f) + ((((x - neat - y) >> 2) + *(s-2) + (y == 184 ? 0 : *(s-(VGAScreen->pitch-1)))) & 0x0f)) >> 4) | (*s & 0xf0);
+			*s = ((((*s & 0x0f) << 4) - (*s & 0x0f) + ((((x - neat - y) >> 2) + *(s-2) + (y == 184 ? 0 : *(s-(surface->pitch-1)))) & 0x0f)) >> 4) | (*s & 0xf0);
 			s++;
 		}
-		s += VGAScreen->pitch - 264;
+		s += surface->pitch - 264;
 	}
 }
 
 void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 {
+	drawlist_record_bg_row(surface, x, y, map, false);
+
 	assert(SDL_BITSPERPIXEL(surface->format) == 8);
 	
 	Uint8 *pixels = (Uint8 *)surface->pixels + (y * surface->pitch) + x,
@@ -107,6 +117,8 @@ void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 
 void blit_background_row_blend(SDL_Surface *surface, int x, int y, Uint8 **map)
 {
+	drawlist_record_bg_row(surface, x, y, map, true);
+
 	assert(SDL_BITSPERPIXEL(surface->format) == 8);
 	
 	Uint8 *pixels = (Uint8 *)surface->pixels + (y * surface->pitch) + x,
@@ -153,12 +165,14 @@ void blit_background_row_blend(SDL_Surface *surface, int x, int y, Uint8 **map)
 
 void draw_background_1(SDL_Surface *surface)
 {
+	drawlist_record_fill_full(surface);
 	SDL_FillSurfaceRect(surface, NULL, 0);
 	
 	Uint8 **map = (Uint8 **)mapYPos + mapXbpPos - 12;
 	
 	for (int i = -1; i < 7; i++)
 	{
+		drawlist_set_context(DL_OBJ_BACKGROUND, 1, i + 1);
 		blit_background_row(surface, mapXPos, (i * 28) + backPos, map);
 		
 		map += 14;
@@ -179,6 +193,7 @@ void draw_background_2(SDL_Surface *surface)
 		
 		for (int i = -1; i < 7; i++)
 		{
+			drawlist_set_context(DL_OBJ_BACKGROUND, 2, i + 1);
 			blit_background_row(surface, x, (i * 28) + backPos2, map);
 			
 			map += 14;
@@ -210,6 +225,7 @@ void draw_background_2_blend(SDL_Surface *surface)
 	
 	for (int i = -1; i < 7; i++)
 	{
+		drawlist_set_context(DL_OBJ_BACKGROUND, 2, i + 1);
 		blit_background_row_blend(surface, mapX2Pos, (i * 28) + backPos2, map);
 		
 		map += 14;
@@ -247,6 +263,7 @@ void draw_background_3(SDL_Surface *surface)
 	
 	for (int i = -1; i < 7; i++)
 	{
+		drawlist_set_context(DL_OBJ_BACKGROUND, 3, i + 1);
 		blit_background_row(surface, mapX3Pos, (i * 28) + backPos3, map);
 		
 		map += 15;
@@ -255,10 +272,6 @@ void draw_background_3(SDL_Surface *surface)
 
 void JE_filterScreen(JE_shortint col, JE_shortint int_)
 {
-	Uint8 *s = NULL; /* screen pointer, 8-bit specific */
-	int x, y;
-	unsigned int temp;
-	
 	if (filterFade)
 	{
 		levelBrightness += levelBrightnessChg;
@@ -274,10 +287,23 @@ void JE_filterScreen(JE_shortint col, JE_shortint int_)
 			levelBrightness = -99;
 		}
 	}
-	
+
+	drawlist_record_filter_screen(VGAScreen, col, int_);
+	drawlist_apply_filter_screen(VGAScreen, col, int_);
+}
+
+// Pixel-apply half of JE_filterScreen: only the two in-place full-frame passes,
+// with the fade bookkeeping left to the caller.  Replayed by the draw list so
+// the replay does not advance levelBrightness/filterFade.
+void drawlist_apply_filter_screen(SDL_Surface *surface, JE_shortint col, JE_shortint int_)
+{
+	Uint8 *s = NULL; /* screen pointer, 8-bit specific */
+	int x, y;
+	unsigned int temp;
+
 	if (col != -99 && filtrationAvail)
 	{
-		s = VGAScreen->pixels;
+		s = surface->pixels;
 		s += 24;
 		
 		col <<= 4;
@@ -289,13 +315,13 @@ void JE_filterScreen(JE_shortint col, JE_shortint int_)
 				*s = col | (*s & 0x0f);
 				s++;
 			}
-			s += VGAScreen->pitch - 264;
+			s += surface->pitch - 264;
 		}
 	}
 	
 	if (int_ != -99 && explosionTransparent)
 	{
-		s = VGAScreen->pixels;
+		s = surface->pixels;
 		s += 24;
 		
 		for (y = 184; y; y--)
@@ -306,7 +332,7 @@ void JE_filterScreen(JE_shortint col, JE_shortint int_)
 				*s = (*s & 0xf0) | (temp >= 0x1f ? 0 : (temp >= 0x0f ? 0x0f : temp));
 				s++;
 			}
-			s += VGAScreen->pitch - 264;
+			s += surface->pitch - 264;
 		}
 	}
 }
@@ -318,6 +344,8 @@ void JE_checkSmoothies(void)
 
 void lava_filter(SDL_Surface *dst, SDL_Surface *src)
 {
+	drawlist_record_filter(dst, src, DL_FILTER_LAVA);
+
 	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	/* we don't need to check for over-reading the pixel surfaces since we only
@@ -366,6 +394,8 @@ void lava_filter(SDL_Surface *dst, SDL_Surface *src)
 
 void water_filter(SDL_Surface *dst, SDL_Surface *src)
 {
+	drawlist_record_filter(dst, src, DL_FILTER_WATER);
+
 	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	Uint8 hue = smoothie_data[1] << 4;
@@ -414,6 +444,8 @@ void water_filter(SDL_Surface *dst, SDL_Surface *src)
 
 void iced_blur_filter(SDL_Surface *dst, SDL_Surface *src)
 {
+	drawlist_record_filter(dst, src, DL_FILTER_ICED);
+
 	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	Uint8 *dst_pixel = dst->pixels;
@@ -440,6 +472,8 @@ void iced_blur_filter(SDL_Surface *dst, SDL_Surface *src)
 
 void blur_filter(SDL_Surface *dst, SDL_Surface *src)
 {
+	drawlist_record_filter(dst, src, DL_FILTER_BLUR);
+
 	assert(SDL_BITSPERPIXEL(src->format) == 8 && SDL_BITSPERPIXEL(dst->format) == 8);
 	
 	Uint8 *dst_pixel = dst->pixels;
@@ -489,6 +523,8 @@ void initialize_starfield(void)
 
 void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 {
+	drawlist_record_starfield(surface, move_speed, starfield_stars, sizeof starfield_stars);
+
 	Uint8* p = (Uint8*)surface->pixels;
 
 	for (int i = MAX_STARS-1; i >= 0; --i)
@@ -521,4 +557,16 @@ void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 			}
 		}
 	}
+}
+
+// Replays one recorded starfield step.  The caller captured the pre-step star
+// state; restoring it and re-running the (pure) update lands the live array on
+// exactly the post-step state the real call produced.
+void drawlist_replay_starfield(SDL_Surface *surface, int move_speed, const void *stars, size_t bytes)
+{
+	if (bytes != sizeof starfield_stars)
+		return;
+
+	memcpy(starfield_stars, stars, sizeof starfield_stars);
+	update_and_draw_starfield(surface, move_speed);
 }

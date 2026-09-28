@@ -19,6 +19,7 @@
 #include "varz.h"
 
 #include "config.h"
+#include "drawlist.h"
 #include "editship.h"
 #include "episodes.h"
 #include "joystick.h"
@@ -33,6 +34,8 @@
 #include "sprite.h"
 #include "vga256d.h"
 #include "video.h"
+
+#include <string.h>
 
 JE_integer tempDat, tempDat2, tempDat3;
 
@@ -1124,6 +1127,8 @@ void JE_doSP(JE_word x, JE_word y, JE_word num, JE_byte explowidth, JE_byte colo
 
 void JE_drawSP(void)
 {
+	drawlist_record_superpixels(VGAScreen, superpixels, sizeof superpixels);
+
 	for (int i = MAX_SUPERPIXELS; i--; )
 	{
 		if (superpixels[i].z)
@@ -1151,4 +1156,20 @@ void JE_drawSP(void)
 			superpixels[i].z--;
 		}
 	}
+}
+
+// Replays one recorded JE_drawSP() step.  The caller captured the pre-step
+// superpixel array; restoring it and re-running the (pure) update+draw against
+// the scratch surface lands the live array on the same post-step state.
+void drawlist_replay_superpixels(SDL_Surface *surface, const void *sp, size_t bytes)
+{
+	if (bytes != sizeof superpixels)
+		return;
+
+	memcpy(superpixels, sp, sizeof superpixels);
+
+	SDL_Surface *saved = VGAScreen;
+	VGAScreen = surface;
+	JE_drawSP();
+	VGAScreen = saved;
 }

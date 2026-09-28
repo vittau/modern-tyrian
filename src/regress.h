@@ -50,6 +50,7 @@ extern int regress_aspect;            // ModernAspect to force in regress mode; 
 extern const char *regress_state_out_path;  // where per-frame state hashes are written
 extern int regress_players;           // players to start a scenario with (1 or 2)
 extern int regress_arcade;            // non-zero = start a scenario in 1-player arcade mode
+extern int regress_replay_check;      // non-zero = record and replay-check every level frame
 
 // True when regress mode was requested.
 bool regress_active(void);

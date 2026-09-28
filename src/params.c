@@ -84,6 +84,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 271, 0,   "regress-snapshot",  true },
 		{ 272, 0,   "regress-players",   true },
 		{ 273, 0,   "regress-arcade",    false },
+		{ 274, 0,   "regress-replay-check", false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -133,6 +134,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               (repeatable; the Modern canvas with --regress-modern)");
 			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
 			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
+			logInfo("  --regress-replay-check       Record each level frame's draw list and replay it (proof)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -382,6 +384,9 @@ void JE_paramCheck(int argc, char *argv[])
 		case 273: // --regress-arcade
 			regress_arcade = 1;
 			break;
+		case 274: // --regress-replay-check
+			regress_replay_check = 1;
+			break;
 			
 		default:
 			assert(false);
@@ -398,6 +403,12 @@ void JE_paramCheck(int argc, char *argv[])
 	if (regress_demo != 0 && regress_scenario_episode != 0)
 	{
 		logError("%s: --regress-demo and --regress-level are mutually exclusive", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+	
+	if (regress_replay_check && regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-replay-check requires --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 	

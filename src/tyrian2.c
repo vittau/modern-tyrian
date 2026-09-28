@@ -21,6 +21,7 @@
 #include "animlib.h"
 #include "backgrnd.h"
 #include "demo.h"
+#include "drawlist.h"
 #include "episodes.h"
 #include "file.h"
 #include "font.h"
@@ -175,6 +176,8 @@ inline static void blit_enemy(SDL_Surface *surface, unsigned int i, signed int x
 	const int x = enemy[i].ex + x_offset + tempMapXOfs,
 	          y = enemy[i].ey + y_offset;
 	const unsigned int index = enemy[i].egr[enemy[i].enemycycle - 1] + sprite_offset;
+
+	drawlist_set_context(DL_OBJ_ENEMY, i, 0);
 
 	if (enemy[i].filter != 0)
 		blit_sprite2_filter(surface, x, y, *enemy[i].sprite2s, index, enemy[i].filter);
@@ -1203,6 +1206,7 @@ level_loop:
 
 	/* use game_screen for all the generic drawing functions */
 	VGAScreen = game_screen;
+	drawlist_frame_begin();
 
 	/*---------------------------EVENTS-------------------------*/
 	while (eventRec[eventLoc-1].eventtime <= curLoc && eventLoc <= maxEvent)
@@ -1803,6 +1807,8 @@ draw_player_shot_loop_end:
 								enemyShot[z].animate = 0;
 						}
 
+						drawlist_set_context(DL_OBJ_ENEMY_SHOT, z, 0);
+
 						if (enemyShot[z].sgr >= 500)
 							blit_sprite2(VGAScreen, enemyShot[z].sx, enemyShot[z].sy, spriteSheet12, enemyShot[z].sgr + enemyShot[z].animate - 500);
 						else
@@ -1906,6 +1912,8 @@ draw_player_shot_loop_end:
 			}
 			else
 			{
+				drawlist_set_context(DL_OBJ_EXPLOSION, j, 0);
+
 				if (explosionTransparent)
 					blit_sprite2_blend(VGAScreen, explosions[j].x, explosions[j].y, explosionSpriteSheet, explosions[j].sprite + 1);
 				else
@@ -1915,6 +1923,8 @@ draw_player_shot_loop_end:
 			}
 		}
 	}
+
+	drawlist_set_context(DL_OBJ_NONE, 0, 0);
 
 	if (!portConfigChange)
 		portConfigDone = true;
@@ -2294,6 +2304,8 @@ draw_player_shot_loop_end:
 	draw_boss_bar();
 
 	JE_inGameDisplays();
+
+	drawlist_frame_end();
 
 	VGAScreen = VGAScreenSeg; /* side-effect of game_screen */
 
@@ -5226,6 +5238,8 @@ void draw_boss_bar(void)
 	// the side panel of the same index (both stacked in the status panel in
 	// single player), otherwise it stays in the playfield.
 	const bool in_panels = modern_hud_in_panels();
+
+	drawlist_set_context(DL_OBJ_HUD, 0, 0);
 
 	for (unsigned int b = 0; b < bars; b++)
 	{
