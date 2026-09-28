@@ -54,6 +54,11 @@ void toggle_fullscreen(void);
 bool init_scaler(unsigned int new_scaler);
 bool set_scaling_mode_by_name(const char *name);
 
+// Applies a runtime change to the presentation/aspect/pixel-aspect settings:
+// refits the windowed window to the new mode's default size and recomputes the
+// Modern canvas.  Display-only; safe to call from a menu.
+void video_apply_display_settings(void);
+
 // Shared presentation helpers, used by both the Classic and Modern paths.
 SDL_Renderer *video_renderer(void);
 // Computes the destination rectangle for a logical surface of src_w x src_h

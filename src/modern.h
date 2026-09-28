@@ -93,6 +93,11 @@ bool set_modern_pixel_aspect_by_name(const char *name);
 // The pixel aspect as a scale factor (1.2 for original, 1.0 for square).
 float modern_pixel_aspect_factor(void);
 
+// The configured on-screen aspect as a ratio.  For MODERN_ASPECT_AUTO this
+// returns the 4:3 placeholder, since only the window knows the auto aspect;
+// callers that care must special-case auto themselves.
+float modern_aspect_ratio(void);
+
 // The Modern canvas plus read-only access to the frame it was built from.
 //
 // `pixels` is an XRGB8888 canvas of `w` x `h` logical pixels, `pitch` bytes

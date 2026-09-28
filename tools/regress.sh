@@ -29,10 +29,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 UPDATE=0
+UPDATE_MANIFEST=0
 REPLAY_CHECK=0
 INTERP_CHECK=0
 if [ "${1:-}" = "--update" ]; then
 	UPDATE=1
+elif [ "${1:-}" = "--update-manifest" ]; then
+	UPDATE_MANIFEST=1
 elif [ "${1:-}" = "--replay-check" ]; then
 	REPLAY_CHECK=1
 elif [ "${1:-}" = "--interp-check" ]; then
@@ -43,6 +46,7 @@ DATA_DIR="${TYRIAN_DATA:-$ROOT/data}"
 BIN="$ROOT/opentyrian"
 BASELINE_DIR="$ROOT/test/regress"
 ACTUAL_DIR="$BASELINE_DIR/actual"
+MANIFEST="$BASELINE_DIR/data-manifest.txt"
 DEMOS="1 2 3 4 5"
 LEVELS="1 2 3 4 5 6"
 
@@ -91,6 +95,82 @@ if [ ! -f "$DATA_DIR/tyrian1.lvl" ]; then
 		echo "ERROR: failed to obtain Tyrian data"
 		exit 1
 	fi
+fi
+
+# --- data lock ---------------------------------------------------------------
+#
+# The baselines are only valid for the original freeware Tyrian 2.1 data.  A
+# different data directory (e.g. a copy where one sprite was replaced) makes the
+# output diverge silently, so refuse it up front.  The expected size and CRC of
+# every file the cases read live in test/regress/data-manifest.txt; the CRC is
+# the POSIX cksum one, which is available on macOS, Linux and MSYS2.
+
+print_manifest_header() {
+	echo "# Data files the regression cases read, with the size and POSIX cksum CRC of"
+	echo "# the expected Tyrian 2.1 copy.  tools/regress.sh refuses a data directory"
+	echo "# whose files do not match, because the baselines are only valid for the"
+	echo "# original freeware data.  Regenerate with: tools/regress.sh --update-manifest"
+	echo "#"
+	echo "# size crc name"
+}
+
+# --update-manifest re-hashes the files already listed in the manifest, so it
+# does not add or remove entries; edit the manifest for that.
+if [ "$UPDATE_MANIFEST" -eq 1 ]; then
+	if [ ! -f "$MANIFEST" ]; then
+		echo "ERROR: no data manifest to update ($MANIFEST)"
+		exit 1
+	fi
+
+	tmp="$MANIFEST.tmp"
+	print_manifest_header > "$tmp"
+	while read -r size crc name; do
+		case "$size" in ''|'#'*) continue ;; esac
+		if [ ! -f "$DATA_DIR/$name" ]; then
+			echo "missing: $name" >&2
+			continue
+		fi
+		set -- $(cksum "$DATA_DIR/$name")
+		printf '%s %s %s\n' "$2" "$1" "$name" >> "$tmp"
+	done < "$MANIFEST"
+	mv "$tmp" "$MANIFEST"
+	echo "Data manifest updated from $DATA_DIR."
+	exit 0
+fi
+
+if [ ! -f "$MANIFEST" ]; then
+	echo "ERROR: missing data manifest $MANIFEST"
+	exit 1
+fi
+
+bad_data=0
+while read -r size crc name; do
+	case "$size" in ''|'#'*) continue ;; esac
+
+	if [ ! -f "$DATA_DIR/$name" ]; then
+		echo "  missing: $name (expected size $size, crc $crc)"
+		bad_data=$((bad_data + 1))
+		continue
+	fi
+
+	set -- $(cksum "$DATA_DIR/$name")
+	got_crc=$1
+	got_size=$2
+
+	if [ "$got_size" != "$size" ] || [ "$got_crc" != "$crc" ]; then
+		echo "  mismatched: $name (expected size $size, crc $crc; got size $got_size, crc $got_crc)"
+		bad_data=$((bad_data + 1))
+	fi
+done < "$MANIFEST"
+
+if [ "$bad_data" -ne 0 ]; then
+	echo ""
+	echo "ERROR: the Tyrian data in $DATA_DIR is not the expected Tyrian 2.1 set"
+	echo "($bad_data file(s) differ).  The regression baselines are only valid for"
+	echo "the exact freeware data they were generated from, so this run is refused"
+	echo "to avoid a false divergence.  Point TYRIAN_DATA at that copy (a patched,"
+	echo "repacked or differently-sourced release can change a sprite silently)."
+	exit 1
 fi
 
 # --- helpers -----------------------------------------------------------------
@@ -246,7 +326,7 @@ pairs=$((pairs + 1))
 
 SCREENS=(
 	title episode-select high-scores game-menu upgrade purchase options
-	cube-list cube-reader keyboard joystick load-save solid
+	cube-list cube-reader keyboard joystick load-save solid setup
 )
 
 for s in "${SCREENS[@]}"; do

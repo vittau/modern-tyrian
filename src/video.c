@@ -22,10 +22,12 @@
 #include "keyboard.h"
 #include "logging.h"
 #include "modern.h"
+#include "opentyr.h"
 #include "regress.h"
 #include "video_scale.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -208,6 +210,65 @@ static void window_center_in_display(SDL_DisplayID display_id)
 	SDL_SetWindowPosition(main_window, bounds.x + (bounds.w - win_w) / 2, bounds.y + (bounds.h - win_h) / 2);
 }
 
+// The windowed size for the current mode.  Classic uses the configured
+// software scaler's output size.  Modern ignores the scalers and instead opens
+// a window shaped like the chosen on-screen aspect at the largest integer
+// multiple of the 200 logical rows that fits in ~80% of the usable desktop;
+// the repo stores no window size, so this is also Modern's startup default.
+static void windowed_size_for_mode(int *out_w, int *out_h)
+{
+	if (presentation == PRESENTATION_MODERN)
+	{
+		SDL_Rect usable;
+		if (SDL_GetDisplayUsableBounds(window_get_display(), &usable) && usable.w > 0 && usable.h > 0)
+		{
+			// "auto" follows the display's own aspect; a fixed setting uses its
+			// ratio.  The content aspect is independent of the pixel aspect.
+			const float aspect = modern_aspect == MODERN_ASPECT_AUTO
+				? (float)usable.w / (float)usable.h
+				: modern_aspect_ratio();
+
+			const float fill = 0.8f;
+			const float max_w = (float)usable.w * fill;
+			const float max_h = (float)usable.h * fill;
+
+			int scale = (int)floorf(max_h / (float)vga_height);
+			const int width_scale = (int)floorf(max_w / (aspect * (float)vga_height));
+			if (width_scale < scale)
+				scale = width_scale;
+			if (scale < 1)
+				scale = 1;
+
+			*out_w = (int)lroundf(aspect * (float)vga_height * (float)scale);
+			*out_h = vga_height * scale;
+			return;
+		}
+	}
+
+	*out_w = scalers[scaler].width;
+	*out_h = scalers[scaler].height;
+}
+
+static void set_windowed_size_for_mode(void)
+{
+	int w, h;
+	windowed_size_for_mode(&w, &h);
+	SDL_SetWindowSize(main_window, w, h);
+	window_center_in_display(window_get_display());
+}
+
+void video_apply_display_settings(void)
+{
+	// Called when the presentation/aspect/pixel-aspect settings change at
+	// runtime.  Refit the windowed window to the new mode, then let the Modern
+	// canvas follow the new window and geometry.  Classically this is a no-op
+	// beyond re-centering at the scaler size.
+	if (fullscreen_display == -1)
+		set_windowed_size_for_mode();
+
+	modern_update_canvas_size();
+}
+
 void reinit_fullscreen(int new_display)
 {
 	int display_count = 0;
@@ -225,7 +286,11 @@ void reinit_fullscreen(int new_display)
 	}
 
 	SDL_SetWindowFullscreen(main_window, false);
-	SDL_SetWindowSize(main_window, scalers[scaler].width, scalers[scaler].height);
+	{
+		int w, h;
+		windowed_size_for_mode(&w, &h);
+		SDL_SetWindowSize(main_window, w, h);
+	}
 
 	if (fullscreen_display == -1)
 	{
@@ -320,9 +385,13 @@ bool init_scaler(unsigned int new_scaler)
 	if (fullscreen_display == -1)
 	{
 		// Changing scalers, when not in fullscreen mode, forces the window
-		// to resize to exactly match the scaler's output dimensions.
-		SDL_SetWindowSize(main_window, w, h);
-		window_center_in_display(window_get_display());
+		// to resize to exactly match the scaler's output dimensions.  Modern
+		// ignores the software scalers, so its window keeps the Modern size.
+		if (presentation != PRESENTATION_MODERN)
+		{
+			SDL_SetWindowSize(main_window, w, h);
+			window_center_in_display(window_get_display());
+		}
 	}
 
 	switch (bpp)

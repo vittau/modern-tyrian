@@ -201,6 +201,13 @@ void regress_screen_run(void)
 		for (;;)
 			JE_showVGA();
 	}
+	else if (strcmp(name, "setup") == 0)
+	{
+		// The in-game Setup screen's Graphics submenu, which carries the
+		// presentation/aspect/pixel-aspect/smooth-motion pickers.
+		setupMenuStartAt(SETUP_MENU_GRAPHICS);
+		setupMenu();
+	}
 	else
 	{
 		logFatal("Unknown --regress-screen '%s'.", name);

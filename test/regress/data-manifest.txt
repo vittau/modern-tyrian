@@ -1,0 +1,47 @@
+# Data files the regression cases read, with the size and POSIX cksum CRC of
+# the expected Tyrian 2.1 copy.  tools/regress.sh refuses a data directory
+# whose files do not match, because the baselines are only valid for the
+# original freeware data.  Regenerate with: tools/regress.sh --update-manifest
+#
+# size crc name
+36169 2480546301 cubetxt1.dat
+2745 625760848 demo.1
+2193 3214433957 demo.2
+1974 623644273 demo.3
+699 1914765014 demo.4
+1122 2152709229 demo.5
+153482 842346037 music.mus
+34888 711303051 newsh^.shp
+29941 2874864033 newsh1.shp
+35236 1993929893 newsh2.shp
+37130 2811399401 newsh3.shp
+29449 775120250 newsh4.shp
+35813 3028498759 newsh5.shp
+17578 1425774316 newsh6.shp
+44079 2593278867 newsh7.shp
+34888 711303051 newsh9.shp
+25622 2511252582 newsha.shp
+40714 117528338 newshc.shp
+28945 2198986029 newshe.shp
+33543 3376643067 newshf.shp
+30860 2722307320 newshi.shp
+43999 3409272313 newshj.shp
+22913 3155847538 newshk.shp
+22378 3700412744 newshm.shp
+46204 1454869397 newshp.shp
+14187 4159994826 newsht.shp
+35657 1233745291 newshu.shp
+17664 3159896514 palette.dat
+118720 2833035873 shapes).dat
+172480 1648817559 shapesw.dat
+152992 1515070427 shapesy.dat
+243712 128550460 shapesz.dat
+153657 2391449990 tyrian.hdt
+365969 3931527424 tyrian.pic
+443871 2976180454 tyrian.shp
+264512 3245533034 tyrian.snd
+538262 978033593 tyrian1.lvl
+381242 3753347598 tyrian2.lvl
+393398 1963724006 tyrian3.lvl
+800006 1347595571 tyrian4.lvl
+132767 1661905447 voices.snd

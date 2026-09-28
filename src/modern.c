@@ -249,6 +249,11 @@ float modern_pixel_aspect_factor(void)
 	return modern_pixel_aspect == PIXEL_ASPECT_ORIGINAL ? 1.2f : 1.0f;
 }
 
+float modern_aspect_ratio(void)
+{
+	return modern_aspect_ratios[modern_aspect];
+}
+
 void modern_mark_gameplay_frame(void)
 {
 	modern_gameplay_frame = true;

@@ -78,11 +78,35 @@ A Visual Studio solution is provided in `visualc/`.
                                  (1 or 2)
     -p, --net-port=PORT          Set local port to bind (default is 1333)
     -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)
-    --presentation=MODE          Set the presentation mode: classic or modern
-    --aspect=RATIO               Set the Modern aspect: 4:3, 16:10, 16:9, 21:9,
-                                 32:9 or auto (default is 4:3)
-    --pixel-aspect=SHAPE         Set the Modern pixel aspect: original (1.2, the
-                                 CRT look) or square (default is original)
+    --presentation=MODE          Set presentation mode: classic or modern
+    --aspect=RATIO               Modern aspect: 4:3, 16:10, 16:9, 21:9, 32:9, auto
+    --pixel-aspect=SHAPE         Modern pixel aspect: original (1.2) or square
+    --regress-demo=N             Replay recorded demo N (1-5) headless and exit
+    --regress-level=E:L          Start level L of episode E headless and exit
+    --regress-frames=N           Cap a --regress-level run at N frames
+    --regress-out=FILE           Write per-frame hashes to FILE (regress modes)
+    --regress-state-out=FILE     Write per-frame game-state hashes to FILE
+    --regress-snapshot=F:FILE    Save the presented image of frame F to FILE (BMP)
+                                 (repeatable; the Modern canvas with --regress-modern)
+    --regress-players=N          Start a --regress-level scenario with N players (1 or 2)
+    --regress-arcade             Start a --regress-level scenario in 1-player arcade mode
+    --regress-screen=NAME        Render one non-gameplay screen headless and exit
+                                 (title, episode-select, high-scores, game-menu, upgrade,
+                                 purchase, options, cube-list, cube-reader, keyboard,
+                                 joystick, load-save, solid, setup)
+    --regress-replay-check       Record each level frame's draw list and replay it (proof)
+    --regress-interp-check       Render each level frame interpolated at alpha=1 and
+                                 compare it byte for byte with the real frame (proof)
+    --regress-interp-alpha=A     Present the frame interpolated at alpha A (0..1)
+                                 (with --regress-snapshot; Modern only)
+    --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
+                                 motion (default on)
+    --regress-realtime           Replay a demo in a real window with the wall clock and log
+                                 presented-fps statistics (uses --regress-demo)
+    --bench-seconds=N            Duration of --regress-realtime (default 20)
+    --regress-detail=M           Pin processor detail level M (1-6, default 2)
+    --regress-modern             Hash the Modern canvas in regress modes
+    --regress-audio              Render the audio baselines to FILE and exit
     --selftest-gamepad           Run the virtual-controller input self-test and exit
 
 The `presentation` setting is also stored in `opentyrian.cfg` (in the `video`
@@ -90,7 +114,10 @@ section) and defaults to `classic`.  Classic is the original path: the 8-bit
 frame is run through a software scaler (`None`, `2x`, `Scale2x`, `hq2x`, ...).
 Modern composes an XRGB8888 canvas on the CPU at the logical resolution, runs
 its effect passes there, and scales it to the window with nearest-neighbour;
-the software scalers are ignored in Modern.
+the software scalers are ignored in Modern.  The Graphics submenu of the
+in-game Setup screen exposes Presentation, Aspect, Pixel Aspect and Smooth
+Motion; the Modern-only ones are greyed out and ignored while Classic is
+active, and all of them are saved through the existing configuration.
 
 The Modern presentation is widescreen.  The original 320x200 frame keeps its
 size and is centered horizontally in a wider canvas (height stays 200 rows), so
@@ -99,7 +126,15 @@ aspect (or `auto` follows the window); the canvas width is
 `round(200 * pixel_aspect * aspect)`, never below 320.  The `pixel_aspect`
 setting reproduces the non-square pixels of the original DOS output: `original`
 draws each pixel 1.2x taller than wide, `square` draws them 1:1.  Both settings
-are stored in the `video` section as `aspect` and `pixel_aspect`.
+are stored in the `video` section as `aspect` and `pixel_aspect`, and default
+to `4:3` and `original`.
+
+The `smooth_motion` key in the same section (`--smooth-motion=on|off`) makes
+Modern gameplay present at the display refresh with interpolated motion while
+the logic keeps its original fixed tick; it defaults to `on` and has no effect
+in Classic.  In Modern, a new window also opens at the chosen aspect instead of
+the Classic scaler size: the largest integer multiple of the 200 logical rows
+that fits in about 80% of the usable desktop, centered on the display.
 
 On non-gameplay frames (title/splash, menus, the shop, story/text screens and
 the in-game Esc menu) the side space is filled with a copy of the frame scaled
@@ -141,8 +176,30 @@ state, presents `--regress-frames` frames (default 90) and exits, so the
 widescreen menu compositions can be hashed and snapshotted without a window.
 `NAME` is one of `title`, `episode-select`, `high-scores`, `game-menu`,
 `upgrade`, `purchase`, `options`, `cube-list`, `cube-reader`, `keyboard`,
-`joystick`, `load-save` or `solid`; combine it with `--regress-modern`,
+`joystick`, `load-save`, `solid` or `setup`; combine it with `--regress-modern`,
 `--regress-aspect` and `--regress-out` as usual.
+
+## Regression Testing
+
+The regression harness replays the recorded demos and the synthetic level
+scenarios without a window and compares a hash per frame against the baselines
+in `test/regress/`:
+
+    make regress TYRIAN_DATA=/path/to/Tyrian
+
+There are two full proof sweeps: `make regress-replay` records each level
+frame's draw list and replays it (the renderer reproduces every frame byte for
+byte), and `make regress-interp` renders each frame interpolated at alpha = 1
+and compares it byte for byte with the real frame.  `--update` regenerates the
+baselines when a change to the output is intentional.
+
+The game data comes from `TYRIAN_DATA` (default `./data`, fetched by
+`./get_data.sh`).  The baselines are only valid for the exact freeware data
+they were generated from, so the harness checks the files it reads against
+`test/regress/data-manifest.txt` (sizes and POSIX `cksum` CRCs) and refuses a
+different data directory, naming the mismatching file, instead of reporting a
+false divergence.  Freeware mirrors are not guaranteed to be byte-identical,
+and changing a single sprite moves every frame from the point where it appears.
 
 ## Gamepads and Joysticks
 

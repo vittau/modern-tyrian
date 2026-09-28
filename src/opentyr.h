@@ -61,6 +61,20 @@ typedef float  JE_real;
 extern const char *opentyrian_str;
 extern const char *opentyrian_version;
 
+// Screens of the in-game Setup menu.  Exposed so the regress harness
+// (--regress-screen) can open one directly; setupMenu() uses the same values.
+enum
+{
+	SETUP_MENU_NONE = 0,
+	SETUP_MENU_SETUP = 1,
+	SETUP_MENU_GRAPHICS = 2,
+	SETUP_MENU_SOUND = 3,
+};
+
 void setupMenu(void);
+
+// Regress hook: the next setupMenu() opens on `menu` (a SETUP_MENU_* value)
+// instead of the top level.  Does not change normal behaviour.
+void setupMenuStartAt(int menu);
 
 #endif /* OPENTYR_H */
