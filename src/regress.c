@@ -71,6 +71,7 @@ int regress_interp_check = 0;
 int regress_interp_smoothness = 0;
 int regress_smooth_alphas = 5;
 int regress_gameplay_check = 0;
+int regress_parallax_check = 0;
 int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
 int regress_bloom_quality = -1;
@@ -733,6 +734,15 @@ void regress_init(void)
 		drawlist_set_smoothness_alphas((unsigned)regress_smooth_alphas);
 	}
 
+	// Parallax guard: run the interpolated presentation every tick and require
+	// it to leave the starfield and the background scroll untouched, so the
+	// per-tick displacement is the same with the interpolation on or off.
+	if (regress_parallax_check)
+	{
+		drawlist_set_enabled(true);
+		drawlist_set_parallax_check(true);
+	}
+
 	// Real-time pacing benchmark: log presented-fps statistics and exit after
 	// the requested duration.
 	if (regress_realtime_active())
@@ -916,6 +926,20 @@ void regress_finish(void)
 		if (regress_gameplay_filter_missing != 0)
 		{
 			logError("Gameplay fade check FAILED: %s", regress_gameplay_filter_first);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_parallax_check)
+	{
+		logInfo("Parallax check: %lu level ticks, %lu presentation state mutations, %lu double updates, %lu advance mismatches.",
+		        drawlist_parallax_ticks(), drawlist_parallax_mutations(),
+		        drawlist_parallax_double_updates(), drawlist_parallax_advance_mismatches());
+		if (drawlist_parallax_mutations() != 0 ||
+		    drawlist_parallax_double_updates() != 0 ||
+		    drawlist_parallax_advance_mismatches() != 0)
+		{
+			logError("Parallax check FAILED: the starfield/background moved beyond one tick.");
 			exit(EXIT_FAILURE);
 		}
 	}

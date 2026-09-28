@@ -194,6 +194,10 @@ regress-interp :
 regress-smooth :
 	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --smoothness-check
 
+.PHONY : regress-parallax
+regress-parallax :
+	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --parallax-check
+
 $(TARGET) : $(OBJS) $(RES)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)
 

@@ -33,6 +33,7 @@ UPDATE_MANIFEST=0
 REPLAY_CHECK=0
 INTERP_CHECK=0
 SMOOTH_CHECK=0
+PARALLAX_CHECK=0
 if [ "${1:-}" = "--update" ]; then
 	UPDATE=1
 elif [ "${1:-}" = "--update-manifest" ]; then
@@ -43,6 +44,8 @@ elif [ "${1:-}" = "--interp-check" ]; then
 	INTERP_CHECK=1
 elif [ "${1:-}" = "--smoothness-check" ]; then
 	SMOOTH_CHECK=1
+elif [ "${1:-}" = "--parallax-check" ]; then
+	PARALLAX_CHECK=1
 fi
 
 DATA_DIR="${TYRIAN_DATA:-$ROOT/data}"
@@ -678,7 +681,68 @@ run_smoothness_case() {
 	fi
 }
 
-if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ]; then
+# run_parallax_case LABEL BASELINE_LABEL "$@" -- assert the interpolated
+# presentation never advances the starfield or the background scroll, so the
+# per-tick motion is the same with smooth motion on or off.  The run also emits
+# the frame-hash stream, which must still equal the Classic baseline.
+run_parallax_case() {
+	local label=$1 baseline_label=$2
+	shift 2
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+	local baseline="$BASELINE_DIR/$baseline_label.txt"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-parallax-check "$@" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
+		echo "FAIL $label: parallax check failed (exit $rc)"
+		grep -E "Parallax|FAILED" "$log" | tail -n 3
+		failures=$((failures + 1))
+		return
+	fi
+
+	if [ ! -f "$baseline" ]; then
+		echo "FAIL $label: missing baseline $baseline_label"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if cmp -s "$baseline" "$out"; then
+		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, per-tick motion preserved"
+	else
+		echo "FAIL $label: frame hashes differ from $baseline_label"
+		failures=$((failures + 1))
+	fi
+}
+
+# run_parallax_level LABEL FRAMES EPISODE:LEVEL -- the reported ASTEROID levels
+# have no frame baseline, so this only asserts the check's exit code and prints
+# its summary.
+run_parallax_level() {
+	local label=$1 frames=$2 lvl=$3
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-parallax-check \
+		--regress-level="$lvl" --regress-frames="$frames" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ]; then
+		echo "FAIL $label: parallax check failed (exit $rc)"
+		grep -E "Parallax|FAILED" "$log" | tail -n 3
+		failures=$((failures + 1))
+		return
+	fi
+
+	echo "PASS $label: $(grep -oE 'Parallax check: .*' "$log" | tail -n 1)"
+}
+
+if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ] && [ "$PARALLAX_CHECK" -eq 0 ]; then
 	run_replay_case "replay-demo1-d2"   "demo1-d2"   --regress-demo=1 --regress-detail=2
 	pairs=$((pairs + 1))
 	run_replay_case "replay-demo3-d4"   "demo3-d4"   --regress-demo=3 --regress-detail=4
@@ -715,6 +779,19 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	pairs=$((pairs + 1))
 	run_smoothness_case "smoothness-scenario-flip-d3" "scenario-flip-d3" \
 		--regress-level=4:12 --regress-detail=3 --regress-frames=3600
+	pairs=$((pairs + 1))
+
+	# --- parallax guard (starfield/background per-tick motion) ------------------
+	#
+	# The interpolated presentation must not advance the starfield or the
+	# background scroll; the guard exits non-zero if it does, and the frame-hash
+	# stream must still equal the Classic baseline.  The two ASTEROID levels are
+	# the reported case and have no baseline, so they are check-only.
+	run_parallax_case "parallax-demo1-d2" "demo1-d2" --regress-demo=1 --regress-detail=2
+	pairs=$((pairs + 1))
+	run_parallax_level "parallax-scenario-asteroid" 1200 "1:1"
+	pairs=$((pairs + 1))
+	run_parallax_level "parallax-scenario-asteroid2" 1200 "1:2"
 	pairs=$((pairs + 1))
 
 	# --- gameplay composition check (Fase 2, bug B) -----------------------------
@@ -786,6 +863,41 @@ if [ "$SMOOTH_CHECK" -eq 1 ]; then
 		exit 0
 	fi
 	echo "$failures smoothness-check cases failed in ${total}s."
+	exit 1
+fi
+
+# Full parallax sweep: every demo and scenario at every detail level, requiring
+# the interpolated presentation to leave the starfield/background scroll
+# untouched (tools/regress.sh --parallax-check).
+if [ "$PARALLAX_CHECK" -eq 1 ]; then
+	for d in $DEMOS; do
+		for m in $LEVELS; do
+			run_parallax_case "parallax-demo$d-d$m" "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		done
+	done
+
+	for spec in "${SCENARIOS[@]}"; do
+		set -- $spec
+		sname=$1
+		slvl=$2
+		sframes=$3
+		shift 3
+		for m in "$@"; do
+			run_parallax_case "parallax-scenario-$sname-d$m" "scenario-$sname-d$m" \
+				--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
+		done
+	done
+
+	# The reported ASTEROID levels (check-only: no baseline).
+	run_parallax_level "parallax-scenario-asteroid" 1200 "1:1"
+	run_parallax_level "parallax-scenario-asteroid2" 1200 "1:2"
+
+	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
+	if [ "$failures" -eq 0 ]; then
+		echo "All parallax-check cases passed in ${total}s."
+		exit 0
+	fi
+	echo "$failures parallax-check cases failed in ${total}s."
 	exit 1
 fi
 

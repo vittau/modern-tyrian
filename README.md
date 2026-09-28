@@ -114,6 +114,8 @@ A Visual Studio solution is provided in `visualc/`.
                                  composition (drops the classic sidebar) and, during a
                                  level brightness fade, mirrors that brightness on the
                                  HUD panels/message strip too (no HUD flash)
+    --regress-parallax-check     Per level tick, assert the interpolated presentation
+                                 leaves the starfield/background scroll untouched
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log
