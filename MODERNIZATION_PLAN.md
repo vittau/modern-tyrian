@@ -160,8 +160,8 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Trava de dados na regressão (`7909049`); referência no zip oficial e regressão na CI, verde em Linux, macOS e Windows (`b4f42b6`)
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] **Steam Deck (prioridade, pedido do usuário, 2026-09-28).** Build Linux x86_64 distribuída como binário direto num `.tar.gz`, sem AppImage, Flatpak ou similar:
-  - o executável vai com as libs SDL3/SDL3_net ao lado, com `rpath=$ORIGIN`, para rodar no SteamOS sem instalar nada;
-  - os dados do jogo não vão no pacote: vai junto um script ou uma instrução para baixá-los;
+  - o executável é linkado estaticamente com SDL3/SDL3_net e só depende da glibc (≥ 2.34), carregando os backends do SteamOS em tempo de execução; roda sem instalar nada;
+  - **decisão do usuário (2026-09-28):** o pacote leva os dados do Tyrian 2.1 (freeware, com a licença), como a CI já fazia;
   - release gerada pela CI a partir de uma tag.
 
   Validar no Deck:
@@ -524,3 +524,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - `deck`: prontidão do `.tar.gz` Linux para o Steam Deck (glibc, backends do SDL3, padrões em 1280×800, logs, guia "Add to Steam").
 - O pacote Linux da CI já inclui os dados do Tyrian 2.1 (freeware), enquanto o item do Steam Deck no plano diz o contrário. O agente `deck` vai levantar prós e contras, e a decisão fica com o usuário.
 - As partículas de ambiente continuam sem posição definida na fila.
+
+### 2026-09-28 — Steam Deck e modal de Quit no branch principal
+- **Steam Deck (`54c411b`).** Detecção do Deck (`SteamDeck=1` ou placa Jupiter/Galileo); na primeira execução abre em tela cheia, no Modern, com aspecto automático (16:10 em 1280×800). O log vai para `~/.config/opentyrian/opentyrian.log` no Deck, e `--log-file` (310) funciona em qualquer sistema. O backend HIDAPI/libusb entrou no SDL3 estático. Guia em `docs/STEAM_DECK.md`, e um resumo dentro do `.tar.gz`. O pacote segue com os dados do jogo (decisão do usuário). Falta validar num Deck real.
+- **Modal de Quit (`quit-centre`).** A caixa é centralizada e a sombra fica pendurada como no original, cortada no limite do painel alargado; em 21:9/32:9 a caixa para nesse limite. O diálogo de nome do recorde tinha o mesmo defeito e foi corrigido junto.
+- **Regressão interrompida por sinal.** Durante o merge, um caso terminou no quadro 2210 com saída 0 e sem a mensagem final, e rodando sozinho passou. O SDL transforma SIGTERM/SIGINT em evento de quit, e o jogo saía com `exit(0)`, então o harness via uma saída limpa com o arquivo truncado. Provável origem: outro agente encerrando os próprios processos do jogo. Agora a regressão desliga os handlers de sinal do SDL (o harness reporta "killed by signal") e um evento de quit aborta com erro.

@@ -19,6 +19,7 @@
 #include "keyboard.h"
 
 #include "joystick.h"
+#include "logging.h"
 #include "mouse.h"
 #include "network.h"
 #include "nortsong.h"
@@ -395,6 +396,14 @@ void handleSdlEvents(void)
 			}
 
 			case SDL_EVENT_QUIT:
+				// A regress run that is asked to quit (e.g. an app-quit request
+				// from the desktop) is incomplete: fail loudly, not with a clean
+				// exit and a truncated output file.
+				if (regress_active())
+				{
+					logError("Regression: quit requested before the run finished; aborting.");
+					exit(EXIT_FAILURE);
+				}
 				exit(0);
 				break;
 		}

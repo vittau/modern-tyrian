@@ -996,7 +996,13 @@ int main(int argc, char *argv[])
 	// hint on other platforms.  The input events themselves are discarded in
 	// handleSdlEvents() as well.
 	if (regress)
+	{
 		SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+		// Let SIGINT/SIGTERM kill a regress run outright instead of becoming an
+		// SDL quit event: the harness then reports the signal, rather than a
+		// clean exit with a truncated output file.
+		SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+	}
 
 	if (!SDL_Init(0))
 	{
