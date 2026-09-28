@@ -403,6 +403,12 @@ run_case "modern-wide-script-death-d2" \
 	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
 	--regress-frames=3700 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
+# Same run with the ESC in-game menu opened on the last frame; owns the baseline
+# the gameplay-composition menu case below is compared against.
+run_case "modern-wide-script-menu-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=700 --regress-menu=ingame --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
 
 # --- Modern VFX (Fase 2) ------------------------------------------------------
 #
