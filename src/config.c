@@ -33,6 +33,7 @@
 #include "varz.h"
 #include "video.h"
 #include "video_scale.h"
+#include "vfx.h"
 
 #define SAVE_FILES_SIZE (109 * SAVE_FILES_NUM)
 #define SAVE_FILE_SIZE (SAVE_FILES_SIZE + 100)
@@ -256,6 +257,7 @@ static void loadOpenTyrianConfig(void)
 	modern_aspect = MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 	interp_smooth_motion = true;
+	vfx_level = VFX_MEDIUM;
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
 	Config *config = &opentyrian_config;
@@ -311,6 +313,10 @@ static void loadOpenTyrianConfig(void)
 		const char *smooth_motion_name;
 		if (config_get_string_option(section, "smooth_motion", &smooth_motion_name))
 			set_smooth_motion_by_name(smooth_motion_name);
+
+		const char *vfx_name;
+		if (config_get_string_option(section, "vfx", &vfx_name))
+			set_vfx_by_name(vfx_name);
 	}
 
 	section = config_find_section(config, "keyboard", NULL);
@@ -351,6 +357,7 @@ static void saveOpenTyrianConfig(void)
 
 	config_set_string_option(section, "pixel_aspect", modern_pixel_aspect_names[modern_pixel_aspect]);
 	config_set_string_option(section, "smooth_motion", interp_smooth_motion ? "on" : "off");
+	config_set_string_option(section, "vfx", vfx_level_names[vfx_level]);
 
 	section = config_find_or_add_section(config, "keyboard", NULL);
 	if (section == NULL)

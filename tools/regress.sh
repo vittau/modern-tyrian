@@ -314,6 +314,20 @@ pairs=$((pairs + 1))
 run_case "modern-wide-16x10-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:10
 pairs=$((pairs + 1))
 
+# --- Modern VFX (Fase 2) ------------------------------------------------------
+#
+# VFX are pinned OFF for every other case (so no pre-VFX baseline changes); these
+# two opt into medium with the Modern 16:9 canvas and hash the composited
+# particles.  One is a busy demo (the demo2 boss fight, many explosions and
+# shots) and one a ground/scroll synthetic scenario (E4:L12).  Both must be
+# reproducible run to run.  See src/vfx.c.
+
+run_case "vfx-demo2-d2" --regress-demo=2 --regress-detail=2 --regress-modern --regress-aspect=16:9 --regress-vfx=medium
+pairs=$((pairs + 1))
+run_case "vfx-scenario-flip-d3" \
+	--regress-level=4:12 --regress-detail=3 --regress-frames=3600 --regress-modern --regress-aspect=16:9 --regress-vfx=medium
+pairs=$((pairs + 1))
+
 # --- non-gameplay screens -----------------------------------------------------
 #
 # --regress-screen renders one non-gameplay screen in a deterministic state and

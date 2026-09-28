@@ -49,6 +49,7 @@
 #include "sprite.h"
 #include "tyrian2.h"
 #include "varz.h"
+#include "vfx.h"
 #include "vga256d.h"
 #include "video.h"
 #include "video_scale.h"
@@ -166,6 +167,16 @@ static const char *getSmoothMotionPickerItem(size_t i, char *buffer, size_t buff
 	return i == 0 ? "On" : "Off";
 }
 
+static size_t getVfxPickerItemsCount(void)
+{
+	return (size_t)VFX_LEVEL_MAX;
+}
+
+static const char *getVfxPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	return capitalized_name(vfx_level_names[i], buffer, bufferSize);
+}
+
 // Set by setupMenuStartAt() so the regress harness can open a submenu directly.
 static int setup_menu_start = -1;
 
@@ -191,6 +202,7 @@ void setupMenu(void)
 		MENU_ITEM_ASPECT,
 		MENU_ITEM_PIXEL_ASPECT,
 		MENU_ITEM_SMOOTH_MOTION,
+		MENU_ITEM_VFX,
 		MENU_ITEM_MUSIC_VOLUME,
 		MENU_ITEM_SOUND_VOLUME,
 	} MenuItemId;
@@ -241,6 +253,7 @@ void setupMenu(void)
 				{ MENU_ITEM_ASPECT, "Aspect:", "Change the Modern aspect ratio.", getAspectPickerItemsCount, getAspectPickerItem, true },
 				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the Modern pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem, true },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
+				{ MENU_ITEM_VFX, "Effects:", "Change the Modern VFX level.", getVfxPickerItemsCount, getVfxPickerItem, true },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
 				{ -1 }
 			},
@@ -317,7 +330,7 @@ void setupMenu(void)
 		const MenuItem *const menuItems = menu->items;
 
 		// Count the items first so a menu with many entries (Graphics now has
-		// eight) can tighten its row spacing and still fit above the status line.
+		// nine) can tighten its row spacing and still fit above the status line.
 		size_t menuItemsCount = 0;
 		while (menuItems[menuItemsCount].id != (MenuItemId)-1)
 			menuItemsCount += 1;
@@ -383,6 +396,10 @@ void setupMenu(void)
 
 			case MENU_ITEM_SMOOTH_MOTION:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, interp_smooth_motion ? "On" : "Off", FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
+			case MENU_ITEM_VFX:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(vfx_level_names[vfx_level], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_MUSIC_VOLUME:
@@ -746,6 +763,14 @@ void setupMenu(void)
 					pickerSelectedIndex = interp_smooth_motion ? 0 : 1;
 					break;
 				}
+				case MENU_ITEM_VFX:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = (size_t)vfx_level;
+					break;
+				}
 				case MENU_ITEM_MUSIC_VOLUME:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -918,6 +943,11 @@ void setupMenu(void)
 				case MENU_ITEM_SMOOTH_MOTION:
 				{
 					interp_smooth_motion = pickerSelectedIndex == 0;
+					break;
+				}
+				case MENU_ITEM_VFX:
+				{
+					vfx_level = (VfxLevel)pickerSelectedIndex;
 					break;
 				}
 				default:

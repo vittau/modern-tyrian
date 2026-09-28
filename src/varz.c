@@ -32,6 +32,7 @@
 #include "opentyr.h"
 #include "shots.h"
 #include "sprite.h"
+#include "vfx.h"
 #include "vga256d.h"
 #include "video.h"
 
@@ -923,6 +924,9 @@ void JE_setupExplosion(
 				explosions[i].followPlayer = followPlayer;
 				explosions[i].fixedPosition = fixedPosition;
 				explosions[i].deltaY = deltaY;
+
+				// Read-only VFX hook (no-op in Classic and with VFX off).
+				vfx_event_explosion(x, y, explosion_data[type].ttl, type);
 				break;
 			}
 		}
@@ -947,6 +951,9 @@ void JE_setupExplosionLarge(JE_boolean enemyGround, JE_byte exploNum, JE_integer
 			JE_setupExplosion(x - 6, y,      0,  8, false, false);
 			JE_setupExplosion(x + 6, y,      0, 10, false, false);
 		}
+
+		// Read-only VFX hook: the shockwave and smoke for a large explosion.
+		vfx_event_explosion_large(x, y, enemyGround, 1);
 
 		bool big;
 
@@ -1006,6 +1013,9 @@ JE_byte JE_playerDamage(JE_byte temp,
 	int playerDamage = 0;
 	soundQueue[7] = S_SHIELD_HIT;
 
+	// Read-only VFX hook: impact flash and sparks on the player.
+	vfx_event_player_hit(this_player->x, this_player->y, temp);
+
 	/* Player Damage Routines */
 	if (this_player->shield < temp)
 	{
@@ -1030,6 +1040,9 @@ JE_byte JE_playerDamage(JE_byte temp,
 					levelEnd = 40;
 					tempVolume = tyrMusicVolume;
 					soundQueue[1] = S_EXPLOSION_22;
+
+					// Read-only VFX hook: the ship's destruction.
+					vfx_event_player_death(this_player->x, this_player->y);
 				}
 			}
 			else
@@ -1108,6 +1121,10 @@ void JE_drawArmor(void)
 
 void JE_doSP(JE_word x, JE_word y, JE_word num, JE_byte explowidth, JE_byte color) /* superpixels */
 {
+	// Read-only VFX hook: the game already draws the superpixels; this only
+	// adds a few palette-matched sparks with the same colour block.
+	vfx_event_superpixels(x, y, num, explowidth, color);
+
 	for (temp = 0; temp < num; temp++)
 	{
 		JE_real tempr = mt_rand_lt1() * (2 * M_PI);

@@ -53,6 +53,7 @@
 #include "sprite.h"
 #include "vga256d.h"
 #include "video.h"
+#include "vfx.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -475,6 +476,9 @@ enemy_still_exists:
 									enemyShot[b].sxm = roundf((float)aimX / maxMagAim * aim);
 									enemyShot[b].sym = roundf((float)aimY / maxMagAim * aim);
 								}
+
+								// Read-only VFX hook: enemy muzzle flash.
+								vfx_event_enemy_shot(enemyShot[b].sx, enemyShot[b].sy, enemyShot[b].sxm, enemyShot[b].sym);
 							}
 							break;
 						}
@@ -663,6 +667,9 @@ start_level_first:
 	// A new level must not interpolate against, or blend filters with, the
 	// previous level's recorded frame.  Draw-list-only; no gameplay effect.
 	drawlist_level_reset();
+
+	// Drop the VFX particles/events from the previous level.
+	vfx_reset();
 
 	if (mainLevel == 0)  // if quit itemscreen
 		return;          // back to titlescreen
@@ -1436,6 +1443,7 @@ level_loop:
 								{
 									enemy[b].armorleft -= damage;
 									JE_setupExplosion(tempShotX, tempShotY, 0, 0, false, false);
+									vfx_event_impact(tempShotX, tempShotY, 7);  // read-only VFX hook
 								}
 								else
 								{
@@ -1493,6 +1501,11 @@ level_loop:
 											{
 												enemyAvail[temp3] = 1;
 												enemyKilled++;
+
+												// Read-only VFX hook: the enemy breaks apart.
+												vfx_event_enemy_death(enemy[temp3].ex + enemy[temp3].mapoffset, enemy[temp3].ey,
+												                      enemyDat[enemy[temp3].enemytype].esize == 1,
+												                      enemy[temp3].enemyground, enemy[temp3].linknum);
 											}
 
 											enemy[temp3].aniwhenfire = 0;
@@ -1600,6 +1613,11 @@ level_loop:
 											enemyAvail[temp2] = 1;
 											enemyKilled++;
 										}
+
+										// Read-only VFX hook: the enemy breaks apart.
+										vfx_event_enemy_death(enemy_screen_x, enemy[temp2].ey,
+										                      enemyDat[enemy[temp2].enemytype].esize == 1,
+										                      enemy[temp2].enemyground, enemy[temp2].linknum);
 
 										if (enemyDat[enemy[temp2].enemytype].esize == 1)
 										{
@@ -2243,6 +2261,10 @@ draw_player_shot_loop_end:
 	JE_inGameDisplays();
 
 	drawlist_frame_end();
+
+	// Observation-only VFX: advance the particle system one logic tick with the
+	// events collected above.  No RNG/game-state interaction.
+	vfx_tick_end();
 
 	VGAScreen = VGAScreenSeg; /* side-effect of game_screen */
 

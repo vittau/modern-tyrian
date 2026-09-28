@@ -23,6 +23,7 @@
 #include "player.h"
 #include "sprite.h"
 #include "video.h"
+#include "vfx.h"
 #include "varz.h"
 
 // I'm pretty sure the last extra entry is never used.
@@ -501,6 +502,9 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 		}
 
 		shotRepeat[bay_i] = weapon->shotrepeat;
+
+		// Read-only VFX hook: muzzle flash at the shot spawn.
+		vfx_event_shot(shot->shotX, shot->shotY, shot->shotXM, shot->shotYM);
 	}
 
 	return shot_id;

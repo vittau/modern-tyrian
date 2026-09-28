@@ -31,6 +31,7 @@
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "vfx.h"
 #include "xmas.h"
 
 #include <assert.h>
@@ -92,6 +93,8 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 278, 0,   "smooth-motion",     true },
 		{ 279, 0,   "regress-realtime",  false },
 		{ 280, 0,   "bench-seconds",     true },
+		{ 281, 0,   "vfx",               true },
+		{ 282, 0,   "regress-vfx",       true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -156,6 +159,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
 			logInfo("                               presented-fps statistics (uses --regress-demo)");
 			logInfo("  --bench-seconds=N            Duration of --regress-realtime (default 20)");
+			logInfo("  --vfx=LEVEL                  Modern VFX level: off, low, medium or high (default medium)");
+			logInfo("  --regress-vfx=LEVEL          Pin the VFX level in a regress run (default off)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -445,6 +450,25 @@ void JE_paramCheck(int argc, char *argv[])
 				exit(EXIT_FAILURE);
 			}
 			regress_bench_seconds = seconds;
+			break;
+		}
+		case 281: // --vfx=off|low|medium|high
+			if (!set_vfx_by_name(option.arg))
+			{
+				logError("%s: --vfx must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 282: // --regress-vfx=off|low|medium|high
+		{
+			const VfxLevel before = vfx_level;
+			if (!set_vfx_by_name(option.arg))
+			{
+				logError("%s: --regress-vfx must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_vfx = vfx_level;
+			vfx_level = before;  // applied by regress_init(), not now
 			break;
 		}
 			

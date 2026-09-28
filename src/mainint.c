@@ -54,6 +54,7 @@
 #include "varz.h"
 #include "vga256d.h"
 #include "video.h"
+#include "vfx.h"
 
 #include <assert.h>
 #include <string.h>
@@ -4891,6 +4892,11 @@ void JE_playerCollide(Player *this_player, JE_byte playerNum_)
 										JE_setupExplosion(enemy_screen_x, enemy[temp2].ey, 0, 1, false, false);
 										soundQueue[5] = S_EXPLOSION_4;
 									}
+
+									// Read-only VFX hook: the enemy breaks apart.
+									vfx_event_enemy_death(enemy_screen_x, enemy[temp2].ey,
+									                      enemyDat[enemy[temp2].enemytype].esize == 1,
+									                      enemy[temp2].enemyground, temp3);
 								}
 							}
 						}
