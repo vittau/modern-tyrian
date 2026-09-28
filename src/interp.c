@@ -27,6 +27,7 @@
 #include "modern_bloom.h"
 #include "network.h"
 #include "opentyr.h"
+#include "palette.h"
 #include "player.h"
 #include "regress.h"
 #include "tyrian2.h"
@@ -134,7 +135,8 @@ static Uint32 interp_frame_interval(void)
 // position that drives the spotlight (interpolated when appropriate).  The VFX
 // are drawn into the presented playfield afterwards, interpolated at the same
 // alpha, so the palette luminance they add reaches the (future) lighting pass.
-static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alpha_fx16)
+static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alpha_fx16,
+                                  bool bar_interp)
 {
 	JE_byte *src;
 	Uint8 *s = VGAScreenSeg->pixels;
@@ -217,13 +219,183 @@ static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alph
 	// before the Modern conversion so the effects feed the lighting pass.
 	vfx_render_playfield(VGAScreenSeg, alpha_fx16);
 
+	// Let the compositor redraw the dynamic HUD bars at the same alpha.
+	modern_set_bar_interp(bar_interp, alpha_fx16);
 	modern_mark_gameplay_frame();
 	JE_showVGA();
 }
 
 void interp_present_live_frame(void)
 {
-	interp_blit_playfield(game_screen, player[0].x, player[0].y, 65536u);
+	interp_blit_playfield(game_screen, player[0].x, player[0].y, 65536u, false);
+}
+
+// --- palette fade interpolation (stage 4) ------------------------------------
+
+static bool interp_fade_check = false;
+static unsigned long interp_fade_frames_count = 0;
+static unsigned long interp_fade_channels_count = 0;
+static unsigned long interp_fade_bad_count = 0;
+
+void interp_set_fade_check(bool check)
+{
+	interp_fade_check = check;
+}
+
+void interp_fade_reset(void)
+{
+	interp_fade_frames_count = 0;
+	interp_fade_channels_count = 0;
+	interp_fade_bad_count = 0;
+}
+
+unsigned long interp_fade_frames(void)   { return interp_fade_frames_count; }
+unsigned long interp_fade_channels(void) { return interp_fade_channels_count; }
+unsigned long interp_fade_bad(void)      { return interp_fade_bad_count; }
+
+bool interp_fade_smooth_active(void)
+{
+	if (isNetworkGame)
+		return false;
+	if (presentation != PRESENTATION_MODERN)
+		return false;
+	if (!interp_smooth_motion)
+		return false;
+	// A regress run keeps the stepped palette unless a mid-fade capture (or the
+	// effects check) explicitly asks for the interpolated one.
+	if (regress_active() && !regress_realtime_active())
+		return interp_regress_alpha_active();
+	return true;
+}
+
+static Uint8 interp_lerp_channel(Uint8 a, Uint8 b, Uint32 alpha_fx16)
+{
+	const Sint32 d = (Sint32)b - (Sint32)a;
+	return (Uint8)((Sint32)a + ((d * (Sint32)alpha_fx16) >> 16));
+}
+
+// Sets the active palette (and the cached conversion palette) to the blend of
+// `before` and `after` at `alpha_fx16`.
+static void interp_apply_palette_lerp(SDL_Color *before, SDL_Color *after,
+                                      unsigned first, unsigned last, Uint32 alpha_fx16)
+{
+	Palette blend;
+
+	for (unsigned i = first; i <= last; ++i)
+	{
+		blend[i].r = interp_lerp_channel(before[i].r, after[i].r, alpha_fx16);
+		blend[i].g = interp_lerp_channel(before[i].g, after[i].g, alpha_fx16);
+		blend[i].b = interp_lerp_channel(before[i].b, after[i].b, alpha_fx16);
+		blend[i].a = 255;
+	}
+
+	set_palette(blend, first, last);
+}
+
+// Diagnostic: a channel whose endpoints differ by at least two must present a
+// value strictly between them; a one-step channel must stay within the
+// endpoints.  Only the checkbox path counts, so a normal run pays nothing.
+static void interp_fade_note(SDL_Color *before, SDL_Color *after,
+                             unsigned first, unsigned last, Uint32 alpha_fx16)
+{
+	if (!interp_fade_check || alpha_fx16 == 0 || alpha_fx16 >= 65536)
+		return;
+
+	interp_fade_frames_count++;
+
+	for (unsigned i = first; i <= last; ++i)
+	{
+		const Uint8 a[3] = { before[i].r, before[i].g, before[i].b };
+		const Uint8 b[3] = { after[i].r, after[i].g, after[i].b };
+
+		for (int c = 0; c < 3; ++c)
+		{
+			if (a[c] == b[c])
+				continue;
+
+			interp_fade_channels_count++;
+
+			const Uint8 v = interp_lerp_channel(a[c], b[c], alpha_fx16);
+			const Uint8 lo = MIN(a[c], b[c]);
+			const Uint8 hi = MAX(a[c], b[c]);
+
+			bool ok;
+			if ((unsigned int)(hi - lo) >= 2)
+				ok = (v > lo && v < hi);
+			else
+				ok = (v >= lo && v <= hi);
+
+			if (!ok)
+				interp_fade_bad_count++;
+		}
+	}
+}
+
+void interp_present_palette_fade(SDL_Color *before, SDL_Color *after,
+                                 unsigned first, unsigned last)
+{
+	// Regress: present exactly one deterministic frame at the requested alpha,
+	// then let the caller's waitUntilElapsed() pace the step.
+	if (regress_active() && !regress_realtime_active() && interp_regress_alpha_active())
+	{
+		const Uint32 alpha_fx16 = (Uint32)(interp_regress_alpha * 65536.0 + 0.5);
+		if (alpha_fx16 >= 65536u)
+		{
+			// alpha = 1: present the realised tick exactly, as the plain path.
+			JE_showVGA();
+			return;
+		}
+		interp_fade_note(before, after, first, last, alpha_fx16);
+		interp_apply_palette_lerp(before, after, first, last, alpha_fx16);
+		JE_showVGA();
+		set_palette(after, first, last);
+		return;
+	}
+
+	// The fade loop called setFrameCount(1) for this step, so the tick is one
+	// frame period long.
+	const Uint32 deadline = getFrameDeadlineTicks10();
+	Uint32 period = getFramePeriodTicks10();
+	if (period == 0)
+		period = 1;
+	const Uint32 start = deadline - period;
+
+	interp_ensure_vsync(true);
+	const bool paced_soft = !interp_vsync_on;
+	const Uint32 interval = interp_frame_interval();
+
+	for (;;)
+	{
+		Uint32 now = regress_clock_ticks10bit();
+		const Sint32 elapsed = (Sint32)(now - start);
+		Uint32 alpha_fx16;
+		if (elapsed <= 0)
+			alpha_fx16 = 0;
+		else
+			alpha_fx16 = (Uint32)(((Uint64)elapsed << 16) / period);
+		if (alpha_fx16 > 65536u)
+			alpha_fx16 = 65536u;
+
+		interp_fade_note(before, after, first, last, alpha_fx16);
+		interp_apply_palette_lerp(before, after, first, last, alpha_fx16);
+		JE_showVGA();
+		handleSdlEvents();
+
+		now = regress_clock_ticks10bit();
+		if ((Sint32)(now - deadline) >= 0)
+			break;
+
+		if (paced_soft)
+		{
+			const Uint32 remain = deadline - now;
+			if (remain > interval)
+				SDL_Delay((interval >> 10) + 1);
+			else
+				SDL_Delay((remain >> 10) + 1);
+		}
+	}
+
+	set_palette(after, first, last);
 }
 
 // Renders the interpolated frame at `alpha_fx16` and presents it.  Falls back to
@@ -234,7 +406,7 @@ static void interp_render_and_present(Uint32 alpha_fx16)
 	{
 		int px, py;
 		drawlist_interpolated_player(&px, &py);
-		interp_blit_playfield(drawlist_interpolated_game(), px, py, alpha_fx16);
+		interp_blit_playfield(drawlist_interpolated_game(), px, py, alpha_fx16, true);
 	}
 	else
 	{
@@ -371,7 +543,7 @@ void interp_present_gameplay(void)
 		{
 			int px, py;
 			drawlist_interpolated_player(&px, &py);
-			interp_blit_playfield(drawlist_interpolated_game(), px, py, alpha_fx16);
+			interp_blit_playfield(drawlist_interpolated_game(), px, py, alpha_fx16, true);
 		}
 		else
 		{

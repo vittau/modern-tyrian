@@ -19,6 +19,7 @@
 #include "palette.h"
 
 #include "file.h"
+#include "interp.h"
 #include "keyboard.h"
 #include "logging.h"
 #include "nortsong.h"
@@ -148,20 +149,38 @@ void step_fade_palette(int diff[256][3], int steps, unsigned int first_color, un
 	}
 }
 
+// Presents one fade step.  `before` is the palette before the step and
+// `after` (== palette) the stepped palette.  In Modern with smooth motion the
+// step is presented as sub-frames blended between the two (display-only); the
+// palette is left at `after` so the game continues from the stepped value.
+static void present_fade_step(Palette before, Palette after,
+                              unsigned int first_color, unsigned int last_color)
+{
+	if (interp_fade_smooth_active())
+		interp_present_palette_fade(before, after, first_color, last_color);
+	else
+		JE_showVGA();
+}
+
 void fade_palette(Palette colors, int steps, unsigned int first_color, unsigned int last_color)
 {
 	assert(steps > 0);
 	
 	static int diff[256][3];
+	static Palette before, after;
 	init_step_fade_palette(diff, colors, first_color, last_color);
 	
 	for (; steps > 0; steps--)
 	{
 		setFrameCount(1);
 		
+		memcpy(before, palette, sizeof(Palette));
 		step_fade_palette(diff, steps, first_color, last_color);
+		// `after` is a real copy: the interpolated presentation writes the
+		// active palette, so it must restore the stepped value from here.
+		memcpy(after, palette, sizeof(Palette));
 		
-		JE_showVGA();
+		present_fade_step(before, after, first_color, last_color);
 		
 		waitUntilElapsed();
 	}
@@ -176,15 +195,19 @@ void fade_solid(SDL_Color color, int steps, unsigned int first_color, unsigned i
 	assert(steps > 0);
 	
 	static int diff[256][3];
+	static Palette before, after;
 	init_step_fade_solid(diff, color, first_color, last_color);
 	
 	for (; steps > 0; steps--)
 	{
 		setFrameCount(1);
 		
+		memcpy(before, palette, sizeof(Palette));
 		step_fade_palette(diff, steps, first_color, last_color);
+		// Real copy of the stepped palette: see fade_palette().
+		memcpy(after, palette, sizeof(Palette));
 		
-		JE_showVGA();
+		present_fade_step(before, after, first_color, last_color);
 		
 		waitUntilElapsed();
 	}

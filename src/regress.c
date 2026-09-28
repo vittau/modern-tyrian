@@ -72,6 +72,7 @@ int regress_interp_smoothness = 0;
 int regress_smooth_alphas = 5;
 int regress_gameplay_check = 0;
 int regress_parallax_check = 0;
+int regress_smooth_effects_check = 0;
 int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
 int regress_bloom_quality = -1;
@@ -122,6 +123,21 @@ static char regress_gameplay_first[128] = "";
 static unsigned long regress_gameplay_filter_frames = 0;
 static unsigned long regress_gameplay_filter_missing = 0;
 static char regress_gameplay_filter_first[128] = "";
+
+// Dynamic fade/HUD interpolation check (--regress-smooth-effects-check): per
+// presented Modern frame, probe the recorded HUD bars at alpha = 0.5, and the
+// palette-fade counters are read from interp.c.
+static unsigned long regress_bar_moved = 0;
+static unsigned long regress_bar_unchanged = 0;
+static unsigned long regress_bar_bad = 0;
+
+static void regress_check_smooth_effects(void)
+{
+	if (!regress_smooth_effects_check)
+		return;
+
+	modern_hud_bar_interp_probe(&regress_bar_moved, &regress_bar_unchanged, &regress_bar_bad);
+}
 
 static void regress_check_gameplay_composition(void)
 {
@@ -576,6 +592,7 @@ void regress_capture_modern_frame(void)
 		regress_save_snapshots_modern(frame);
 
 	regress_check_gameplay_composition();
+	regress_check_smooth_effects();
 	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
 }
@@ -760,6 +777,19 @@ void regress_init(void)
 	{
 		drawlist_set_enabled(true);
 		drawlist_set_parallax_check(true);
+	}
+
+	// Dynamic fade/HUD interpolation check: exercise the interpolated
+	// presentation at a genuine mid-tick alpha and assert every interpolated
+	// fade channel and HUD bar value stays between the two ticks.  The palette
+	// fade path is inert in regress unless this (or --regress-interp-alpha)
+	// asks for it.
+	if (regress_smooth_effects_check)
+	{
+		drawlist_set_enabled(true);
+		interp_set_regress_alpha(0.5);
+		interp_set_fade_check(true);
+		interp_fade_reset();
 	}
 
 	// Real-time pacing benchmark: log presented-fps statistics and exit after
@@ -959,6 +989,18 @@ void regress_finish(void)
 		    drawlist_parallax_advance_mismatches() != 0)
 		{
 			logError("Parallax check FAILED: the starfield/background moved beyond one tick.");
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_smooth_effects_check)
+	{
+		logInfo("Smooth effects check: palette fade %lu frames, %lu channels, %lu bad; HUD bars %lu moved, %lu unchanged, %lu out of range.",
+		        interp_fade_frames(), interp_fade_channels(), interp_fade_bad(),
+		        regress_bar_moved, regress_bar_unchanged, regress_bar_bad);
+		if (interp_fade_bad() != 0 || regress_bar_bad != 0)
+		{
+			logError("Smooth effects check FAILED: an interpolated fade/HUD value left the two ticks.");
 			exit(EXIT_FAILURE);
 		}
 	}

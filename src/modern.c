@@ -88,6 +88,13 @@ static bool modern_ready = false;
 // One-shot flag set by JE_starShowVGA() just before it presents.
 static bool modern_gameplay_frame = false;
 
+// Dynamic HUD bar interpolation request (stage 4): when set by the smooth
+// presentation just before JE_showVGA(), modern_build_frame() redraws the
+// recorded vitals/boss bars at `modern_bar_interp_alpha` before compositing the
+// HUD.  Consumed (and cleared) by modern_build_frame(); never a game state.
+static bool modern_bar_interp_pending = false;
+static Uint32 modern_bar_interp_alpha = 65536;
+
 // While set, every presented frame is composed as a gameplay frame.  The level
 // intro (and its palette fade) and the end-of-level animation present through
 // JE_showVGA directly, not through JE_starShowVGA, so they hold this around
@@ -309,6 +316,12 @@ float modern_aspect_ratio(void)
 void modern_mark_gameplay_frame(void)
 {
 	modern_gameplay_frame = true;
+}
+
+void modern_set_bar_interp(bool enabled, Uint32 alpha_fx16)
+{
+	modern_bar_interp_pending = enabled;
+	modern_bar_interp_alpha = alpha_fx16;
 }
 
 void modern_set_gameplay_hold(bool hold)
@@ -717,6 +730,10 @@ bool modern_frame_is_split(int *split_l, int *split_r, int *insert_l, int *inser
 
 void modern_hud_begin_frame(void)
 {
+	// Roll the dynamic bars to the previous tick whether or not the panels are
+	// active, so the interpolation state cannot go stale across a mode change.
+	modern_hud_begin_bars();
+
 	if (!modern_hud_in_panels())
 		return;
 
@@ -897,6 +914,13 @@ void modern_build_frame(SDL_Surface *src_surface)
 	frame->src_pitch = src_surface->pitch;
 	frame->palette = get_active_palette();
 
+	// The smooth presentation may ask this frame to redraw the dynamic HUD bars
+	// at a value between the previous and the current tick.  Take the request
+	// now (a menu that presents without asking must not inherit it).
+	const bool bar_interp = modern_bar_interp_pending;
+	const Uint32 bar_alpha = modern_bar_interp_alpha;
+	modern_bar_interp_pending = false;
+
 	const bool gameplay = modern_gameplay_frame || modern_gameplay_hold;
 	modern_gameplay_frame = false;
 	modern_last_gameplay = gameplay;
@@ -956,6 +980,9 @@ void modern_build_frame(SDL_Surface *src_surface)
 		const int right_x = playfield_x + MODERN_PLAYFIELD_W;
 		modern_fill_side_panels(frame, playfield_x, playfield_x + MODERN_PLAYFIELD_W - 1,
 		                        playfield_x, right_x, frame->w - right_x);
+
+		if (bar_interp)
+			modern_hud_draw_interpolated_bars(bar_alpha);
 
 		modern_composite_hud(frame, playfield_x);
 		modern_composite_message(frame, playfield_x);

@@ -274,6 +274,80 @@ static const char *hud_pick_label(const char *full, const char *mid, const char 
 	return short_;
 }
 
+// --- dynamic bar interpolation (stage 4) ------------------------------------
+//
+// See modern.h: the vitals bars and the boss bars keep the geometry and the
+// previous tick's value so the presentation can redraw them at a value between
+// the two ticks.  The buffers are a fixed small array; the previous tick's
+// records are rolled once per tick by modern_hud_begin_bars().
+#define HUD_BAR_MAX 16
+
+typedef enum
+{
+	HUD_BAR_VITALS = 0,
+	HUD_BAR_BOSS,
+} HudBarKind;
+
+typedef struct
+{
+	HudBarKind kind;
+	SDL_Surface *surface;
+	int x, y, w, h;        // vitals rect
+	int x1, y1, x2, y2;    // boss rect
+	Uint8 base;            // vitals base colour
+	Uint8 color;           // boss JE_barX colour (118 + flash)
+	Uint32 value;          // this tick's value
+	Uint32 max;            // vitals max (0 for a boss bar)
+} HudBar;
+
+static HudBar hud_bars[HUD_BAR_MAX];
+static unsigned hud_bars_count = 0;
+static HudBar hud_bars_prev[HUD_BAR_MAX];
+static unsigned hud_bars_prev_count = 0;
+
+static HudBar *hud_bar_record(void)
+{
+	if (hud_bars_count >= HUD_BAR_MAX)
+		return NULL;
+	return &hud_bars[hud_bars_count++];
+}
+
+static const HudBar *hud_bar_find_prev(const HudBar *cur)
+{
+	for (unsigned i = 0; i < hud_bars_prev_count; ++i)
+	{
+		const HudBar *p = &hud_bars_prev[i];
+
+		if (p->kind != cur->kind || p->surface != cur->surface)
+			continue;
+
+		if (cur->kind == HUD_BAR_VITALS)
+		{
+			if (p->x == cur->x && p->y == cur->y && p->w == cur->w &&
+			    p->h == cur->h && p->base == cur->base && p->max == cur->max)
+				return p;
+		}
+		else
+		{
+			// The colour is the hit flash and changes every tick while the bar
+			// blinks; the geometry is what identifies the bar, and the redraw
+			// uses the current colour anyway.
+			if (p->x1 == cur->x1 && p->y1 == cur->y1 &&
+			    p->x2 == cur->x2 && p->y2 == cur->y2)
+				return p;
+		}
+	}
+
+	return NULL;
+}
+
+// a + (b - a) * alpha in 16.16; alpha = 65536 returns b exactly.
+static Uint64 hud_lerp_fx(Uint32 a, Uint32 b, Uint32 alpha_fx16)
+{
+	const Sint64 d = (Sint64)b - (Sint64)a;
+	return ((Sint64)a << 16) + ((d * (Sint64)alpha_fx16) >> 16);
+}
+
 // A procedural vertical bar with a 1px bevel, filled bottom-up and scaled to
 // `max_value`.  The trough carries a light left / dark right edge; the value
 // column is a palette ramp like the original sidebar bars (JE_dBar3): its
@@ -281,8 +355,12 @@ static const char *hud_pick_label(const char *full, const char *mid, const char 
 // edge and a bright meniscus at the top of the fill.  The ramp is anchored to
 // the trough, so a given height keeps its colour as the bar drains, and the
 // dark trough stays clearly distinct from even a sliver of value.
-static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
-                     uint value, uint max_value, Uint8 base)
+//
+// `value_fx16` is the value in 16.16 fixed point, so an interpolated value
+// gives sub-unit (and therefore sub-pixel) fill heights.  The tick draw passes
+// the integer value shifted up, which reproduces the original bar exactly.
+static void hud_vbar_draw(SDL_Surface *surface, int x, int y, int w, int h,
+                          Uint64 value_fx16, uint max_value, Uint8 base)
 {
 	if (w < 3)
 		w = 3;
@@ -302,7 +380,7 @@ static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
 	if (max_value == 0)
 		max_value = 1;
 
-	int fh = (int)(((ulong)value * (ulong)(h - 2)) / max_value);
+	int fh = (int)((value_fx16 * (Uint64)(h - 2)) / ((Uint64)max_value << 16));
 	if (fh > h - 2)
 		fh = h - 2;
 
@@ -323,6 +401,26 @@ static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
 
 		if (lit)
 			fill_rectangle_xy(surface, x + 1, ry, x + 1, ry, (Uint8)MIN(idx + 1, top));
+	}
+}
+
+static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
+                     uint value, uint max_value, Uint8 base)
+{
+	hud_vbar_draw(surface, x, y, w, h, (Uint64)value << 16, max_value, base);
+
+	HudBar *bar = hud_bar_record();
+	if (bar != NULL)
+	{
+		bar->kind = HUD_BAR_VITALS;
+		bar->surface = surface;
+		bar->x = x;
+		bar->y = y;
+		bar->w = w < 3 ? 3 : w;
+		bar->h = h < 4 ? 4 : h;
+		bar->base = base;
+		bar->value = value;
+		bar->max = max_value;
 	}
 }
 
@@ -863,6 +961,121 @@ void modern_hud_draw_timer(const char *label, const char *value, int brightness)
 		x = HUD_MARGIN;
 	HUD_ASSERT_FIT(surface, value_y, 8);
 	JE_dString(surface, x, value_y, value, SMALL_FONT_SHAPES);
+}
+
+// --- dynamic bar interpolation (stage 4) ------------------------------------
+
+void modern_hud_begin_bars(void)
+{
+	hud_bars_prev_count = hud_bars_count;
+	if (hud_bars_count > 0)
+		memcpy(hud_bars_prev, hud_bars, sizeof(HudBar) * hud_bars_count);
+	hud_bars_count = 0;
+}
+
+// Boss bar half: reproduces JE_barX() (tyrian2.c) on the panel surface, with a
+// 16.16 value so the inner fill can sit between two ticks' armour values.
+static void hud_boss_bar_draw(SDL_Surface *surface, int x1, int y1, int x2, int y2,
+                              Uint8 color, Uint64 value_fx16)
+{
+	const int cx = (x1 + x2) / 2;
+	const int lo = (int)(value_fx16 / (10ull << 16));                  // armor / 10
+	const int hi = (int)((value_fx16 + (5ull << 16)) / (10ull << 16)); // (armor + 5) / 10
+
+	// Trough (JE_barX colour 115).
+	fill_rectangle_xy(surface, x1, y1, x2, y1, 116);
+	fill_rectangle_xy(surface, x1, y1 + 1, x2, y2 - 1, 115);
+	fill_rectangle_xy(surface, x1, y2, x2, y2, 114);
+
+	// Value (JE_barX colour `color` = 118 + the bar's flash colour).
+	fill_rectangle_xy(surface, cx - lo, y1, cx + hi, y1, (Uint8)(color + 1));
+	fill_rectangle_xy(surface, cx - lo, y1 + 1, cx + hi, y2 - 1, color);
+	fill_rectangle_xy(surface, cx - lo, y2, cx + hi, y2, (Uint8)(color - 1));
+}
+
+void modern_hud_record_boss_bar(SDL_Surface *surface, int x1, int y1, int x2, int y2,
+                                Uint8 color, Uint32 value)
+{
+	if (!modern_hud_in_panels())
+		return;
+
+	HudBar *bar = hud_bar_record();
+	if (bar != NULL)
+	{
+		bar->kind = HUD_BAR_BOSS;
+		bar->surface = surface;
+		bar->x1 = x1;
+		bar->y1 = y1;
+		bar->x2 = x2;
+		bar->y2 = y2;
+		bar->color = color;
+		bar->value = value;
+		bar->max = 0;
+	}
+}
+
+unsigned modern_hud_draw_interpolated_bars(Uint32 alpha_fx16)
+{
+	if (!modern_hud_in_panels())
+		return 0;
+
+	if (alpha_fx16 > 65536)
+		alpha_fx16 = 65536;
+
+	unsigned drawn = 0;
+
+	for (unsigned i = 0; i < hud_bars_count; ++i)
+	{
+		const HudBar *c = &hud_bars[i];
+		const HudBar *p = hud_bar_find_prev(c);
+		const Uint32 from = (p != NULL) ? p->value : c->value;
+		const Uint64 fx = hud_lerp_fx(from, c->value, alpha_fx16);
+
+		if (c->kind == HUD_BAR_VITALS)
+			hud_vbar_draw(c->surface, c->x, c->y, c->w, c->h, fx, c->max, c->base);
+		else
+			hud_boss_bar_draw(c->surface, c->x1, c->y1, c->x2, c->y2, c->color, fx);
+
+		drawn++;
+	}
+
+	return drawn;
+}
+
+void modern_hud_bar_interp_probe(unsigned long *moved, unsigned long *unchanged,
+                                 unsigned long *out_of_range)
+{
+	for (unsigned i = 0; i < hud_bars_count; ++i)
+	{
+		const HudBar *c = &hud_bars[i];
+		const HudBar *p = hud_bar_find_prev(c);
+
+		if (p == NULL)
+		{
+			(*unchanged)++;
+			continue;
+		}
+
+		const Uint32 lo = MIN(p->value, c->value);
+		const Uint32 hi = MAX(p->value, c->value);
+
+		// Fixed-point midpoint, then the integer value the presentation uses.
+		const Uint64 fx = hud_lerp_fx(p->value, c->value, 32768);
+		const Uint32 mid = (Uint32)(fx >> 16);
+
+		if (mid < lo || mid > hi)
+		{
+			(*out_of_range)++;
+		}
+		else if (hi - lo >= 2 && mid > lo && mid < hi)
+		{
+			(*moved)++;
+		}
+		else
+		{
+			(*unchanged)++;
+		}
+	}
 }
 
 bool modern_hud_boss_target(int bar, bool two_player, SDL_Surface **surface, int *cx, int *y, int *half_width)

@@ -63,4 +63,29 @@ void interp_present_live_frame(void);
 // frames, logs average/percentile presented fps and logic tick rate, then exits.
 void interp_bench_start(double seconds);
 
+// --- palette fade interpolation (stage 4) ------------------------------------
+//
+// fade_palette()/fade_solid() advance the palette one step per tick, presenting
+// once per step, so a level's fade-in/out steps at ~35 Hz.  When this is active
+// the step is presented over the tick's display budget with the palette blended
+// between the step's endpoints, so the fade runs at the display refresh.  Purely
+// display-only: the game's palette is left at the stepped value afterwards.
+bool interp_fade_smooth_active(void);
+
+// Presents one palette fade step from `before` to `after` (RGB components, only
+// [first,last] are read), then restores `after`.  With the regress alpha
+// override it presents exactly one frame at that alpha instead of the timed
+// sub-frame loop.
+void interp_present_palette_fade(SDL_Color *before, SDL_Color *after,
+                                 unsigned first, unsigned last);
+
+// Diagnostic (--regress-smooth-effects-check): count presented fade sub-frames
+// and RGB channels, and how many presented channels did not lie between the two
+// endpoints (an interpolation bug).  `interp_set_fade_check` arms the counting.
+void interp_set_fade_check(bool check);
+void interp_fade_reset(void);
+unsigned long interp_fade_frames(void);
+unsigned long interp_fade_channels(void);
+unsigned long interp_fade_bad(void);
+
 #endif // INTERP_H

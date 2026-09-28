@@ -121,6 +121,10 @@ A Visual Studio solution is provided in `visualc/`.
                                  HUD panels/message strip too (no HUD flash)
     --regress-parallax-check     Per level tick, assert the interpolated presentation
                                  leaves the starfield/background scroll untouched
+    --regress-smooth-effects-check  Per level tick, present the palette fades and the
+                                 dynamic HUD bars interpolated at a mid-tick alpha and
+                                 assert every value stays between the two ticks
+                                 (Modern; use with --regress-demo/--regress-level)
     --regress-menu=NAME          Open an in-level menu on the last presented frame:
                                  ingame (ESC menu), pause (P) or help (F1)
                                  (requires --regress-script and --regress-frames)
@@ -189,7 +193,11 @@ For compatibility, an existing config whose `scaling_mode` is the old
 The `smooth_motion` key in the same section (`--smooth-motion=on|off`) makes
 Modern gameplay present at the display refresh with interpolated motion while
 the logic keeps its original fixed tick; it defaults to `on` and has no effect
-in Classic.  A new window opens at the content aspect at the largest integer
+in Classic.  As well as moving objects, it interpolates the palette fade-in/out
+between the two ticks and the dynamic HUD bars (shield, armor, power reserve and
+the boss bars inferred from the ticks' armour values), so the whole presented
+frame advances at the display rate instead of stepping at the logic tick.  A new
+window opens at the content aspect at the largest integer
 multiple of the 200 logical rows that fits in about 80% of the usable desktop,
 centered on the display; this is now also the Classic default (which no longer
 shrinks to 320x200).
