@@ -170,6 +170,16 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - "Add to Steam" a partir do Desktop Mode, com um passo a passo no README;
   - logs num lugar fácil de achar;
   - desempenho a 60/90 Hz na tela do Deck.
+- [ ] **Filtro CRT (futuro, pedido do usuário, 2026-09-28).** NTSC/Composite baseado no Blargg (`snes_ntsc`) mais scanlines. Referências do próprio usuário:
+  - `/Users/vitor/git/deadly-dave`. Tem uma porta escalar em C99 do `snes_ntsc` (`ntsc.c`, `include/ntsc.h`) e `filter.c`, com os modos OFF/SCANLINES/NTSC/BOTH. Nas scanlines, a faixa escura é meia linha do jogo, ou seja, 320×200 filtrado como numa tela de 640×400, e a atenuação é ponderada pela luminância. O NTSC alarga a imagem 7/3. A tabela de ~16 MB é montada sob demanda na primeira ativação. A teoria está em `docs/CRT.md`, e os testes em `tests/test_filter.c`.
+  - `/Users/vitor/git/antivirus-95`. `src/crt-filter.ts` é uma passada estilo crt-geom: curvatura, separação RGB, scanlines, máscara aperture-grille e vinheta.
+
+  Pontos a resolver aqui:
+  - **Onde entra no pipeline:** depois da composição Modern (ou do quadro Classic) e antes da escala. É preciso casar com o sharp bilinear e com o HiDPI: as scanlines devem cair em pixels físicos inteiros.
+  - **Determinismo:** a tabela do Blargg usa `sin`/`cos`/`pow` da libm. Ou fica desligado nos testes, ou a tabela é pré-computada, como no resampler.
+  - **Custo por quadro a 120 Hz.**
+  - **Menu:** uma entrada nova em Setup › Graphics, com Off/Scanlines/NTSC/Both.
+  - **Licença:** o `snes_ntsc` é LGPL, compatível com a GPL-2.0+.
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
 - [ ] README novo (pedido do usuário, 2026-09-28), com a qualidade e o estilo do README de `vittau/antivirus-95`: banner e cabeçalhos de seção em SVG gerados por script, badges, tagline, tabelas curtas e prosa enxuta. **As capturas de tela só depois dos ajustes em andamento.** Esboço das seções:
   - banner, badges (CI, licença, release) e tagline;
@@ -478,3 +488,4 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-09-28 — Steam Deck no roadmap
 - O usuário definiu o suporte a Steam Deck como prioridade: build Linux em `.tar.gz` com o binário direto (sem AppImage). Item na Fase 2 (§6). Entra na fila logo depois do lote atual, junto com o README, que ganha a seção de instalação no Deck.
+- Também entrou no roadmap, para o futuro: filtro CRT com NTSC/Composite (Blargg) e scanlines, com referências em `deadly-dave` e `antivirus-95` (§6).
