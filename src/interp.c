@@ -24,6 +24,7 @@
 #include "logging.h"
 #include "nortsong.h"
 #include "modern.h"
+#include "modern_bloom.h"
 #include "network.h"
 #include "opentyr.h"
 #include "player.h"
@@ -196,6 +197,17 @@ static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alph
 			src += game->pitch;
 		}
 	}
+
+	// Copy the emission tag of the same playfield window so the Modern
+	// bloom/lighting pass only lights the tagged objects (shots, explosions,
+	// pickups, superpixels).  The tag follows the same flip/spotlight mapping
+	// as the pixels and, for an interpolated frame, the interpolated sprite
+	// positions.
+	int game_tag_pitch = 0;
+	const Uint8 *game_tag = drawlist_tag_for_surface(game, &game_tag_pitch, NULL, NULL);
+	modern_bloom_tag_begin();
+	modern_bloom_tag_from_game(game_tag, game_tag != NULL ? game_tag_pitch : 0,
+	                           starShowVGASpecialCode == 1);
 
 	// Draw the interpolated VFX into the presented playfield (palette indices),
 	// before the Modern conversion so the effects feed the lighting pass.

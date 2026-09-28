@@ -21,6 +21,7 @@
 #include "backgrnd.h"
 #include "config.h"
 #include "logging.h"
+#include "modern_bloom.h"
 #include "player.h"
 #include "vga256d.h"
 #include "video.h"
@@ -35,6 +36,10 @@
 // Command buffering.  Fixed capacity allocated once; no per-frame allocation.
 #define DL_MAX_COMMANDS  (1u << 15)   // 32768 entries, comfortably above one tick
 #define DL_PAYLOAD_BYTES (1u << 18)   // 256 KiB bulk payload arena per tick
+
+// Emission tag buffer geometry (one byte per pixel of a gameplay surface).
+#define DL_TAG_W 320
+#define DL_TAG_H 200
 
 // A position jump larger than this between the two ticks snaps instead of
 // interpolating: it is a teleport, or a reused slot whose new occupant spawned
@@ -235,6 +240,10 @@ void drawlist_init(void)
 	       dl_scratch_vga2->pitch == VGAScreen2->pitch);
 	assert(dl_ref_game != NULL && dl_ref_game->pitch == game_screen->pitch);
 	assert(dl_ref_vga2 != NULL && dl_ref_vga2->pitch == VGAScreen2->pitch);
+
+	// The tag buffers are fixed-capacity 320x200; their stamp functions assume
+	// the game surfaces have exactly that pitch.
+	assert(game_screen->pitch == DL_TAG_W && VGAScreen2->pitch == DL_TAG_W);
 }
 
 void drawlist_shutdown(void)
@@ -272,6 +281,223 @@ void drawlist_set_context(int obj_kind, int obj_id, int obj_sub)
 	dl_context_kind = obj_kind;
 	dl_context_id = obj_id;
 	dl_context_sub = obj_sub;
+}
+
+// --- emission tag buffer ------------------------------------------------------
+//
+// One byte per pixel, parallel to the 8-bit gameplay surfaces.  See drawlist.h
+// for the contract.  The four buffers cover the live game_screen/VGAScreen2 and
+// the two interpolated replay scratches; they are fixed-capacity statics, so
+// the per-frame path never allocates.  A session is armed by
+// drawlist_tag_begin() at tick begin and the buffers are cleared then.
+
+static Uint8 dl_tag_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_tag_vga2[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_tag_scratch_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_tag_scratch_vga2[DL_TAG_W * DL_TAG_H];
+
+static bool dl_tag_active = false;
+
+static Uint8 *dl_tag_for_surface(SDL_Surface *surface)
+{
+	if (surface == NULL)
+		return NULL;
+	if (surface == game_screen)
+		return dl_tag_game;
+	if (surface == VGAScreen2)
+		return dl_tag_vga2;
+	if (surface == dl_scratch_game)
+		return dl_tag_scratch_game;
+	if (surface == dl_scratch_vga2)
+		return dl_tag_scratch_vga2;
+	return NULL;
+}
+
+void drawlist_tag_begin(void)
+{
+	// Tagging only exists for the Modern lighting pass; Classic, lighting off
+	// and the menus pay nothing.
+	dl_tag_active = modern_lighting_tags_wanted();
+	if (!dl_tag_active)
+		return;
+
+	memset(dl_tag_game, DL_TAG_NONE, sizeof dl_tag_game);
+	memset(dl_tag_vga2, DL_TAG_NONE, sizeof dl_tag_vga2);
+}
+
+void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag)
+{
+	if (!dl_tag_active)
+		return;
+	if ((unsigned)x >= DL_TAG_W || (unsigned)y >= DL_TAG_H)
+		return;
+
+	Uint8 *buf = dl_tag_for_surface(surface);
+	if (buf != NULL)
+		buf[(size_t)y * DL_TAG_W + (size_t)x] = (Uint8)tag;
+}
+
+const Uint8 *drawlist_tag_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h)
+{
+	if (!dl_tag_active)
+		return NULL;
+
+	Uint8 *buf = dl_tag_for_surface(surface);
+	if (buf == NULL)
+		return NULL;
+
+	if (out_pitch != NULL) *out_pitch = DL_TAG_W;
+	if (out_w != NULL) *out_w = DL_TAG_W;
+	if (out_h != NULL) *out_h = DL_TAG_H;
+	return buf;
+}
+
+// The tag class of the object currently being drawn, from the context the game
+// set (drawlist_set_context).  Anything that is not an explicit emitter is
+// DL_TAG_NONE, so it clears the tag of the pixels it covers.
+static Uint8 dl_tag_value(void)
+{
+	switch (dl_context_kind)
+	{
+	case DL_OBJ_PLAYER_SHOT: return DL_TAG_PLAYER_SHOT;
+	case DL_OBJ_ENEMY_SHOT:  return DL_TAG_ENEMY_SHOT;
+	case DL_OBJ_EXPLOSION:   return DL_TAG_EXPLOSION;
+	case DL_OBJ_ITEM:        return DL_TAG_ITEM;
+	default:                 return DL_TAG_NONE;
+	}
+}
+
+// Stamps a compressed Sprite2 exactly the way blit_sprite2* walk it (12 px
+// wide rows, nibble run lengths, `pitch` row advance).  `clip` mirrors the
+// blit_sprite2_clip/filter_clip walk, which uses explicit x/y instead of a
+// running pointer.
+static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, unsigned int index,
+                           Uint8 tag, bool clip)
+{
+	const Uint8 *data = sprite2s.data + SDL_Swap16LE(((Uint16 *)sprite2s.data)[index - 1]);
+
+	if (clip)
+	{
+		for (; *data != 0x0f; ++data)
+		{
+			if (y >= DL_TAG_H)
+				return;
+
+			int skip = *data & 0x0f;
+			int fill = (*data >> 4) & 0x0f;
+
+			x += skip;
+
+			if (fill == 0)
+			{
+				y += 1;
+				x -= 12;
+			}
+			else if (y >= 0)
+			{
+				Uint8 *row = buf + (size_t)y * DL_TAG_W;
+				do
+				{
+					++data;
+					if (x >= 0 && x < DL_TAG_W)
+						row[x] = tag;
+					x += 1;
+				} while (--fill);
+			}
+			else
+			{
+				data += fill;
+				x += fill;
+			}
+		}
+		return;
+	}
+
+	Uint8 *pixels = buf + (size_t)y * DL_TAG_W + x;
+	const Uint8 * const ll = buf;
+	const Uint8 * const ul = buf + (size_t)DL_TAG_W * DL_TAG_H;
+
+	for (; *data != 0x0f; ++data)
+	{
+		pixels += *data & 0x0f;
+		unsigned int count = (*data & 0xf0) >> 4;
+
+		if (count == 0)
+		{
+			pixels += DL_TAG_W - 12;
+		}
+		else
+		{
+			while (count--)
+			{
+				++data;
+
+				if (pixels >= ul)
+					return;
+				if (pixels >= ll)
+					*pixels = tag;
+
+				++pixels;
+			}
+		}
+	}
+}
+
+// Stamps a 1-bit sprite_table sprite the way blit_sprite and its variants walk
+// it (explicit `width` rows with a transparent/row opcode stream).
+static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned int index, Uint8 tag)
+{
+	if (index >= sprite_table[table].count || !sprite_exists(table, index))
+		return;
+
+	const Sprite * const cur = sprite(table, index);
+	const Uint8 *data = cur->data;
+	const Uint8 * const data_ul = data + cur->size;
+
+	const unsigned int width = cur->width;
+	unsigned int x_offset = 0;
+
+	Uint8 *pixels = buf + (size_t)y * DL_TAG_W + x;
+	const Uint8 * const ll = buf;
+	const Uint8 * const ul = buf + (size_t)DL_TAG_W * DL_TAG_H;
+
+	for (; data < data_ul; ++data)
+	{
+		switch (*data)
+		{
+		case 255:
+			data++;
+			pixels += *data;
+			x_offset += *data;
+			break;
+
+		case 254:
+			pixels += width - x_offset;
+			x_offset = width;
+			break;
+
+		case 253:
+			pixels++;
+			x_offset++;
+			break;
+
+		default:
+			if (pixels >= ul)
+				return;
+			if (pixels >= ll)
+				*pixels = tag;
+
+			pixels++;
+			x_offset++;
+			break;
+		}
+
+		if (x_offset >= width)
+		{
+			pixels += DL_TAG_W - x_offset;
+			x_offset = 0;
+		}
+	}
 }
 
 static void dl_copy_surface(SDL_Surface *dst, const SDL_Surface *src)
@@ -356,6 +582,14 @@ static bool dl_push_payload(Uint32 *out_off, Uint32 *out_len, const void *data, 
 
 void drawlist_record_fill_full(SDL_Surface *surface)
 {
+	// A whole-surface clear also clears the emission tag of that surface.
+	if (dl_tag_active)
+	{
+		Uint8 *tagbuf = dl_tag_for_surface(surface);
+		if (tagbuf != NULL)
+			memset(tagbuf, DL_TAG_NONE, (size_t)DL_TAG_W * DL_TAG_H);
+	}
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -372,6 +606,20 @@ void drawlist_record_fill_full(SDL_Surface *surface)
 
 void drawlist_record_fill_rect(SDL_Surface *surface, int x, int y, int x2, int y2, Uint8 color)
 {
+	// An opaque fill also clears the emission tag under it (HUD bars and other
+	// code-drawn rectangles must not inherit a shot's tag).
+	if (dl_tag_active)
+	{
+		Uint8 *tagbuf = dl_tag_for_surface(surface);
+		if (tagbuf != NULL)
+		{
+			const int cx0 = MAX(0, MIN(x, x2)), cx1 = MIN(DL_TAG_W - 1, MAX(x, x2));
+			const int cy0 = MAX(0, MIN(y, y2)), cy1 = MIN(DL_TAG_H - 1, MAX(y, y2));
+			for (int ty = cy0; ty <= cy1; ++ty)
+				memset(tagbuf + (size_t)ty * DL_TAG_W + cx0, DL_TAG_NONE, (size_t)(cx1 - cx0 + 1));
+		}
+	}
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -446,6 +694,16 @@ void drawlist_record_blit_sprite(SDL_Surface *surface, int x, int y,
                                  unsigned int table, unsigned int index,
                                  int variant, Uint8 hue, Sint8 value, bool black)
 {
+	// Emission tagging runs whether or not the draw list is being recorded: it
+	// is what lets the lighting pass follow each object's own pixels (and move
+	// with an interpolated replay).
+	if (dl_tag_active)
+	{
+		Uint8 *tagbuf = dl_tag_for_surface(surface);
+		if (tagbuf != NULL)
+			dl_tag_sprite(tagbuf, x, y, table, index, dl_tag_value());
+	}
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -467,6 +725,18 @@ void drawlist_record_blit_sprite2(SDL_Surface *surface, int x, int y,
                                   Sprite2_array sheet, unsigned int index,
                                   int variant, Uint8 filter)
 {
+	// See drawlist_record_blit_sprite: the tag is written for every blit, so
+	// the lighting pass can restrict emission per object.
+	if (dl_tag_active)
+	{
+		Uint8 *tagbuf = dl_tag_for_surface(surface);
+		if (tagbuf != NULL)
+		{
+			const bool clip = (variant == DL_SPRITE2_CLIP || variant == DL_SPRITE2_FILTER_CLIP);
+			dl_tag_sprite2(tagbuf, x, y, sheet, index, dl_tag_value(), clip);
+		}
+	}
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -578,6 +848,11 @@ static void dl_replay_command(const DlCommand *c, int x, int y)
 	SDL_Surface *surface = dl_scratch_for(c->surface);
 	if (surface == NULL)
 		return;
+
+	// The sprite blits below stamp the emission tag from the current context;
+	// restore the command's identity so an interpolated replay tags each object
+	// at its interpolated position.
+	drawlist_set_context(c->obj_kind, c->obj_id, c->obj_sub);
 
 	switch (c->kind)
 	{
@@ -738,6 +1013,7 @@ static bool dl_interpolatable(const DlCommand *c)
 	switch (c->obj_kind)
 	{
 	case DL_OBJ_ENEMY:
+	case DL_OBJ_ITEM:
 	case DL_OBJ_PLAYER:
 	case DL_OBJ_SIDEKICK:
 	case DL_OBJ_PLAYER_SHOT:
@@ -911,6 +1187,14 @@ bool drawlist_render_interpolated(Uint32 alpha_fx16)
 	// frame: the renderer owns that reference and seeds the scratch from it.
 	dl_copy_surface(dl_scratch_game, dl_ref_game);
 	dl_copy_surface(dl_scratch_vga2, dl_ref_vga2);
+
+	// The interpolated tags describe exactly the commands redrawn below, so a
+	// command that is gone this tick cannot keep emitting.
+	if (dl_tag_active)
+	{
+		memset(dl_tag_scratch_game, DL_TAG_NONE, sizeof dl_tag_scratch_game);
+		memset(dl_tag_scratch_vga2, DL_TAG_NONE, sizeof dl_tag_scratch_vga2);
+	}
 
 	dl_match_build(prev);
 	dl_match_reset_cursors();

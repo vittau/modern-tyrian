@@ -57,6 +57,29 @@ enum
 	DL_OBJ_HUD,
 	DL_OBJ_SUPERPIXEL,
 	DL_OBJ_STARFIELD,
+	// An enemy that is a pickup (armour 0 and a non-zero value: a data cube, a
+	// weapon/armour/option power-up or cash).  It is still an enemy for motion
+	// but is tagged emissive by the lighting pass.
+	DL_OBJ_ITEM,
+};
+
+// Emission tag classes for the Modern bloom/lighting pass.  Every blit to a
+// gameplay surface stamps one byte per pixel into a parallel tag buffer (the
+// "tag buffer" of the plan): DL_TAG_NONE for ships, HUD/text, backgrounds and
+// starfield, one of the emissive classes for the objects the user asked to
+// light.  The pass only takes light from a pixel whose tag is non-zero, so a
+// bright ship window or a HUD glyph can never emit even though its palette
+// entry is bright.
+enum
+{
+	DL_TAG_NONE = 0,
+	DL_TAG_PLAYER_SHOT,
+	DL_TAG_ENEMY_SHOT,
+	DL_TAG_EXPLOSION,
+	DL_TAG_ITEM,
+	DL_TAG_SUPERPIXEL,
+	DL_TAG_VFX,
+	DL_TAG_MAX
 };
 
 // Which framebuffer-reading filter to replay.  The filters are pure w.r.t.
@@ -127,6 +150,38 @@ void drawlist_level_reset(void);
 // Sets the identity metadata copied into subsequently recorded entries.  Pass
 // DL_OBJ_NONE to clear it.
 void drawlist_set_context(int obj_kind, int obj_id, int obj_sub);
+
+// --- emission tag buffer ------------------------------------------------------
+//
+// The Modern bloom/lighting pass reads an 8-bit emission tag alongside the
+// 8-bit playfield.  The tag is written by the sprite blits themselves (through
+// their drawlist_record_blit_sprite* entry points, which are called whether or
+// not recording is enabled), so it follows the object wherever it is drawn:
+// the live tick surface and the interpolated replay scratch both get their own
+// tag, and an object's tag therefore moves with the interpolated sprite.
+//
+// Only gameplay surfaces (game_screen, VGAScreen2 and the two replay scratch
+// copies) are tagged.  The tag is derived from the current object identity:
+// player/enemy shots, explosions and pickups are emissive; every other class
+// (ships, HUD, backgrounds, starfield) is stamped DL_TAG_NONE, which also lets
+// an opaque ship correctly occlude a shot it is drawn over.
+//
+// The buffers are fixed-capacity statics; begin is a no-op (and the blits skip
+// the work) unless Modern lighting is on, so Classic and lighting-off runs pay
+// nothing.
+
+// Starts a tagging session for one tick: clears the live tag buffers and arms
+// the blits.  No-op when Modern lighting is off.  Call at tick begin.
+void drawlist_tag_begin(void);
+
+// Sets one tag pixel of the game surface `surface` (used for the superpixels,
+// which are drawn a pixel at a time and not through a sprite blit).  No-op
+// unless tagging is armed and `surface` is a tracked gameplay surface.
+void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag);
+
+// Returns the tag buffer matching `surface` (its own pitch and size), or NULL
+// when tagging is off / the surface is not tagged.  px_pitch/w/h optional.
+const Uint8 *drawlist_tag_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h);
 
 // --- recording hooks ----------------------------------------------------------
 //

@@ -103,6 +103,8 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 287, 0,   "regress-interp-smoothness", false },
 		{ 288, 0,   "regress-smooth-alphas", true },
 		{ 289, 0,   "regress-gameplay-check", false },
+		{ 290, 0,   "light-tag-stats",   false },
+		{ 291, 0,   "light-threshold",   true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -180,6 +182,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
 			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
+			logInfo("  --light-tag-stats            Count emitted playfield pixels per tag class and exit");
+			logInfo("  --light-threshold=N          Debug: force both bloom/light thresholds to N");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
 			logInfo("  --selftest-gamepad           Run the virtual-controller input self-test and exit");
 			exit(EXIT_SUCCESS);
@@ -546,7 +550,13 @@ void JE_paramCheck(int argc, char *argv[])
 		case 289: // --regress-gameplay-check
 			regress_gameplay_check = 1;
 			break;
-			
+		case 290: // --light-tag-stats
+			modern_bloom_set_stats(true);
+			break;
+		case 291: // --light-threshold=N (debug tuning override)
+			modern_bloom_set_threshold(atoi(option.arg));
+			break;
+
 		default:
 			assert(false);
 			break;
