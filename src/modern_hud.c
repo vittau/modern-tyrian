@@ -369,7 +369,10 @@ static void hud_vbar_draw(SDL_Surface *surface, int x, int y, int w, int h,
 
 	HUD_ASSERT_FIT(surface, y, h);
 
-	const int top = (int)base + 15;   // top of the hue block
+	// Top of the 16-colour hue block that holds `base`.  The power bar's base
+	// (113) is not block-aligned, so base + 15 would spill into the next (blue)
+	// block and paint a blue meniscus on a full bar.
+	const int top = (int)base | 15;
 
 	// Trough with a light left edge and a dark right edge, like the horizontal
 	// bar's top/bottom rows.
