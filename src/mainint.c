@@ -1498,8 +1498,22 @@ JE_boolean JE_inGameSetup(void)
 
 	bool restart = true;
 
-	const size_t menuItemsCount = COUNTOF(inGameText);
-	size_t selectedIndex = MENU_ITEM_MUSIC_VOLUME;
+	// Build the visible item list for this presentation.  Detail Level is
+	// hidden (not greyed out) in Modern: the effective detail is pinned to
+	// Pentium there, so offering a worse level would only confuse the player.
+	// The remaining rows close the gap and keyboard/mouse navigation skips it.
+	// Classic shows it and edits the player's choice as before.
+	size_t visibleItems[COUNTOF(inGameText)];
+	size_t menuItemsCount = 0;
+	for (size_t i = 0; i < COUNTOF(inGameText); ++i)
+	{
+		if (i == MENU_ITEM_DETAIL_LEVEL && presentation == PRESENTATION_MODERN)
+			continue;
+
+		visibleItems[menuItemsCount++] = i;
+	}
+
+	size_t selectedIndex = 0;
 
 	const int yMenuItems = 20;
 	const int dyMenuItems = 20;
@@ -1540,13 +1554,13 @@ JE_boolean JE_inGameSetup(void)
 		{
 			const int y = yMenuItems + dyMenuItems * i;
 
-			const char *const name = inGameText[i];
+			const char *const name = inGameText[visibleItems[i]];
 
 			const bool selected = i == selectedIndex;
 
 			drawFontHvShadow(VGAScreen, xMenuItemName, y, name, FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
 
-			switch (i)
+			switch (visibleItems[i])
 			{
 			case MENU_ITEM_MUSIC_VOLUME:
 			{
@@ -1572,7 +1586,7 @@ JE_boolean JE_inGameSetup(void)
 		}
 
 		// Draw help text.
-		JE_outTextAdjust(VGAScreen, 10, 147, mainMenuHelp[helpIndexes[selectedIndex]], 14, 6, TINY_FONT, true);
+		JE_outTextAdjust(VGAScreen, 10, 147, mainMenuHelp[helpIndexes[visibleItems[selectedIndex]]], 14, 6, TINY_FONT, true);
 
 		JE_mouseStart();
 		JE_showVGA();
@@ -1620,7 +1634,7 @@ JE_boolean JE_inGameSetup(void)
 							// Act on menu item via value.
 							else if (mouseInput.x >= xMenuItemValue && mouseInput.x < xMenuItemValue + wMenuItemValue)
 							{
-								switch (i)
+								switch (visibleItems[i])
 								{
 								case MENU_ITEM_MUSIC_VOLUME:
 								{
@@ -1717,10 +1731,10 @@ JE_boolean JE_inGameSetup(void)
 			}
 			case SDL_SCANCODE_W:
 			{
-				if (selectedIndex == MENU_ITEM_DETAIL_LEVEL)
+				if (visibleItems[selectedIndex] == MENU_ITEM_DETAIL_LEVEL)
 				{
-					processorType = 6;
-					JE_initProcessorType();
+					processorTypeChoice = 6;
+					JE_applyProcessorType();
 				}
 				break;
 			}
@@ -1731,7 +1745,7 @@ JE_boolean JE_inGameSetup(void)
 
 		if (action)
 		{
-			switch (selectedIndex)
+			switch (visibleItems[selectedIndex])
 			{
 			case MENU_ITEM_MUSIC_VOLUME:
 			{
@@ -1778,7 +1792,7 @@ JE_boolean JE_inGameSetup(void)
 		}
 		else if (leftAction)
 		{
-			switch (selectedIndex)
+			switch (visibleItems[selectedIndex])
 			{
 			case MENU_ITEM_MUSIC_VOLUME:
 			{
@@ -1798,8 +1812,8 @@ JE_boolean JE_inGameSetup(void)
 			{
 				JE_playSampleNum(S_CURSOR);
 
-				processorType = processorType > 1 ? processorType - 1 : 4;
-				JE_initProcessorType();
+				processorTypeChoice = processorTypeChoice > 1 ? processorTypeChoice - 1 : 4;
+				JE_applyProcessorType();
 				JE_setNewGameSpeed();
 				break;
 			}
@@ -1818,7 +1832,7 @@ JE_boolean JE_inGameSetup(void)
 		}
 		else if (rightAction)
 		{
-			switch (selectedIndex)
+			switch (visibleItems[selectedIndex])
 			{
 			case MENU_ITEM_MUSIC_VOLUME:
 			{
@@ -1838,8 +1852,8 @@ JE_boolean JE_inGameSetup(void)
 			{
 				JE_playSampleNum(S_CURSOR);
 
-				processorType = processorType < 4 ? processorType + 1 : 1;
-				JE_initProcessorType();
+				processorTypeChoice = processorTypeChoice < 4 ? processorTypeChoice + 1 : 1;
+				JE_applyProcessorType();
 				JE_setNewGameSpeed();
 				break;
 			}

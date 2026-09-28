@@ -223,7 +223,8 @@ JE_boolean pentiumMode;
 
 /* Savegame files */
 JE_byte    gameSpeed;
-JE_byte    processorType;  /* 1=386 2=486 3=Pentium Hyper */
+JE_byte    processorType;        /* effective level: 1=386 2=486 3=High 4=Pentium 5=Nonstandard VGA 6=SuperWild */
+JE_byte    processorTypeChoice;  /* the player's stored choice (tyrian.cfg); Classic renders at it, Modern pins 4 (or 6) */
 
 JE_SaveFilesType saveFiles; /*array[1..saveLevelnum] of savefiletype;*/
 
@@ -682,6 +683,20 @@ void JE_initProcessorType(void)
 
 }
 
+void JE_applyProcessorType(void)
+{
+	// Modern always renders at Pentium or above: the player's stored choice is
+	// ignored there except for the SuperWild cheat (6), which must keep working.
+	// The choice itself is preserved, so Classic still restores it and
+	// tyrian.cfg still stores it.
+	if (presentation == PRESENTATION_MODERN)
+		processorType = (processorTypeChoice == 6) ? 6 : 4;
+	else
+		processorType = processorTypeChoice;
+
+	JE_initProcessorType();
+}
+
 void JE_setNewGameSpeed(void)
 {
 	pentiumMode = false;
@@ -763,7 +778,7 @@ void loadConfiguration(void)
 		inputDevice_    = memReadU8(&reader);
 		jConfigure      = memReadU8(&reader);
 		versionNum      = memReadU8(&reader);
-		processorType   = memReadU8(&reader);
+		processorTypeChoice = memReadU8(&reader);
 		midiPort        = memReadU8(&reader);
 		soundEffects    = memReadU8(&reader);
 		gammaCorrection = memReadU8(&reader);
@@ -799,7 +814,7 @@ void loadConfiguration(void)
 		inputDevice_ = 0;
 		jConfigure = 0;
 		versionNum = 2;
-		processorType = 3;
+		processorTypeChoice = 4;  // fresh installs default to Pentium
 		midiPort = 1;
 		soundEffects = 1;
 		gammaCorrection = 0;
@@ -816,7 +831,7 @@ void loadConfiguration(void)
 
 	set_volume(tyrMusicVolume, fxVolume);
 
-	JE_initProcessorType();
+	JE_applyProcessorType();
 }
 
 void saveConfiguration(void)
@@ -833,7 +848,7 @@ void saveConfiguration(void)
 	memWriteU8(&writer,      inputDevice_);
 	memWriteU8(&writer,      jConfigure);
 	memWriteU8(&writer,      versionNum);
-	memWriteU8(&writer,      processorType);
+	memWriteU8(&writer,      processorTypeChoice);
 	memWriteU8(&writer,      midiPort);
 	memWriteU8(&writer,      soundEffects);
 	memWriteU8(&writer,      gammaCorrection);

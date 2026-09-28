@@ -206,7 +206,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --bench-seconds=N            Duration of --regress-realtime (default 20)");
 			logInfo("  --vfx=LEVEL                  Modern VFX level: off, low or high (default low)");
 			logInfo("  --regress-vfx=LEVEL          Pin the VFX level in a regress run (default off)");
-			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
+			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2; with");
+			logInfo("                               --regress-modern the engine forces Pentium 4, or 6 for");
+			logInfo("                               the SuperWild cheat, and logs any override)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
 			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
