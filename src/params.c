@@ -23,6 +23,7 @@
 #include "episodes.h"
 #include "file.h"
 #include "gamepad_selftest.h"
+#include "interp.h"
 #include "joystick.h"
 #include "logging.h"
 #include "loudness.h"
@@ -86,6 +87,11 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 273, 0,   "regress-arcade",    false },
 		{ 274, 0,   "regress-screen",    true },
 		{ 275, 0,   "regress-replay-check", false },
+		{ 276, 0,   "regress-interp-check", false },
+		{ 277, 0,   "regress-interp-alpha", true },
+		{ 278, 0,   "smooth-motion",     true },
+		{ 279, 0,   "regress-realtime",  false },
+		{ 280, 0,   "bench-seconds",     true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -140,6 +146,15 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               purchase, options, cube-list, cube-reader, keyboard,");
 			logInfo("                               joystick, load-save, solid)");
 			logInfo("  --regress-replay-check       Record each level frame's draw list and replay it (proof)");
+			logInfo("  --regress-interp-check       Render each level frame interpolated at alpha=1 and");
+			logInfo("                               compare it byte for byte with the real frame (proof)");
+			logInfo("  --regress-interp-alpha=A     Present the frame interpolated at alpha A (0..1)");
+			logInfo("                               (with --regress-snapshot; Modern only)");
+			logInfo("  --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated");
+			logInfo("                               motion (default on)");
+			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
+			logInfo("                               presented-fps statistics (uses --regress-demo)");
+			logInfo("  --bench-seconds=N            Duration of --regress-realtime (default 20)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -395,6 +410,42 @@ void JE_paramCheck(int argc, char *argv[])
 		case 275: // --regress-replay-check
 			regress_replay_check = 1;
 			break;
+		case 276: // --regress-interp-check
+			regress_interp_check = 1;
+			break;
+		case 277: // --regress-interp-alpha=A
+		{
+			char *end = NULL;
+			const double alpha = strtod(option.arg, &end);
+			if (end == option.arg || *end != '\0' || alpha < 0.0 || alpha > 1.0)
+			{
+				logError("%s: --regress-interp-alpha must be a number between 0 and 1", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			interp_set_regress_alpha(alpha);
+			break;
+		}
+		case 278: // --smooth-motion=on|off
+			if (!set_smooth_motion_by_name(option.arg))
+			{
+				logError("%s: --smooth-motion must be 'on' or 'off'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 279: // --regress-realtime
+			regress_realtime = 1;
+			break;
+		case 280: // --bench-seconds=N
+		{
+			const double seconds = atof(option.arg);
+			if (seconds <= 0.0)
+			{
+				logError("%s: --bench-seconds must be positive", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_bench_seconds = seconds;
+			break;
+		}
 			
 		default:
 			assert(false);
@@ -413,10 +464,23 @@ void JE_paramCheck(int argc, char *argv[])
 		logError("%s: --regress-demo and --regress-level are mutually exclusive", argv[0]);
 		exit(EXIT_FAILURE);
 	}
+
+	if (regress_realtime && regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-realtime requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
 	
 	if (regress_replay_check && regress_demo == 0 && regress_scenario_episode == 0)
 	{
 		logError("%s: --regress-replay-check requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if ((regress_interp_check || interp_regress_alpha_active()) &&
+	    regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-interp-check/--regress-interp-alpha require --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 	

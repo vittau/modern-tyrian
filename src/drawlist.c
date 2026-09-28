@@ -19,7 +19,9 @@
 #include "drawlist.h"
 
 #include "backgrnd.h"
+#include "config.h"
 #include "logging.h"
+#include "player.h"
 #include "vga256d.h"
 #include "video.h"
 
@@ -28,11 +30,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Per-tick draw list, stages 1-2.  See drawlist.h for the contract.
+// Per-tick draw list, stages 1-3.  See drawlist.h for the contract.
 
 // Command buffering.  Fixed capacity allocated once; no per-frame allocation.
 #define DL_MAX_COMMANDS  (1u << 15)   // 32768 entries, comfortably above one tick
 #define DL_PAYLOAD_BYTES (1u << 18)   // 256 KiB bulk payload arena per tick
+
+// A position jump larger than this between the two ticks snaps instead of
+// interpolating: it is a teleport, or a reused slot whose new occupant spawned
+// far from the old one.  The largest legitimate per-tick movement (a fast enemy
+// shot) is well below it.
+#define DL_INTERP_JUMP 64
 
 enum
 {
@@ -68,22 +76,47 @@ typedef struct
 	int x, y;           // destination / row origin
 	int a, b, c, d;     // rect coords, table, index
 	Uint8 **map;        // background row source
+	intptr_t row_key;   // background: map pointer with the horizontal pan removed
 	Sprite2_array sheet;  // blit_sprite2 source
 	Uint32 payload_off;
 	Uint32 payload_len;
 } DlCommand;
 
-static DlCommand *dl_commands = NULL;
-static Uint8 *dl_payload = NULL;
+// One recorded tick: its commands, its payload arena and the player position at
+// the tick's end (for the spotlight special code).  Two sets are kept so the
+// previous tick survives while the current one is recorded.
+typedef struct
+{
+	DlCommand *commands;
+	Uint8 *payload;
+	Uint32 count;
+	Uint32 payload_used;
+	int player_x, player_y;
+} DlSet;
+
+static DlSet dl_sets[2];
+static int dl_cur = 0;    // set being recorded
+static int dl_last = -1;  // last completed set (-1 before the first frame_end)
+
+static DlCommand *dl_commands = NULL;  // == dl_sets[dl_cur].commands
+static Uint8 *dl_payload = NULL;       // == dl_sets[dl_cur].payload
 static Uint32 dl_count = 0;
 static Uint32 dl_payload_used = 0;
 
 static bool dl_enabled = false;
 static bool dl_recording = false;
 static bool dl_check = false;
+static bool dl_interp_check = false;
+static bool dl_have_prev = false;   // a previous tick has been recorded
 
 static SDL_Surface *dl_scratch_game = NULL;
 static SDL_Surface *dl_scratch_vga2 = NULL;
+// The previous presented frame the scratch starts every interpolated replay
+// from.  Filters (iced/blur) genuinely blend with the previous frame, so the
+// renderer owns this reference instead of seeding from the live framebuffer.
+static SDL_Surface *dl_ref_game = NULL;
+static SDL_Surface *dl_ref_vga2 = NULL;
+static bool dl_ref_valid = false;
 
 static int dl_context_kind = DL_OBJ_NONE;
 static int dl_context_id = 0;
@@ -106,9 +139,39 @@ bool drawlist_recording(void)
 	return dl_recording;
 }
 
+// Recording is requested independently by the regress harness and by the smooth
+// presentation loop; it runs while either wants it.
+static bool dl_want_regress = false;
+static bool dl_want_smooth = false;
+
+static void dl_update_enabled(void)
+{
+	const bool enabled = dl_want_regress || dl_want_smooth;
+	if (enabled == dl_enabled)
+		return;
+
+	dl_enabled = enabled;
+
+	// (Re)start the recorded history: the first tick seeds its reference frame
+	// from the live framebuffer.
+	if (enabled)
+	{
+		dl_ref_valid = false;
+		dl_have_prev = false;
+		dl_last = -1;
+	}
+}
+
 void drawlist_set_enabled(bool enabled)
 {
-	dl_enabled = enabled;
+	dl_want_regress = enabled;
+	dl_update_enabled();
+}
+
+void drawlist_set_smooth_enabled(bool enabled)
+{
+	dl_want_smooth = enabled;
+	dl_update_enabled();
 }
 
 void drawlist_set_check(bool check)
@@ -140,15 +203,28 @@ static int dl_surface_of(const SDL_Surface *surface)
 
 void drawlist_init(void)
 {
+	for (int i = 0; i < 2; ++i)
+	{
+		if (dl_sets[i].commands == NULL)
+			dl_sets[i].commands = malloc(sizeof(DlCommand) * DL_MAX_COMMANDS);
+		if (dl_sets[i].payload == NULL)
+			dl_sets[i].payload = malloc(DL_PAYLOAD_BYTES);
+	}
 	if (dl_commands == NULL)
-		dl_commands = malloc(sizeof(DlCommand) * DL_MAX_COMMANDS);
-	if (dl_payload == NULL)
-		dl_payload = malloc(DL_PAYLOAD_BYTES);
+	{
+		dl_cur = 0;
+		dl_commands = dl_sets[dl_cur].commands;
+		dl_payload = dl_sets[dl_cur].payload;
+	}
 
 	if (dl_scratch_game == NULL)
 		dl_scratch_game = SDL_CreateSurface(vga_width, vga_height, SDL_PIXELFORMAT_INDEX8);
 	if (dl_scratch_vga2 == NULL)
 		dl_scratch_vga2 = SDL_CreateSurface(vga_width, vga_height, SDL_PIXELFORMAT_INDEX8);
+	if (dl_ref_game == NULL)
+		dl_ref_game = SDL_CreateSurface(vga_width, vga_height, SDL_PIXELFORMAT_INDEX8);
+	if (dl_ref_vga2 == NULL)
+		dl_ref_vga2 = SDL_CreateSurface(vga_width, vga_height, SDL_PIXELFORMAT_INDEX8);
 
 	// The scratch surfaces are written by code that assumes the engine pitch
 	// (backgrnd.c/sprite.c), so they must match the real surfaces exactly.
@@ -156,13 +232,20 @@ void drawlist_init(void)
 	       dl_scratch_game->pitch == game_screen->pitch);
 	assert(dl_scratch_vga2 != NULL && VGAScreen2 != NULL &&
 	       dl_scratch_vga2->pitch == VGAScreen2->pitch);
+	assert(dl_ref_game != NULL && dl_ref_game->pitch == game_screen->pitch);
+	assert(dl_ref_vga2 != NULL && dl_ref_vga2->pitch == VGAScreen2->pitch);
 }
 
 void drawlist_shutdown(void)
 {
-	free(dl_commands);
+	for (int i = 0; i < 2; ++i)
+	{
+		free(dl_sets[i].commands);
+		dl_sets[i].commands = NULL;
+		free(dl_sets[i].payload);
+		dl_sets[i].payload = NULL;
+	}
 	dl_commands = NULL;
-	free(dl_payload);
 	dl_payload = NULL;
 
 	if (dl_scratch_game != NULL)
@@ -171,6 +254,16 @@ void drawlist_shutdown(void)
 	if (dl_scratch_vga2 != NULL)
 		SDL_DestroySurface(dl_scratch_vga2);
 	dl_scratch_vga2 = NULL;
+	if (dl_ref_game != NULL)
+		SDL_DestroySurface(dl_ref_game);
+	dl_ref_game = NULL;
+	if (dl_ref_vga2 != NULL)
+		SDL_DestroySurface(dl_ref_vga2);
+	dl_ref_vga2 = NULL;
+
+	dl_last = -1;
+	dl_have_prev = false;
+	dl_ref_valid = false;
 }
 
 void drawlist_set_context(int obj_kind, int obj_id, int obj_sub)
@@ -188,6 +281,16 @@ static void dl_copy_surface(SDL_Surface *dst, const SDL_Surface *src)
 		       (const Uint8 *)src->pixels + (size_t)y * src->pitch, (size_t)row);
 }
 
+// Discards the recorded history at a level boundary.  A new level's first tick
+// must not interpolate against (or blend filters with) the previous level's
+// frame.
+void drawlist_level_reset(void)
+{
+	dl_have_prev = false;
+	dl_ref_valid = false;
+	dl_last = -1;
+}
+
 void drawlist_frame_begin(void)
 {
 	if (!dl_enabled)
@@ -198,6 +301,10 @@ void drawlist_frame_begin(void)
 	if (dl_commands == NULL)
 		drawlist_init();
 
+	// Alternate sets so the last completed tick stays available as "previous".
+	dl_cur = (dl_last == 0) ? 1 : 0;
+	dl_commands = dl_sets[dl_cur].commands;
+	dl_payload = dl_sets[dl_cur].payload;
 	dl_count = 0;
 	dl_payload_used = 0;
 	dl_context_kind = DL_OBJ_NONE;
@@ -205,14 +312,15 @@ void drawlist_frame_begin(void)
 	dl_context_sub = 0;
 	dl_recording = true;
 
-	// Stateful filters (iced_blur_filter, blur_filter) blend with the current
-	// destination contents, so the scratch must start from the same state the
-	// engine's framebuffer has.  VGAScreen2 is always fully cleared before it is
-	// read, but seed it too so replay never depends on recycling.
-	if (game_screen != NULL && dl_scratch_game != NULL)
-		dl_copy_surface(dl_scratch_game, game_screen);
-	if (VGAScreen2 != NULL && dl_scratch_vga2 != NULL)
-		dl_copy_surface(dl_scratch_vga2, VGAScreen2);
+	// The first recorded tick of a level: the previous presented frame the
+	// interpolation (and the destination-reading filters) must start from is the
+	// live framebuffer.  This is the only time the renderer touches it.
+	if (!dl_ref_valid && game_screen != NULL && dl_ref_game != NULL)
+	{
+		dl_copy_surface(dl_ref_game, game_screen);
+		if (VGAScreen2 != NULL)
+			dl_copy_surface(dl_ref_vga2, VGAScreen2);
+	}
 }
 
 static DlCommand *dl_push(Uint16 kind)
@@ -311,6 +419,24 @@ void drawlist_record_bg_row(SDL_Surface *surface, int x, int y, Uint8 **map, boo
 		c->surface = (Uint8)sid;
 		c->x = x; c->y = y;
 		c->map = map;
+
+		// The map pointer advances with the horizontal pan (mapXbpPos is the
+		// pan in whole tiles), so it is not a stable identity for a row across
+		// ticks.  Store the pointer with that pan removed; the vertical
+		// position (which is what interpolation tracks) is unaffected, so a row
+		// keeps the same key through a tile-row wrap and the scroll stays
+		// smooth.  The layer is dl_context_id.
+		intptr_t bp = 0;
+		if (dl_context_kind == DL_OBJ_BACKGROUND)
+		{
+			if (dl_context_id == 1)
+				bp = mapXbpPos;
+			else if (dl_context_id == 2)
+				bp = (blend || !smoothies[1]) ? mapX2bpPos : mapXbpPos;
+			else if (dl_context_id == 3)
+				bp = mapX3bpPos;
+		}
+		c->row_key = (intptr_t)map / (intptr_t)sizeof(Uint8 *) - bp;
 	}
 }
 
@@ -445,7 +571,7 @@ void drawlist_record_superpixels(SDL_Surface *surface, const void *superpixels, 
 		c->kind = DL_KIND_COUNT;
 }
 
-static void dl_replay_command(const DlCommand *c)
+static void dl_replay_command(const DlCommand *c, int x, int y)
 {
 	SDL_Surface *surface = dl_scratch_for(c->surface);
 	if (surface == NULL)
@@ -459,42 +585,42 @@ static void dl_replay_command(const DlCommand *c)
 
 	case DL_FILL_RECT:
 	{
-		SDL_Rect rect = { c->x, c->y, c->a - c->x + 1, c->b - c->y + 1 };
+		SDL_Rect rect = { x, y, c->a - c->x + 1, c->b - c->y + 1 };
 		SDL_FillSurfaceRect(surface, &rect, c->color);
 		break;
 	}
 
 	case DL_RECT_OUTLINE:
-		JE_rectangle(surface, c->x, c->y, c->a, c->b, c->color);
+		JE_rectangle(surface, x, y, c->a, c->b, c->color);
 		break;
 
 	case DL_BG_ROW:
-		blit_background_row(surface, c->x, c->y, c->map);
+		blit_background_row(surface, x, y, c->map);
 		break;
 	case DL_BG_ROW_BLEND:
-		blit_background_row_blend(surface, c->x, c->y, c->map);
+		blit_background_row_blend(surface, x, y, c->map);
 		break;
 
 	case DL_BLIT_SPRITE:
 		switch (c->variant)
 		{
 		case DL_SPRITE_BLIT:
-			blit_sprite(surface, c->x, c->y, c->a, c->b);
+			blit_sprite(surface, x, y, c->a, c->b);
 			break;
 		case DL_SPRITE_BLEND:
-			blit_sprite_blend(surface, c->x, c->y, c->a, c->b);
+			blit_sprite_blend(surface, x, y, c->a, c->b);
 			break;
 		case DL_SPRITE_HV_UNSAFE:
-			blit_sprite_hv_unsafe(surface, c->x, c->y, c->a, c->b, c->hue, c->value);
+			blit_sprite_hv_unsafe(surface, x, y, c->a, c->b, c->hue, c->value);
 			break;
 		case DL_SPRITE_HV:
-			blit_sprite_hv(surface, c->x, c->y, c->a, c->b, c->hue, c->value);
+			blit_sprite_hv(surface, x, y, c->a, c->b, c->hue, c->value);
 			break;
 		case DL_SPRITE_HV_BLEND:
-			blit_sprite_hv_blend(surface, c->x, c->y, c->a, c->b, c->hue, c->value);
+			blit_sprite_hv_blend(surface, x, y, c->a, c->b, c->hue, c->value);
 			break;
 		case DL_SPRITE_DARK:
-			blit_sprite_dark(surface, c->x, c->y, c->a, c->b, c->black);
+			blit_sprite_dark(surface, x, y, c->a, c->b, c->black);
 			break;
 		default:
 			break;
@@ -505,22 +631,22 @@ static void dl_replay_command(const DlCommand *c)
 		switch (c->variant)
 		{
 		case DL_SPRITE2_BLIT:
-			blit_sprite2(surface, c->x, c->y, c->sheet, c->b);
+			blit_sprite2(surface, x, y, c->sheet, c->b);
 			break;
 		case DL_SPRITE2_CLIP:
-			blit_sprite2_clip(surface, c->x, c->y, c->sheet, c->b);
+			blit_sprite2_clip(surface, x, y, c->sheet, c->b);
 			break;
 		case DL_SPRITE2_BLEND:
-			blit_sprite2_blend(surface, c->x, c->y, c->sheet, c->b);
+			blit_sprite2_blend(surface, x, y, c->sheet, c->b);
 			break;
 		case DL_SPRITE2_DARKEN:
-			blit_sprite2_darken(surface, c->x, c->y, c->sheet, c->b);
+			blit_sprite2_darken(surface, x, y, c->sheet, c->b);
 			break;
 		case DL_SPRITE2_FILTER:
-			blit_sprite2_filter(surface, c->x, c->y, c->sheet, c->b, c->filter);
+			blit_sprite2_filter(surface, x, y, c->sheet, c->b, c->filter);
 			break;
 		case DL_SPRITE2_FILTER_CLIP:
-			blit_sprite2_filter_clip(surface, c->x, c->y, c->sheet, c->b, c->filter);
+			blit_sprite2_filter_clip(surface, x, y, c->sheet, c->b, c->filter);
 			break;
 		default:
 			break;
@@ -563,6 +689,294 @@ static void dl_replay_command(const DlCommand *c)
 		break;
 	}
 }
+
+// --- stage 3: identity matching -----------------------------------------------
+//
+// Commands that carry an object identity are paired across the two ticks so
+// their positions can be interpolated.  The pairing is by identity plus the
+// order of occurrence inside that identity (a 2x2 ship draws four commands with
+// the same identity; they keep their relative order).  Background rows use the
+// pan-normalised map pointer instead (c->row_key), which is unique per row.
+
+#define DL_MATCH_BUCKETS 2048
+
+typedef struct
+{
+	Uint64 key;
+	bool used;
+	Sint32 head, tail, cursor;
+} DlMatchBucket;
+
+static DlMatchBucket dl_buckets[DL_MATCH_BUCKETS];
+static Sint32 dl_match_next[DL_MAX_COMMANDS];
+
+static unsigned long dl_interp_matched_count = 0;
+static unsigned long dl_interp_new_count = 0;
+static unsigned long dl_interp_jump_count = 0;
+static unsigned long dl_interp_sheet_count = 0;
+static unsigned long dl_interp_overshoot_count = 0;
+
+static int dl_interp_player_x = 0, dl_interp_player_y = 0;
+
+static Uint64 dl_mix_key(Uint32 a, Uint32 b, Uint32 c, Uint64 d)
+{
+	Uint64 h = UINT64_C(1469598103934665603);
+	h = (h ^ a) * UINT64_C(1099511628211);
+	h = (h ^ b) * UINT64_C(1099511628211);
+	h = (h ^ c) * UINT64_C(1099511628211);
+	h = (h ^ d) * UINT64_C(1099511628211);
+	return h;
+}
+
+static bool dl_interpolatable(const DlCommand *c)
+{
+	if (c->kind == DL_BG_ROW || c->kind == DL_BG_ROW_BLEND)
+		return true;
+
+	switch (c->obj_kind)
+	{
+	case DL_OBJ_ENEMY:
+	case DL_OBJ_PLAYER:
+	case DL_OBJ_SIDEKICK:
+	case DL_OBJ_PLAYER_SHOT:
+	case DL_OBJ_ENEMY_SHOT:
+	case DL_OBJ_EXPLOSION:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static Uint64 dl_key_of(const DlCommand *c)
+{
+	if (c->kind == DL_BG_ROW || c->kind == DL_BG_ROW_BLEND)
+		return dl_mix_key(0xB6u, c->obj_id, 0, (Uint64)(intptr_t)c->row_key);
+
+	return dl_mix_key(c->obj_kind, c->obj_id, c->obj_sub, 0);
+}
+
+static Uint32 dl_hash_key(Uint64 key)
+{
+	return (Uint32)(key ^ (key >> 32)) & (DL_MATCH_BUCKETS - 1);
+}
+
+// Indexes every interpolatable command of the previous tick, in order.
+static void dl_match_build(const DlSet *prev)
+{
+	for (int i = 0; i < DL_MATCH_BUCKETS; ++i)
+		dl_buckets[i].used = false;
+
+	for (Uint32 i = 0; i < prev->count; ++i)
+	{
+		const DlCommand *c = &prev->commands[i];
+		if (!dl_interpolatable(c))
+			continue;
+
+		const Uint64 key = dl_key_of(c);
+		Uint32 b = dl_hash_key(key);
+		while (dl_buckets[b].used && dl_buckets[b].key != key)
+			b = (b + 1) & (DL_MATCH_BUCKETS - 1);
+
+		if (!dl_buckets[b].used)
+		{
+			dl_buckets[b].used = true;
+			dl_buckets[b].key = key;
+			dl_buckets[b].head = -1;
+			dl_buckets[b].tail = -1;
+		}
+
+		dl_match_next[i] = -1;
+		if (dl_buckets[b].tail < 0)
+			dl_buckets[b].head = (Sint32)i;
+		else
+			dl_match_next[dl_buckets[b].tail] = (Sint32)i;
+		dl_buckets[b].tail = (Sint32)i;
+	}
+}
+
+static void dl_match_reset_cursors(void)
+{
+	for (int i = 0; i < DL_MATCH_BUCKETS; ++i)
+		if (dl_buckets[i].used)
+			dl_buckets[i].cursor = dl_buckets[i].head;
+}
+
+// Returns the previous-tick command matching `c` (the next occurrence of the
+// same identity), or -1 when there is none left.
+static Sint32 dl_match_take(const DlCommand *c)
+{
+	if (!dl_interpolatable(c))
+		return -1;
+
+	const Uint64 key = dl_key_of(c);
+	Uint32 b = dl_hash_key(key);
+	while (dl_buckets[b].used && dl_buckets[b].key != key)
+		b = (b + 1) & (DL_MATCH_BUCKETS - 1);
+
+	if (!dl_buckets[b].used)
+		return -1;
+
+	const Sint32 idx = dl_buckets[b].cursor;
+	if (idx >= 0)
+		dl_buckets[b].cursor = dl_match_next[idx];
+	return idx;
+}
+
+enum
+{
+	DL_SNAP_NONE = 0,
+	DL_SNAP_NEW,
+	DL_SNAP_JUMP,
+	DL_SNAP_SHEET,
+};
+
+// Decides whether a pair snaps (drawn at the new position, no sliding) and why.
+static int dl_snap_reason(const DlCommand *p, const DlCommand *c)
+{
+	if (p == NULL)
+		return DL_SNAP_NEW;
+
+	int dx = c->x - p->x, dy = c->y - p->y;
+	if (dx < 0) dx = -dx;
+	if (dy < 0) dy = -dy;
+	if (dx > DL_INTERP_JUMP || dy > DL_INTERP_JUMP)
+		return DL_SNAP_JUMP;
+
+	// A different compressed sheet/size in the same slot is a reused slot (or
+	// an enemy that morphed); its motion is discontinuous, so snap.  Animation
+	// keeps the sheet and changes only the index, so this does not fire on it.
+	if (p->kind == DL_BLIT_SPRITE2 && c->kind == DL_BLIT_SPRITE2 &&
+	    (p->sheet.data != c->sheet.data || p->sheet.size != c->sheet.size))
+		return DL_SNAP_SHEET;
+
+	return DL_SNAP_NONE;
+}
+
+static int dl_lerp(int a, int b, Uint32 alpha_fx16)
+{
+	return a + (int)(((Sint64)(b - a) * (Sint32)alpha_fx16) / 65536);
+}
+
+bool drawlist_render_interpolated(Uint32 alpha_fx16)
+{
+	// The scratch and reference surfaces are created by drawlist_init(), which
+	// frame_begin() calls before the first tick is recorded.  An empty previous
+	// set is fine: every command then snaps to its current position.
+	if (dl_last < 0 || dl_scratch_game == NULL || dl_ref_game == NULL)
+		return false;
+
+	const DlSet *prev = &dl_sets[1 - dl_last];
+	const DlSet *cur = &dl_sets[dl_last];
+
+	if (alpha_fx16 > 65536)
+		alpha_fx16 = 65536;
+
+	// Filters that read the destination blend with the previous presented
+	// frame: the renderer owns that reference and seeds the scratch from it.
+	dl_copy_surface(dl_scratch_game, dl_ref_game);
+	dl_copy_surface(dl_scratch_vga2, dl_ref_vga2);
+
+	dl_match_build(prev);
+	dl_match_reset_cursors();
+
+	for (Uint32 i = 0; i < cur->count; ++i)
+	{
+		const DlCommand *c = &cur->commands[i];
+		int x = c->x, y = c->y;
+
+		if (dl_interpolatable(c))
+		{
+			const Sint32 pi = dl_match_take(c);
+			const DlCommand *p = (pi >= 0) ? &prev->commands[pi] : NULL;
+			const int reason = dl_snap_reason(p, c);
+
+			if (reason == DL_SNAP_NONE)
+			{
+				x = dl_lerp(p->x, c->x, alpha_fx16);
+				y = dl_lerp(p->y, c->y, alpha_fx16);
+				dl_interp_matched_count++;
+
+				// Sanity: a mid-frame position must stay inside the endpoints.
+				if (dl_interp_check && alpha_fx16 == 65536)
+				{
+					const int mx = dl_lerp(p->x, c->x, 32768);
+					const int my = dl_lerp(p->y, c->y, 32768);
+					if (mx < MIN(p->x, c->x) || mx > MAX(p->x, c->x) ||
+					    my < MIN(p->y, c->y) || my > MAX(p->y, c->y))
+						dl_interp_overshoot_count++;
+				}
+			}
+			else if (reason == DL_SNAP_NEW)
+				dl_interp_new_count++;
+			else if (reason == DL_SNAP_JUMP)
+				dl_interp_jump_count++;
+			else
+				dl_interp_sheet_count++;
+		}
+
+		SDL_Surface *surface = dl_scratch_for(c->surface);
+		if (surface == NULL)
+			continue;
+
+		if (c->kind == DL_STARFIELD)
+			drawlist_draw_starfield_interp(surface, c->a, cur->payload + c->payload_off, c->payload_len, alpha_fx16);
+		else if (c->kind == DL_SUPERPIXELS)
+			drawlist_draw_superpixels_interp(surface, cur->payload + c->payload_off, c->payload_len, alpha_fx16);
+		else
+			dl_replay_command(c, x, y);
+	}
+
+	// The spotlight follows the player.  On the first tick of a level there is
+	// no previous position to slide from, so snap.
+	if (prev->count == 0)
+	{
+		dl_interp_player_x = cur->player_x;
+		dl_interp_player_y = cur->player_y;
+	}
+	else
+	{
+		dl_interp_player_x = dl_lerp(prev->player_x, cur->player_x, alpha_fx16);
+		dl_interp_player_y = dl_lerp(prev->player_y, cur->player_y, alpha_fx16);
+	}
+
+	// A full-alpha render realises the current tick exactly; keep it as the
+	// reference the next tick interpolates from.
+	if (alpha_fx16 == 65536)
+	{
+		dl_copy_surface(dl_ref_game, dl_scratch_game);
+		dl_copy_surface(dl_ref_vga2, dl_scratch_vga2);
+		dl_ref_valid = true;
+	}
+
+	return true;
+}
+
+SDL_Surface *drawlist_interpolated_game(void)
+{
+	return dl_scratch_game;
+}
+
+void drawlist_interpolated_player(int *x, int *y)
+{
+	if (x != NULL) *x = dl_interp_player_x;
+	if (y != NULL) *y = dl_interp_player_y;
+}
+
+bool drawlist_has_previous(void)
+{
+	return dl_have_prev;
+}
+
+void drawlist_set_interp_check(bool check)
+{
+	dl_interp_check = check;
+}
+
+unsigned long drawlist_interp_matched(void)    { return dl_interp_matched_count; }
+unsigned long drawlist_interp_snap_new(void)   { return dl_interp_new_count; }
+unsigned long drawlist_interp_snap_jump(void)  { return dl_interp_jump_count; }
+unsigned long drawlist_interp_snap_sheet(void) { return dl_interp_sheet_count; }
+unsigned long drawlist_interp_overshoots(void) { return dl_interp_overshoot_count; }
 
 // Compares the replayed game_screen with the real one over every byte of every
 // row.  Reports the first mismatching frame and pixel.
@@ -617,10 +1031,29 @@ void drawlist_frame_end(void)
 	dl_recording = false;
 	dl_context_kind = DL_OBJ_NONE;
 
-	if (dl_check && dl_scratch_game != NULL && game_screen != NULL)
+	// Persist this tick into its set before anything reads it back.
+	dl_sets[dl_cur].count = dl_count;
+	dl_sets[dl_cur].payload_used = dl_payload_used;
+	dl_sets[dl_cur].player_x = player[0].x;
+	dl_sets[dl_cur].player_y = player[0].y;
+	dl_last = dl_cur;
+	dl_have_prev = dl_sets[1 - dl_last].count > 0;
+
+	// Stages 1-2 proof: replay this tick's list.  The destination-reading
+	// filters need the frame the tick started from, which is the persistent
+	// reference (the previous tick's realised frame), not the live post-tick
+	// framebuffer.
+	if (dl_check && !dl_interp_check && dl_scratch_game != NULL && dl_ref_game != NULL)
 	{
+		dl_copy_surface(dl_scratch_game, dl_ref_game);
+		dl_copy_surface(dl_scratch_vga2, dl_ref_vga2);
 		for (Uint32 i = 0; i < dl_count; ++i)
-			dl_replay_command(&dl_commands[i]);
+			dl_replay_command(&dl_commands[i], dl_commands[i].x, dl_commands[i].y);
+
+		// Keep the reference in sync for the next tick.
+		dl_copy_surface(dl_ref_game, dl_scratch_game);
+		dl_copy_surface(dl_ref_vga2, dl_scratch_vga2);
+		dl_ref_valid = true;
 
 		dl_checked++;
 		if (!dl_compare_frames())
@@ -629,6 +1062,31 @@ void drawlist_frame_end(void)
 				memcpy(dl_first_mismatch_saved, dl_first_mismatch, sizeof dl_first_mismatch_saved);
 			dl_mismatched++;
 			logError("Replay check: mismatch #%lu at %s.", dl_mismatched, dl_first_mismatch);
+		}
+	}
+
+	// Stage 3 proof: build the interpolated frame at alpha = 1 with the
+	// persistent renderer and compare it byte for byte with the real frame.
+	if (dl_interp_check && game_screen != NULL && dl_scratch_game != NULL)
+	{
+		bool rendered = drawlist_render_interpolated(65536);
+		if (!rendered)
+		{
+			// First tick of a level: no previous list yet.  Replay the current
+			// list from the live frame so the tick is still covered.
+			dl_copy_surface(dl_scratch_game, game_screen);
+			dl_copy_surface(dl_scratch_vga2, VGAScreen2);
+			for (Uint32 i = 0; i < dl_count; ++i)
+				dl_replay_command(&dl_commands[i], dl_commands[i].x, dl_commands[i].y);
+		}
+
+		dl_checked++;
+		if (!dl_compare_frames())
+		{
+			if (dl_mismatched == 0)
+				memcpy(dl_first_mismatch_saved, dl_first_mismatch, sizeof dl_first_mismatch_saved);
+			dl_mismatched++;
+			logError("Interp check: mismatch #%lu at %s.", dl_mismatched, dl_first_mismatch);
 		}
 	}
 

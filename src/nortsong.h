@@ -39,6 +39,14 @@ Uint32 getFrameCountTicks(void);
 Uint32 getFrameCount2Ticks(void);
 void delayUntilElapsed(void);
 
+// Frame-pacing clock accessors added for the decoupled presentation loop
+// (stage 3).  Both are in the UQ6.10 fixed-point millisecond unit the timer
+// uses: getFramePeriodTicks10() is one PIT period (framePeriod) and
+// getFrameDeadlineTicks10() is the absolute instant the next logic tick is due
+// (frameCountEnd).  Pure reads; no gameplay effect.
+Uint32 getFramePeriodTicks10(void);
+Uint32 getFrameDeadlineTicks10(void);
+
 void JE_changeVolume(JE_word *music, int music_delta, JE_word *sample, int sample_delta);
 
 void loadSndFile(bool xmas);

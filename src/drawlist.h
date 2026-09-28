@@ -102,15 +102,27 @@ void drawlist_shutdown(void);
 bool drawlist_recording(void);
 
 // Enables recording (and, with it, the replay-check when regress asks for it).
+// This is the regress request; drawlist_set_smooth_enabled() is the gameplay
+// request (Modern smooth motion).  Recording is on when either asks for it.
 void drawlist_set_enabled(bool enabled);
 bool drawlist_enabled(void);
 
-// Marks the boundaries of one recorded level tick.  frame_begin snapshots the
-// real surfaces into the scratch ones and resets the list; frame_end replays
-// the list and, when the check is armed, compares the result with the real
-// frame.  Both are no-ops when recording is not enabled.
+// Asks for recording because the smooth presentation loop needs the two most
+// recent tick lists.  Separate from the regress request so Classic regress
+// checks keep recording even though smooth motion is off there.
+void drawlist_set_smooth_enabled(bool enabled);
+
+// Marks the boundaries of one recorded level tick.  frame_begin switches to the
+// next command set and, on the first tick after a level reset, seeds the
+// reference frame from the live framebuffer; frame_end finalizes the set and,
+// when a check is armed, replays or interpolates the tick and compares it with
+// the real frame.  Both are no-ops when recording is not enabled.
 void drawlist_frame_begin(void);
 void drawlist_frame_end(void);
+
+// Drops the recorded history at a level boundary so a new level never
+// interpolates against (or blends filters with) the previous level's frame.
+void drawlist_level_reset(void);
 
 // Sets the identity metadata copied into subsequently recorded entries.  Pass
 // DL_OBJ_NONE to clear it.
@@ -153,6 +165,13 @@ void drawlist_record_superpixels(SDL_Surface *surface, const void *superpixels, 
 void drawlist_replay_starfield(SDL_Surface *surface, int move_speed, const void *stars, size_t bytes);
 void drawlist_replay_superpixels(SDL_Surface *surface, const void *superpixels, size_t bytes);
 
+// Interpolated versions used by the stage-3 renderer.  `pre` is the captured
+// pre-step state; the element is drawn at the position partway (alpha_fx16 in
+// 16.16) between the previous frame's position and this tick's advanced
+// position.  A wrapped star snaps to its advanced position.
+void drawlist_draw_starfield_interp(SDL_Surface *surface, int move_speed, const void *pre, size_t bytes, Uint32 alpha_fx16);
+void drawlist_draw_superpixels_interp(SDL_Surface *surface, const void *pre, size_t bytes, Uint32 alpha_fx16);
+
 // Pure pixel-apply halves of the two global-surface operations.
 void drawlist_apply_darken(SDL_Surface *surface, JE_word neat);
 void drawlist_apply_filter_screen(SDL_Surface *surface, JE_shortint col, JE_shortint int_);
@@ -168,5 +187,42 @@ void drawlist_set_check(bool check);
 unsigned long drawlist_checked_frames(void);
 unsigned long drawlist_mismatched_frames(void);
 const char *drawlist_first_mismatch(void);   // NULL when all matched
+
+// --- stage 3: interpolation ---------------------------------------------------
+//
+// Recording keeps the two most recent tick lists (double buffered).  At any
+// point after drawlist_frame_end(), the renderer can compose a frame that
+// linearly interpolates the positions of the objects present in both ticks.
+// The frame is rendered into drawlist's persistent scratch surfaces, which are
+// the previous presented frame (so filters that blend with the destination see
+// the previous frame, as iced/blur genuinely require).
+//
+// `alpha_fx16` is a 16.16 fixed-point blend factor: 0 = previous tick,
+// 65536 = current tick.  Returns false when there is no usable previous list
+// (the caller then presents the plain current tick).
+bool drawlist_render_interpolated(Uint32 alpha_fx16);
+
+// The scratch surface the last drawlist_render_interpolated() produced.
+SDL_Surface *drawlist_interpolated_game(void);
+
+// Player 0's interpolated position at the last alpha, for the presentation's
+// spotlight special code.  Valid after drawlist_render_interpolated().
+void drawlist_interpolated_player(int *x, int *y);
+
+// True when a previous list exists to interpolate from.
+bool drawlist_has_previous(void);
+
+// --- interpolation diagnostics (--regress-interp-check) -----------------------
+
+void drawlist_set_interp_check(bool check);
+
+// Counts over the run: matched commands, snaps by reason (no previous
+// identity / position jump / sprite-sheet change) and position overshoots
+// detected by the internal alpha = 0.5 sanity pass.
+unsigned long drawlist_interp_matched(void);
+unsigned long drawlist_interp_snap_new(void);
+unsigned long drawlist_interp_snap_jump(void);
+unsigned long drawlist_interp_snap_sheet(void);
+unsigned long drawlist_interp_overshoots(void);
 
 #endif // DRAW_LIST_H

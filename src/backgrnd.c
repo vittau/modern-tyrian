@@ -570,3 +570,53 @@ void drawlist_replay_starfield(SDL_Surface *surface, int move_speed, const void 
 	memcpy(starfield_stars, stars, sizeof starfield_stars);
 	update_and_draw_starfield(surface, move_speed);
 }
+
+// Stage-3 interpolated starfield: draws each star partway (alpha_fx16, 16.16)
+// between the previous frame's position and this tick's advanced position,
+// without touching the live array.  A star whose position wrapped snaps to the
+// advanced position.  At alpha = 1 this is byte-identical to the draw half of
+// update_and_draw_starfield().
+void drawlist_draw_starfield_interp(SDL_Surface *surface, int move_speed, const void *pre, size_t bytes, Uint32 alpha_fx16)
+{
+	if (bytes != sizeof starfield_stars)
+		return;
+
+	StarfieldStar stars[MAX_STARS];
+	memcpy(stars, pre, sizeof starfield_stars);
+
+	Uint8 *p = (Uint8 *)surface->pixels;
+
+	for (int i = MAX_STARS - 1; i >= 0; --i)
+	{
+		const StarfieldStar *star = &stars[i];
+		const Uint16 prev_pos = star->position;
+		const Uint16 next_pos = (Uint16)(prev_pos + (star->speed + move_speed) * surface->pitch);
+
+		Uint16 pos;
+		if (next_pos < prev_pos)
+			pos = next_pos;  // wrapped: snap
+		else
+			pos = (Uint16)(prev_pos + (Uint16)(((Sint32)(next_pos - prev_pos) * (Sint32)alpha_fx16) / 65536));
+
+		if (pos < 177 * surface->pitch)
+		{
+			if (p[pos] == 0)
+				p[pos] = star->color;
+
+			if (star->color - 4 >= STARFIELD_HUE)
+			{
+				if (p[pos + 1] == 0)
+					p[pos + 1] = star->color - 4;
+
+				if (pos > 0 && p[pos - 1] == 0)
+					p[pos - 1] = star->color - 4;
+
+				if (p[pos + surface->pitch] == 0)
+					p[pos + surface->pitch] = star->color - 4;
+
+				if (pos >= surface->pitch && p[pos - surface->pitch] == 0)
+					p[pos - surface->pitch] = star->color - 4;
+			}
+		}
+	}
+}

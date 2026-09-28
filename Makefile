@@ -186,6 +186,10 @@ regress :
 regress-replay :
 	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --replay-check
 
+.PHONY : regress-interp
+regress-interp :
+	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --interp-check
+
 $(TARGET) : $(OBJS) $(RES)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)
 
