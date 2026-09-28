@@ -160,7 +160,19 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Trava de dados na regressão (`7909049`); referência no zip oficial e regressão na CI, verde em Linux, macOS e Windows (`b4f42b6`)
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
-- [ ] HUD Modern, layout (pedido do usuário, 2026-09-28): inverter os lados, com escudo, armadura e gerador/força no painel **direito**, como no original, e armas e sidekicks à esquerda. As barras desses três ficam **verticais** e um pouco mais compridas. Vale para 1P, 2P e arcade e para 16:10/16:9/21:9. Vai depois do merge de `hud-fade`, porque os dois mexem em `src/modern_hud.c`.
+- [ ] README novo (pedido do usuário, 2026-09-28), com a qualidade e o estilo do README de `vittau/antivirus-95`: banner e cabeçalhos de seção em SVG gerados por script, badges, tagline, tabelas curtas e prosa enxuta. **As capturas de tela só depois dos ajustes em andamento.** Esboço das seções:
+  - banner, badges (CI, licença, release) e tagline;
+  - captura de gameplay;
+  - o que o modo Modern traz;
+  - como jogar (dados do jogo e `get_data.sh`);
+  - controles e Setup › Graphics;
+  - build;
+  - opções de linha de comando dentro de `<details>`;
+  - testes de regressão;
+  - créditos (Tyrian/Eclipse, OpenTyrian, Nuked-OPL3) e licença.
+
+  A arte dos cabeçalhos deve usar uma fonte livre (OFL) com cara de pixel. Os dados do jogo não podem ser embutidos no repositório.
+- [x] HUD Modern, layout (pedido do usuário, 2026-09-28): inverter os lados, com escudo, armadura e gerador/força no painel **direito**, como no original, e armas e sidekicks à esquerda. As barras desses três ficam **verticais** e um pouco mais compridas. Vale para 1P, 2P e arcade e para 16:10/16:9/21:9. Vai depois do merge de `hud-fade`, porque os dois mexem em `src/modern_hud.c`.
 
 ### Fase 3 — Opcional e cara
 - [ ] Separar as camadas de fundo (bg1, bg2, bg3, inimigos) em buffers próprios, preservando a matemática dos blends
