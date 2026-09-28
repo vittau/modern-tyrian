@@ -22,6 +22,7 @@
 #include "keyboard.h"
 #include "lds_play.h"
 #include "loudness.h"
+#include "modern.h"
 #include "mtrand.h"
 #include "musmast.h"
 #include "nortsong.h"
@@ -89,6 +90,15 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 
 		bool gotKeyboardInput = starLibMain(&keyboardInput);
 
+		// Modern mode: fill the whole canvas width with the same star
+		// projection (read-only, centred on the canvas) and centre the text on
+		// it.  Classic and Modern 4:3 draw the untouched 320x200 frame.
+		SDL_Surface *wide = modern_screen_begin();
+		SDL_Surface *target = (wide != NULL) ? wide : VGAScreen;
+
+		if (wide != NULL)
+			starLib_paint(wide);
+
 		if (!hide_text)
 		{
 			char buffer[60];
@@ -98,11 +108,11 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 			else
 				snprintf(buffer, sizeof(buffer), "%d %s", song_playing + 1, musicTitle[song_playing]);
 			
-			const int x = VGAScreen->w / 2;
+			const int x = target->w / 2;
 			
-			drawFontHvAligned(VGAScreen, x, 170, "Press ESC to quit the jukebox.",           FONT_SMALL, ALIGN_CENTER, 1, 0);
-			drawFontHvAligned(VGAScreen, x, 180, "Arrow keys change the song being played.", FONT_SMALL, ALIGN_CENTER, 1, 0);
-			drawFontHvAligned(VGAScreen, x, 190, buffer,                                     FONT_SMALL, ALIGN_CENTER, 1, 4);
+			drawFontHvAligned(target, x, 170, "Press ESC to quit the jukebox.",           FONT_SMALL, ALIGN_CENTER, 1, 0);
+			drawFontHvAligned(target, x, 180, "Arrow keys change the song being played.", FONT_SMALL, ALIGN_CENTER, 1, 0);
+			drawFontHvAligned(target, x, 190, buffer,                                     FONT_SMALL, ALIGN_CENTER, 1, 4);
 		}
 
 		if (palette_fade_steps > 0)

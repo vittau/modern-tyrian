@@ -2349,6 +2349,17 @@ void JE_sort(void)
 	}
 }
 
+// Regression harness hook (--regress-screen=credits): JE_playCredits() breaks
+// on input, which in regress mode is reported immediately, so the scroll would
+// stop on the first tick.  Holding input lets the loop advance to the frame
+// cap, giving a deterministic mid-scroll frame.  Normal runs never set it.
+static bool credits_regress_hold = false;
+
+void JE_playCreditsRegressHold(bool hold)
+{
+	credits_regress_hold = hold;
+}
+
 void JE_playCredits(void)
 {
 	char credstr[131][65 + 1];
@@ -2398,9 +2409,16 @@ void JE_playCredits(void)
 	{
 		setFrameCount(1);
 
-		JE_clr256(VGAScreen);
+		// Modern mode: draw the whole credits frame into the canvas-wide
+		// scratch so the black background spans the canvas, the text is centred
+		// on it and the ships can cross it.  Classic and Modern 4:3 keep the
+		// untouched 320x200 frame.
+		SDL_Surface *wide = modern_screen_begin();
+		SDL_Surface *target = (wide != NULL) ? wide : VGAScreen;
 
-		blit_sprite_hv(VGAScreenSeg, 319 - sprite(EXTRA_SHAPES, currentpic)->width, 100 - (sprite(EXTRA_SHAPES, currentpic)->height / 2), EXTRA_SHAPES, currentpic, 0x0, fade - 15);
+		JE_clr256(target);
+
+		blit_sprite_hv(target, target->w - sprite(EXTRA_SHAPES, currentpic)->width, 100 - (sprite(EXTRA_SHAPES, currentpic)->height / 2), EXTRA_SHAPES, currentpic, 0x0, fade - 15);
 
 		fade += fadechg;
 		if (fade == 0 && fadechg == -1)
@@ -2473,7 +2491,13 @@ void JE_playCredits(void)
 		else if (shipxc > 10)
 			ship_sprite += (shipxc > 20) ? 4 : 2;
 
-		blit_sprite2x2(VGAScreen, shipx / 40, 184 - (ticks % 200), spriteSheet9, ship_sprite);
+		// On the wide canvas the 1..900 ship coordinate spans the canvas; the
+		// original 320 frame keeps shipx / 40.
+		const int ship_draw_x = (wide != NULL)
+			? (int)((long)shipx * (target->w - 24) / 900)
+			: shipx / 40;
+
+		blit_sprite2x2(target, ship_draw_x, 184 - (ticks % 200), spriteSheet9, ship_sprite);
 
 		const int bottom_line = (ticks / 3) / 20;
 		int y = 20 - ((ticks / 3) % 20);
@@ -2487,21 +2511,26 @@ void JE_playCredits(void)
 					const Uint8 color = credstr[line][0] - 65;
 					const char *text = &credstr[line][1];
 
-					const int x = 110 - JE_textWidth(text, SMALL_FONT_SHAPES) / 2;
+					// Centre the scroll in the black area left of the side art:
+					// Classic uses x=110 (the 320 frame centre minus half of the
+					// ~100 px right-hand art reserve); the wide canvas keeps the
+					// same relation, so the text stays centred left of the art.
+					const int cx = target->w / 2 - 50;
+					const int x = cx - JE_textWidth(text, SMALL_FONT_SHAPES) / 2;
 
-					JE_outTextAdjust(VGAScreen, x + abs((y / 18) % 4 - 2) - 1, y - 1, text, color, -8, SMALL_FONT_SHAPES, false);
-					JE_outTextAdjust(VGAScreen, x,                             y,     text, color, -2, SMALL_FONT_SHAPES, false);
+					JE_outTextAdjust(target, x + abs((y / 18) % 4 - 2) - 1, y - 1, text, color, -8, SMALL_FONT_SHAPES, false);
+					JE_outTextAdjust(target, x,                             y,     text, color, -2, SMALL_FONT_SHAPES, false);
 				}
 			}
 
 			y += 20;
 		}
 
-		fill_rectangle_xy(VGAScreen, 0,  0, 319, 10, 0);
-		fill_rectangle_xy(VGAScreen, 0, 190, 319, 199, 0);
+		fill_rectangle_xy(target, 0,  0, target->w - 1, 10, 0);
+		fill_rectangle_xy(target, 0, 190, target->w - 1, 199, 0);
 
 		if (currentpic == sprite_table[EXTRA_SHAPES].count - 1)
-			JE_outTextAdjust(VGAScreen, 5, 180, miscText[54], 2, -2, SMALL_FONT_SHAPES, false);  // levels-in-episode
+			JE_outTextAdjust(target, 5, 180, miscText[54], 2, -2, SMALL_FONT_SHAPES, false);  // levels-in-episode
 
 		if (bottom_line == COUNTOF(credstr) - 8)
 			fade_song();
@@ -2514,7 +2543,9 @@ void JE_playCredits(void)
 
 		JE_showVGA();
 
-		if (waitUntilGetInputOrElapsed())
+		if (credits_regress_hold)
+			delayUntilElapsed();
+		else if (waitUntilGetInputOrElapsed())
 			break;
 	}
 

@@ -30,4 +30,12 @@ void JE_resetValues(void);
 void JE_changeSetup(JE_byte setupType);
 void JE_newStar(void);
 
+// Projects the current star state onto `surface` centred at (surface->w / 2,
+// 100), read-only (it does not advance the star positions or draw the game's
+// 320-wide frame).  The jukebox uses it in Modern mode to fill the whole canvas
+// width with the same starfield the game drew into the 320x200 frame.  The
+// projection matches starLibMain()'s draw, so the centred 320 columns are the
+// same stars.
+void starLib_paint(SDL_Surface *surface);
+
 #endif /* STARLIB_H */

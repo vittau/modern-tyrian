@@ -66,6 +66,7 @@ void JE_drawPortConfigButtons(void);
 void JE_outCharGlow(JE_word x, JE_word y, const char *s);
 
 void JE_playCredits(void);
+void JE_playCreditsRegressHold(bool hold);
 void JE_endLevelAni(void);
 void JE_drawCube(SDL_Surface * screen, JE_word x, JE_word y, JE_byte filter, JE_byte brightness);
 void JE_handleChat(void);

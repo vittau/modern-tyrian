@@ -263,6 +263,60 @@ bool starLibMain(KeyboardInput *const keyboardInput)  // FKA StarLib.Main
 	return gotKeyboardInput;
 }
 
+// Read-only projection of the current star state onto a surface of any width,
+// centred at (surface->w / 2, 100).  Mirrors the draw half of starLibMain():
+// the pre-move depth is spZ + starlib_speed (starLibMain stored the post-move
+// depth), and the 2D offset uses the surface pitch.  A star whose spZ is the
+// 500 reset sentinel (its spX/spY then hold screen coordinates) was not drawn
+// this frame, so it is skipped.  Consumes no RNG and changes no state.
+void starLib_paint(SDL_Surface *surface)
+{
+	Uint8 *surf = surface->pixels;
+	const int pitch = surface->pitch;
+	const int cx = surface->w / 2;
+	const long last_off = (long)surface->w * surface->h - 2L * pitch;
+
+	for (int i = 0; i < starlib_MAX_STARS; ++i)
+	{
+		const struct JE_StarType *s = &star[i];
+
+		if (s->spZ == 500 && s->spX < 320 && s->spY < 200)
+			continue;  // reset this frame: starLibMain() did not draw it
+
+		const JE_integer zpre = s->spZ + starlib_speed;
+		if (zpre <= 0)
+			continue;
+
+		const int tempX = s->spX / zpre + cx;
+		const int tempY = s->spY / zpre + 100;
+
+		if (tempY == 0 || tempY > 198 || tempX > surface->w - 2 || tempX < 1)
+			continue;
+
+		const JE_integer tempZ = s->spZ;
+		const long off = (long)tempX + (long)tempY * pitch;
+
+		if (off >= 2L * pitch && off < last_off)
+		{
+			JE_byte tempCol = grayB ? (JE_byte)(tempZ >> 1) : (JE_byte)(pColor + ((tempZ >> 4) & 31));
+
+			surf[off] = tempCol;
+
+			tempCol += 72;
+			surf[off - 1] = tempCol;
+			surf[off + 1] = tempCol;
+			surf[off - pitch] = tempCol;
+			surf[off + pitch] = tempCol;
+
+			tempCol += 72;
+			surf[off - 2] = tempCol;
+			surf[off + 2] = tempCol;
+			surf[off - 2 * pitch] = tempCol;
+			surf[off + 2 * pitch] = tempCol;
+		}
+	}
+}
+
 void JE_wackyCol(void)
 {
 	/* YKS: Does nothing */

@@ -254,6 +254,29 @@ void modern_mouse_cursor_set(int x, int y, int w, int h);
 // (equal) and `insert_l`/`insert_r` (insert_l == 0, insert_r == the extra width).
 bool modern_frame_is_split(int *split_l, int *split_r, int *insert_l, int *insert_r);
 
+// --- Canvas-wide procedural screens (Phase 1, step S2) ----------------------
+//
+// Some non-gameplay screens draw procedural content (starfields, grids) that can
+// be extended across the whole Modern canvas instead of being cropped to the
+// 320x200 frame.  These screens opt in by rendering their whole frame into a
+// canvas-width 8-bit scratch (the same indexed palette) with the game's own
+// drawing routines, then presenting as usual: modern_build_frame() sees the
+// committed scratch and converts it 1:1.  Classic and Modern 4:3 never take this
+// path, so the 8-bit screens and their baselines are unchanged, and no game/RNG
+// state changes (the scratch is drawn from the same state the 320 frame already
+// used).
+
+// True when a screen should render into the canvas-wide scratch: Modern mode
+// with a canvas wider than the 320x200 frame.
+bool modern_screen_wide(void);
+
+// Returns the canvas-wide 8-bit scratch (canvas_w x vga_height), cleared to
+// index 0, or NULL when not wide (modern_screen_wide() is false).  The caller
+// draws its whole frame into it with the usual 8-bit primitives; the next
+// presented frame uses the scratch.  Allocates only on a canvas resize, never
+// per frame.
+SDL_Surface *modern_screen_begin(void);
+
 // Converts `src_surface` (8-bit indexed) through the active palette into the
 // canvas and runs the registered passes, in order.  No allocation.
 void modern_build_frame(SDL_Surface *src_surface);

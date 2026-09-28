@@ -32,11 +32,13 @@
 #include "config.h"
 #include "episodes.h"
 #include "game_menu.h"
+#include "jukebox.h"
 #include "logging.h"
 #include "mainint.h"
 #include "menus.h"
 #include "mtrand.h"
 #include "opentyr.h"
+#include "palette.h"
 #include "picload.h"
 #include "tyrian2.h"
 #include "video.h"
@@ -200,6 +202,46 @@ void regress_screen_run(void)
 		JE_loadPic(VGAScreen, 5, true);
 		for (;;)
 			JE_showVGA();
+	}
+	else if (strcmp(name, "nav-map") == 0)
+	{
+		// The short route and the palette are seeded inside JE_itemScreen()
+		// (after its menu-choice and palette reset), so the frame matches the
+		// real nav screen.
+		JE_itemScreenStartAt(MENU_PLAY_NEXT_LEVEL, 0);
+		JE_itemScreen();
+	}
+	else if (strcmp(name, "ship-specs") == 0)
+	{
+		// JE_doShipSpecs() is normally called from JE_itemScreen, which has
+		// already loaded pic 1 and set its palette; do the same here.
+		JE_loadPic(VGAScreen, 1, false);
+		set_palette(colors, 0, 255);
+
+		// In Classic JE_doShipSpecs() plays the zoom-in animation and presents
+		// many frames; in Modern wide it draws one frame into the canvas-wide
+		// scratch.  Loop until the frame cap exits.
+		for (;;)
+			JE_doShipSpecs();
+	}
+	else if (strcmp(name, "jukebox") == 0)
+	{
+		jukebox();
+	}
+	else if (strcmp(name, "weapon-sim") == 0)
+	{
+		// Category 3 (front weapon) opens the upgrade submenu with the weapon
+		// simulator in the left window.
+		JE_itemScreenStartAt(MENU_UPGRADE_SUB, 3);
+		JE_itemScreen();
+	}
+	else if (strcmp(name, "credits") == 0)
+	{
+		// The credits loop breaks on input; in regress mode input is reported
+		// immediately, so hold it back and let the frame cap end the run on a
+		// deterministic mid-scroll frame.
+		JE_playCreditsRegressHold(true);
+		JE_playCredits();
 	}
 	else
 	{

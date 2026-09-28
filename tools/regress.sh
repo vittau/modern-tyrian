@@ -264,6 +264,28 @@ pairs=$((pairs + 1))
 run_case "modern-screen-game-menu-21x9" \
 	--regress-screen=game-menu --regress-modern --regress-aspect=21:9
 
+# Step S2: procedural screens whose content is extended across the canvas by
+# code (starfield, grid, star map, credits).  The Modern 16:9 canvas guards the
+# extension, the Classic run proves the 8-bit screen is untouched, and the 21:9
+# cases guard the widest compositions (nav map and jukebox, the two the plan
+# calls out).
+S2_SCREENS=( nav-map ship-specs jukebox weapon-sim credits )
+
+for s in "${S2_SCREENS[@]}"; do
+	pairs=$((pairs + 1))
+	run_case "modern-screen-$s-16x9" \
+		--regress-screen="$s" --regress-modern --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_case "screen-$s" --regress-screen="$s"
+done
+
+pairs=$((pairs + 1))
+run_case "modern-screen-nav-map-21x9" \
+	--regress-screen=nav-map --regress-modern --regress-aspect=21:9
+pairs=$((pairs + 1))
+run_case "modern-screen-jukebox-21x9" \
+	--regress-screen=jukebox --regress-modern --regress-aspect=21:9
+
 # --- game-state hashes --------------------------------------------------------
 #
 # The state-hash stream covers the RNG, the players, the enemy/shot arrays,
