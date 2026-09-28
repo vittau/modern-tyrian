@@ -35,8 +35,7 @@
 const char *const scaling_mode_names[ScalingMode_MAX] = {
 	"Center",
 	"Integer",
-	"Fit 8:5",
-	"Fit 4:3",
+	"Fit",
 };
 
 int fullscreen_display;
@@ -561,9 +560,19 @@ void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_
 			dst_rect->h += src_h;
 		}
 		break;
-	case SCALE_ASPECT_8_5:
-		maxh_width = win_h * (8.f / 5.f);
-		maxw_height = win_w * (5.f / 8.f);
+	case SCALE_FIT:
+	{
+		// Classic's logical surface is the 320x200 frame (the software scaler
+		// only changes its resolution, not its shape), so the pixel aspect picks
+		// the frame directly: the original 1.2 PAR gives the 4:3 frame and square
+		// gives the 8:5 frame.  These are exactly the aspects the pre-merge
+		// "Fit 4:3" and "Fit 8:5" modes used.
+		const float frame_aspect = modern_pixel_aspect == PIXEL_ASPECT_SQUARE
+			? (8.f / 5.f)
+			: (4.f / 3.f);
+
+		maxh_width = win_h * frame_aspect;
+		maxw_height = win_w / frame_aspect;
 
 		if (maxh_width > win_w)
 		{
@@ -576,21 +585,7 @@ void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_
 			dst_rect->h = win_h;
 		}
 		break;
-	case SCALE_ASPECT_4_3:
-		maxh_width = win_h * (4.f / 3.f);
-		maxw_height = win_w * (3.f / 4.f);
-
-		if (maxh_width > win_w)
-		{
-			dst_rect->w = win_w;
-			dst_rect->h = maxw_height;
-		}
-		else
-		{
-			dst_rect->w = maxh_width;
-			dst_rect->h = win_h;
-		}
-		break;
+	}
 	case ScalingMode_MAX:
 		assert(false);
 		break;
