@@ -31,6 +31,7 @@
 #include "tyrian2.h"
 #include "varz.h"
 #include "video.h"
+#include "vfx.h"
 
 #include <SDL3/SDL.h>
 
@@ -129,8 +130,10 @@ static Uint32 interp_frame_interval(void)
 // Copies the 264x184 playfield out of `game` into VGAScreenSeg, applying the
 // level's vertical-flip or player-spotlight special code.  This is the original
 // presentation code moved out of JE_starShowVGA(); `px`/`py` are the player
-// position that drives the spotlight (interpolated when appropriate).
-static void interp_blit_playfield(SDL_Surface *game, int px, int py)
+// position that drives the spotlight (interpolated when appropriate).  The VFX
+// are drawn into the presented playfield afterwards, interpolated at the same
+// alpha, so the palette luminance they add reaches the (future) lighting pass.
+static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alpha_fx16)
 {
 	JE_byte *src;
 	Uint8 *s = VGAScreenSeg->pixels;
@@ -194,13 +197,17 @@ static void interp_blit_playfield(SDL_Surface *game, int px, int py)
 		}
 	}
 
+	// Draw the interpolated VFX into the presented playfield (palette indices),
+	// before the Modern conversion so the effects feed the lighting pass.
+	vfx_render_playfield(VGAScreenSeg, alpha_fx16);
+
 	modern_mark_gameplay_frame();
 	JE_showVGA();
 }
 
 void interp_present_live_frame(void)
 {
-	interp_blit_playfield(game_screen, player[0].x, player[0].y);
+	interp_blit_playfield(game_screen, player[0].x, player[0].y, 65536u);
 }
 
 // Renders the interpolated frame at `alpha_fx16` and presents it.  Falls back to
@@ -211,7 +218,7 @@ static void interp_render_and_present(Uint32 alpha_fx16)
 	{
 		int px, py;
 		drawlist_interpolated_player(&px, &py);
-		interp_blit_playfield(drawlist_interpolated_game(), px, py);
+		interp_blit_playfield(drawlist_interpolated_game(), px, py, alpha_fx16);
 	}
 	else
 	{
@@ -348,7 +355,7 @@ void interp_present_gameplay(void)
 		{
 			int px, py;
 			drawlist_interpolated_player(&px, &py);
-			interp_blit_playfield(drawlist_interpolated_game(), px, py);
+			interp_blit_playfield(drawlist_interpolated_game(), px, py, alpha_fx16);
 		}
 		else
 		{

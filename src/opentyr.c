@@ -50,6 +50,7 @@
 #include "sprite.h"
 #include "tyrian2.h"
 #include "varz.h"
+#include "vfx.h"
 #include "vga256d.h"
 #include "video.h"
 #include "xmas.h"
@@ -164,6 +165,16 @@ static const char *getLightingPickerItem(size_t i, char *buffer, size_t bufferSi
 	return capitalized_name(modern_quality_names[i], buffer, bufferSize);
 }
 
+static size_t getVfxPickerItemsCount(void)
+{
+	return (size_t)VFX_LEVEL_MAX;
+}
+
+static const char *getVfxPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	return capitalized_name(vfx_level_names[i], buffer, bufferSize);
+}
+
 // Set by setupMenuStartAt() so the regress harness can open a submenu directly.
 static int setup_menu_start = -1;
 
@@ -189,6 +200,7 @@ void setupMenu(void)
 		MENU_ITEM_PIXEL_ASPECT,
 		MENU_ITEM_SMOOTH_MOTION,
 		MENU_ITEM_LIGHTING,
+		MENU_ITEM_VFX,
 		MENU_ITEM_MUSIC_VOLUME,
 		MENU_ITEM_SOUND_VOLUME,
 	} MenuItemId;
@@ -239,6 +251,7 @@ void setupMenu(void)
 				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
 				{ MENU_ITEM_LIGHTING, "Lighting:", "Change the Modern bloom and lighting level.", getLightingPickerItemsCount, getLightingPickerItem, true },
+				{ MENU_ITEM_VFX, "Effects:", "Change the Modern VFX level.", getVfxPickerItemsCount, getVfxPickerItem, true },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
 				{ -1 }
 			},
@@ -395,6 +408,10 @@ void setupMenu(void)
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_quality_names[modern_lighting_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
+			case MENU_ITEM_VFX:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(vfx_level_names[vfx_level], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
 			case MENU_ITEM_MUSIC_VOLUME:
 				JE_barDrawShadow(VGAScreen, xMenuItemValue, y, 1, music_disabled ? 170 : 174, (tyrMusicVolume + 4) / 8, 2, 10);
 				JE_rectangle(VGAScreen, xMenuItemValue - 2, y - 2, xMenuItemValue + 96, y + 11, 242);
@@ -516,6 +533,7 @@ void setupMenu(void)
 									case MENU_ITEM_PIXEL_ASPECT:
 									case MENU_ITEM_SMOOTH_MOTION:
 									case MENU_ITEM_LIGHTING:
+									case MENU_ITEM_VFX:
 									{
 										action = true;
 										break;
@@ -756,6 +774,14 @@ void setupMenu(void)
 					pickerSelectedIndex = (size_t)modern_lighting_quality;
 					break;
 				}
+				case MENU_ITEM_VFX:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = (size_t)vfx_level;
+					break;
+				}
 				case MENU_ITEM_MUSIC_VOLUME:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -922,6 +948,11 @@ void setupMenu(void)
 					// One picker drives both effects.
 					modern_bloom_quality = (ModernQuality)pickerSelectedIndex;
 					modern_lighting_quality = (ModernQuality)pickerSelectedIndex;
+					break;
+				}
+				case MENU_ITEM_VFX:
+				{
+					vfx_level = (VfxLevel)pickerSelectedIndex;
 					break;
 				}
 				default:

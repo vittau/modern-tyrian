@@ -32,6 +32,7 @@
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "vfx.h"
 #include "xmas.h"
 
 #include <assert.h>
@@ -97,6 +98,8 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 282, 0,   "lighting",          true },
 		{ 283, 0,   "regress-bloom",     true },
 		{ 284, 0,   "regress-lighting",  true },
+		{ 285, 0,   "vfx",               true },
+		{ 286, 0,   "regress-vfx",       true },
 		{ 287, 0,   "regress-interp-smoothness", false },
 		{ 288, 0,   "regress-smooth-alphas", true },
 		{ 289, 0,   "regress-gameplay-check", false },
@@ -171,6 +174,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
 			logInfo("                               presented-fps statistics (uses --regress-demo)");
 			logInfo("  --bench-seconds=N            Duration of --regress-realtime (default 20)");
+			logInfo("  --vfx=LEVEL                  Modern VFX level: off, low or high (default low)");
+			logInfo("  --regress-vfx=LEVEL          Pin the VFX level in a regress run (default off)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
@@ -503,6 +508,25 @@ void JE_paramCheck(int argc, char *argv[])
 				exit(EXIT_FAILURE);
 			}
 			regress_lighting_quality = (int)quality;
+			break;
+		}
+		case 285: // --vfx=off|low|medium|high
+			if (!set_vfx_by_name(option.arg))
+			{
+				logError("%s: --vfx must be 'off', 'low' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 286: // --regress-vfx=off|low|medium|high
+		{
+			const VfxLevel before = vfx_level;
+			if (!set_vfx_by_name(option.arg))
+			{
+				logError("%s: --regress-vfx must be 'off', 'low' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_vfx = vfx_level;
+			vfx_level = before;  // applied by regress_init(), not now
 			break;
 		}
 		case 287: // --regress-interp-smoothness

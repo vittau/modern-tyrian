@@ -35,6 +35,7 @@
 #include "shots.h"
 #include "tyrian2.h"
 #include "varz.h"
+#include "vfx.h"
 #include "video.h"
 
 #include <assert.h>
@@ -57,6 +58,7 @@ int regress_detail = 2;
 int regress_audio = 0;
 int regress_modern = 0;
 int regress_aspect = -1;
+int regress_vfx = -1;
 const char *regress_state_out_path = NULL;
 int regress_players = 1;
 int regress_arcade = 0;
@@ -660,6 +662,11 @@ void regress_init(void)
 	else
 		modern_aspect = regress_aspect >= 0 ? (ModernAspect)regress_aspect : MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
+
+	// VFX are pinned OFF for every existing baseline, so adding the particle
+	// system does not change a single 8-bit frame; --regress-vfx opts a case
+	// into a level (and the VFX cases run Modern 16:9, where they render).
+	vfx_level = (regress_vfx >= 0) ? (VfxLevel)regress_vfx : VFX_OFF;
 
 	// Record and replay-check every level tick.  This only observes: the draw
 	// list is built from the existing drawing primitives and replayed into a

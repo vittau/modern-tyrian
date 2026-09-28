@@ -186,6 +186,9 @@
     <ClCompile Include="..\src\varz.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\vfx.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\vga256d.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -196,8 +199,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\video_scale.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\xmas.c">
@@ -374,6 +375,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\varz.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\vfx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\vga256d.h">
