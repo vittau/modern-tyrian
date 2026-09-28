@@ -103,6 +103,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 287, 0,   "regress-interp-smoothness", false },
 		{ 288, 0,   "regress-smooth-alphas", true },
 		{ 289, 0,   "regress-gameplay-check", false },
+		{ 292, 0,   "regress-script",    true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -147,6 +148,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --lighting=LEVEL             Modern bloom + lighting: off, low or high (default low)");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
+			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
+			logInfo("                               (reaches script-driven screens such as WARNING)");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
 			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
 			logInfo("  --regress-state-out=FILE     Write per-frame game-state hashes to FILE");
@@ -546,6 +549,25 @@ void JE_paramCheck(int argc, char *argv[])
 		case 289: // --regress-gameplay-check
 			regress_gameplay_check = 1;
 			break;
+
+		case 292: // --regress-script=EPISODE:LEVEL
+		{
+			int episode, level;
+			if (sscanf(option.arg, "%d:%d", &episode, &level) == 2 &&
+			    episode >= 1 && episode <= EPISODE_AVAILABLE &&
+			    level >= 1)
+			{
+				regress_scenario_episode = episode;
+				regress_scenario_level = level;
+				regress_script = 1;
+			}
+			else
+			{
+				logError("%s: --regress-script must be EPISODE:LEVEL", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		}
 			
 		default:
 			assert(false);

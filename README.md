@@ -86,6 +86,9 @@ A Visual Studio solution is provided in `visualc/`.
     --lighting=LEVEL             Modern bloom + lighting: off, low or high (default low)
     --regress-demo=N             Replay recorded demo N (1-5) headless and exit
     --regress-level=E:L          Start level L of episode E headless and exit
+    --regress-script=E:L         Start level L of episode E through the episode
+                                 script (reaches script-driven screens such as
+                                 the WARNING text) and exit
     --regress-frames=N           Cap a --regress-level run at N frames
     --regress-out=FILE           Write per-frame hashes to FILE (regress modes)
     --regress-state-out=FILE     Write per-frame game-state hashes to FILE
@@ -234,6 +237,12 @@ The regression harness can save a presented frame to a BMP for headless visual
 review: `--regress-snapshot=FRAME:FILE` (repeatable; the Modern canvas with
 `--regress-modern`, the 8-bit frame otherwise), e.g. with `--regress-demo` or
 `--regress-level`.
+
+`--regress-level=E:L` jumps straight into the level, so the episode script's
+own screens (the `WARNING` text, the item screen, ...) are skipped.
+`--regress-script=E:L` starts the level through the script instead, so those
+screens are drawn and captured (the `--regress-frames` cap, default 90, ends
+the run from the first presented frame).
 
 `--regress-screen=NAME` renders one non-gameplay screen in a deterministic
 state, presents `--regress-frames` frames (default 90) and exits, so the

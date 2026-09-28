@@ -52,6 +52,7 @@ static const unsigned long scenario_seed = 32402394;
 int regress_demo = 0;
 int regress_scenario_episode = 0;
 int regress_scenario_level = 0;
+int regress_script = 0;
 int regress_frames = 0;
 const char *regress_out_path = NULL;
 int regress_detail = 2;
@@ -141,7 +142,7 @@ static void regress_note_smoothness(void)
 
 bool regress_active(void)
 {
-	return regress_demo != 0 || regress_scenario_active() || regress_screen_active();
+	return regress_demo != 0 || regress_scenario_active() || regress_screen_active() || regress_script_active();
 }
 
 bool regress_realtime_active(void)
@@ -151,7 +152,14 @@ bool regress_realtime_active(void)
 
 bool regress_scenario_active(void)
 {
-	return regress_scenario_episode != 0;
+	// --regress-script uses the same episode/level but reaches the level through
+	// the episode script, so it is not the synthetic-scenario path.
+	return regress_scenario_episode != 0 && !regress_script;
+}
+
+bool regress_script_active(void)
+{
+	return regress_script && regress_scenario_episode != 0;
 }
 
 bool regress_screen_active(void)
@@ -176,13 +184,15 @@ bool regress_scan_args(int argc, char *argv[])
 	static const char *const scenario_option = "--regress-level";
 	static const char *const audio_option    = "--regress-audio";
 	static const char *const screen_option   = "--regress-screen";
+	static const char *const script_option   = "--regress-script";
 
 	for (int i = 1; i < argc; ++i)
 	{
 		if (arg_is_option(argv[i], demo_option, strlen(demo_option)) ||
 		    arg_is_option(argv[i], scenario_option, strlen(scenario_option)) ||
 		    arg_is_option(argv[i], audio_option, strlen(audio_option)) ||
-		    arg_is_option(argv[i], screen_option, strlen(screen_option)))
+		    arg_is_option(argv[i], screen_option, strlen(screen_option)) ||
+		    arg_is_option(argv[i], script_option, strlen(script_option)))
 			return true;
 	}
 
@@ -727,6 +737,11 @@ void regress_init(void)
 	// A screen run always has a built-in frame cap: the screen functions loop
 	// forever waiting for input, so the cap is what ends the run.
 	if (regress_screen_active() && regress_frames == 0)
+		regress_frames = REGRESS_SCREEN_FRAMES;
+
+	// The episode script can block on an input-driven screen (the item screen)
+	// once the WARNING text is done, so give --regress-script a default cap too.
+	if (regress_script_active() && regress_frames == 0)
 		regress_frames = REGRESS_SCREEN_FRAMES;
 
 	if (regress_out_path == NULL && regress_state_out_path == NULL && !regress_has_snapshots() &&

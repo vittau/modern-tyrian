@@ -1141,6 +1141,27 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
+	if (regress_script_active())
+	{
+		// Start the requested level through the episode script, skipping intro,
+		// title and menus.  This reaches the script's own screens -- the
+		// WARNING text in particular -- which the demo/scenario paths jump over.
+		// The --regress-frames cap ends the run from the first presented frame.
+		JE_initPlayerData();
+
+		JE_initEpisode((JE_byte)regress_scenario_episode);
+		initial_episode_num = (JE_byte)regress_scenario_episode;
+		episodeNum = (JE_byte)regress_scenario_episode;
+		mainLevel = (JE_byte)regress_scenario_level;
+		playDemo = false;
+
+		JE_main();
+
+		regress_finish();
+
+		return EXIT_SUCCESS;
+	}
+
 	if (regress_demo != 0 || regress_scenario_active())
 	{
 		// Replay the requested demo (or start the requested synthetic level)
