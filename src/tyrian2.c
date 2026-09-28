@@ -2000,7 +2000,14 @@ draw_player_shot_loop_end:
 
 	/*------- Random Explosions --------*/
 	if (randomExplosions && mt_rand() % 10 == 1)
-		JE_setupExplosionLarge(false, 20, mt_rand() % 280, mt_rand() % 180);
+	{
+		// Draw the position in source order (x then y).  C leaves the order of
+		// the two mt_rand() calls in one argument list unspecified; the
+		// reference builds pick this order, so the baselines are unchanged.
+		const JE_integer explosion_x = (JE_integer)(mt_rand() % 280);
+		const JE_integer explosion_y = (JE_integer)(mt_rand() % 180);
+		JE_setupExplosionLarge(false, 20, explosion_x, explosion_y);
+	}
 
 	/*=================================*/
 	/*=======The Sound Routine=========*/

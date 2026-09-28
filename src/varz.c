@@ -787,7 +787,12 @@ void JE_doSpecialShot(JE_byte playerNum, uint *armor, uint *shield)
 			}
 			else
 			{
-				b = player_shot_create(0, SHOT_SPECIAL, mt_rand() % 280, mt_rand() % 180, player[0].mouseX, player[0].mouseY, specialWeaponWpn, playerNum);
+				// Source order (x then y): C leaves the order of the two
+				// mt_rand() arguments unspecified, and this is the order the
+				// reference builds draw them in.
+				const JE_word shot_x = (JE_word)(mt_rand() % 280);
+				const JE_word shot_y = (JE_word)(mt_rand() % 180);
+				b = player_shot_create(0, SHOT_SPECIAL, shot_x, shot_y, player[0].mouseX, player[0].mouseY, specialWeaponWpn, playerNum);
 			}
 
 			if (spraySpecial && b != MAX_PWEAPON)

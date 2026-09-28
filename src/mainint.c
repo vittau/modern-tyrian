@@ -4042,7 +4042,12 @@ redo:
 					}
 					else
 					{
-						b = player_shot_create(0, SHOT_NORTSPARKS, tempW + (mt_rand() % 8) - 4, this_player->y + (mt_rand() % 8) - 4, *mouseX_, *mouseY_, 671, 1);
+						// Draw the spark position in source order (x then y):
+						// C leaves the order of the two mt_rand() arguments
+						// unspecified, and the reference builds use this order.
+						const JE_word spark_x = (JE_word)(tempW + (mt_rand() % 8) - 4);
+						const JE_word spark_y = (JE_word)(this_player->y + (mt_rand() % 8) - 4);
+						b = player_shot_create(0, SHOT_NORTSPARKS, spark_x, spark_y, *mouseX_, *mouseY_, 671, 1);
 						shotRepeat[SHOT_NORTSPARKS] = abs(ship_banking) - 1;
 					}
 				}

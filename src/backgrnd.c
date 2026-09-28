@@ -526,7 +526,14 @@ void initialize_starfield(void)
 {
 	for (int i = MAX_STARS-1; i >= 0; --i)
 	{
-		starfield_stars[i].position = mt_rand() % 320 + mt_rand() % 200 * VGAScreen->pitch;
+		// C leaves the relative order of the two mt_rand() calls in the old
+		// one-line expression unspecified, so clang and gcc could draw the x and
+		// y bases in different orders.  Hoist them into separate statements in
+		// source order (x first, then y), which is the order the reference
+		// builds use, so the RNG stream and every baseline stay unchanged.
+		const unsigned long sx = mt_rand() % 320;
+		const unsigned long sy = mt_rand() % 200;
+		starfield_stars[i].position = (JE_word)(sx + sy * VGAScreen->pitch);
 		starfield_stars[i].speed = mt_rand() % 3 + 2;
 		starfield_stars[i].color = mt_rand() % 16 + STARFIELD_HUE;
 	}
