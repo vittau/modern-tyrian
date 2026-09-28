@@ -49,8 +49,10 @@ bool vfx_reduce_flashes = false; // scale the flash-type effects down
 #define VFX_PLAYFIELD_W 264
 #define VFX_PLAYFIELD_H 184
 
-// Fixed point 16.16 helpers.
-#define VFX_FP(n) ((Sint32)((n) << 16))
+// Fixed point 16.16 helpers.  VFX_FP() multiplies instead of shifting left so a
+// negative value is well defined in C99 (a left shift of a negative value is
+// undefined); every caller passes a value well inside the 16.16 range.
+#define VFX_FP(n) ((Sint32)(n) * 65536)
 #define VFX_FPHALF (1 << 15)
 
 // Palette colour blocks of the Tyrian VGA palette (index = block * 16 + value).
@@ -386,8 +388,8 @@ static void vfx_burst(Sint32 cx, Sint32 cy, int sparks, int debris, int smoke, i
 		const int speed = 2 + vfx_rand_range(4);
 		const int life = vfx_life(4 + vfx_rand_range(5));
 		const int value = bright ? 15 : 12 + vfx_rand_range(4);
-		const Sint32 vx = (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16;
-		const Sint32 vy = (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16;
+		const Sint32 vx = VFX_FP((vfx_dir_x[d] * speed) >> 7);
+		const Sint32 vy = VFX_FP((vfx_dir_y[d] * speed) >> 7);
 		vfx_spawn(VFX_KIND_SPARK, cx, cy, vx, vy + VFX_FP(scroll),
 		          life, VFX_HUE_FIRE, value, 0, 0);
 	}
@@ -398,8 +400,8 @@ static void vfx_burst(Sint32 cx, Sint32 cy, int sparks, int debris, int smoke, i
 		const int speed = vfx_rand_range(3);
 		const int life = vfx_life(12 + vfx_rand_range(14));
 		const int value = 9 + vfx_rand_range(5);
-		const Sint32 vx = (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16;
-		const Sint32 vy = (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16;
+		const Sint32 vx = VFX_FP((vfx_dir_x[d] * speed) >> 7);
+		const Sint32 vy = VFX_FP((vfx_dir_y[d] * speed) >> 7);
 		vfx_spawn(VFX_KIND_DEBRIS, cx, cy, vx, vy + VFX_FP(scroll),
 		          life, VFX_HUE_DEBRIS, value, 0, 0);
 	}
@@ -469,8 +471,8 @@ static void vfx_ev_superpixels(const VfxEvent *e)
 		const int speed = 1 + vfx_rand_range(3);
 		const int life = vfx_life(4 + vfx_rand_range(4));
 		const int value = 11 + vfx_rand_range(5);
-		const Sint32 vx = (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16;
-		const Sint32 vy = (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16;
+		const Sint32 vx = VFX_FP((vfx_dir_x[d] * speed) >> 7);
+		const Sint32 vy = VFX_FP((vfx_dir_y[d] * speed) >> 7);
 		vfx_spawn(VFX_KIND_SPARK, x, y, vx, vy,
 		          life, e->hue, value, 0, 0);
 	}
@@ -502,7 +504,7 @@ static void vfx_ev_shot(const VfxEvent *e)
 		}
 		else
 		{
-			vx = vfx_rand_bipolar(1) << 16;
+			vx = VFX_FP(vfx_rand_bipolar(1));
 			vy = -VFX_FP(2);
 		}
 		vx += VFX_FP(vfx_rand_bipolar(1));
@@ -523,7 +525,7 @@ static void vfx_ev_enemy_shot(const VfxEvent *e)
 	          vfx_reduce_flashes ? 10 : 13, VFX_FP((vfx_reduce_flashes || vfx_level == VFX_LOW) ? 0 : 1), 0);
 
 	if (vfx_count(1) > 0)
-		vfx_spawn(VFX_KIND_SPARK, x, y, (Sint32)e->vx << 12, (Sint32)e->vy << 12,
+		vfx_spawn(VFX_KIND_SPARK, x, y, (Sint32)e->vx * 4096, (Sint32)e->vy * 4096,
 		          vfx_life(3), VFX_HUE_HIT, 11, 0, 0);
 }
 
@@ -570,8 +572,8 @@ static void vfx_ev_impact(const VfxEvent *e)
 		const int life = vfx_life(3 + vfx_rand_range(3));
 		const int value = 12 + vfx_rand_range(4);
 		vfx_spawn(VFX_KIND_SPARK, x, y,
-		          (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16,
-		          (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16,
+		          VFX_FP((vfx_dir_x[d] * speed) >> 7),
+		          VFX_FP((vfx_dir_y[d] * speed) >> 7),
 		          life, e->hue, value, 0, 0);
 	}
 }

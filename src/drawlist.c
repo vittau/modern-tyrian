@@ -414,7 +414,11 @@ static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, uns
 		return;
 	}
 
-	Uint8 *pixels = buf + (size_t)y * DL_TAG_W + x;
+	// Signed offset: y/x may be negative when the sprite is clipped at the
+	// playfield edges.  The per-pixel guards below (pixels >= ll / >= ul) then
+	// skip the writes exactly like the blit; an unsigned size_t offset would
+	// instead wrap and is undefined behaviour.
+	Uint8 *pixels = buf + (ptrdiff_t)y * DL_TAG_W + x;
 	const Uint8 * const ll = buf;
 	const Uint8 * const ul = buf + (size_t)DL_TAG_W * DL_TAG_H;
 
@@ -458,7 +462,9 @@ static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned
 	const unsigned int width = cur->width;
 	unsigned int x_offset = 0;
 
-	Uint8 *pixels = buf + (size_t)y * DL_TAG_W + x;
+	// See dl_tag_sprite2(): a signed offset keeps a negative start position
+	// (sprite clipped at the top/left) out of undefined pointer arithmetic.
+	Uint8 *pixels = buf + (ptrdiff_t)y * DL_TAG_W + x;
 	const Uint8 * const ll = buf;
 	const Uint8 * const ul = buf + (size_t)DL_TAG_W * DL_TAG_H;
 

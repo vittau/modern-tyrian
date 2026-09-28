@@ -163,7 +163,7 @@ int16_t *resampler_convert(const uint8_t *src, size_t src_frames,
 
 		int64_t acc = 0;
 		for (int i = lo; i < hi; ++i)
-			acc += c[i] * ((int64_t)(int8_t)src[k0 + i] << 8);
+			acc += c[i] * ((int64_t)(int8_t)src[k0 + i] * 256);
 
 		int64_t out = div_round(acc, Q);
 		if (out > 32767)

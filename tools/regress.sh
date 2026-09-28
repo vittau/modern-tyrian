@@ -207,6 +207,40 @@ total_start=$(now)
 failures=0
 pairs=0
 
+# Describe a process exit status.  The shell reports a process killed by a
+# signal as 128 + N, so a crash is distinguished from a plain non-zero exit.
+exit_status_description() {
+	local rc=$1
+	if [ "$rc" -le 128 ]; then
+		echo "exit code $rc"
+	elif [ "$rc" -le 192 ]; then
+		# 129..192 is 128 + a POSIX signal number, which is how a shell
+		# reports a process killed by a signal.
+		local sig=$((rc - 128))
+		local name
+		name=$(kill -l "$sig" 2>/dev/null)
+		echo "CRASH: killed by signal $sig${name:+ ($name)}"
+	else
+		# Windows/other abnormal exit status (e.g. an NTSTATUS like 0xC0000005).
+		printf 'CRASH: abnormal exit status %s (0x%X)' "$rc" "$rc"
+	fi
+}
+
+# Print the captured stdout+stderr of a failed case so a crash, a sanitizer
+# report or an engine error is visible in the harness output.  Any sanitizer /
+# crash marker lines are shown first, then the tail of the log.
+dump_failure_log() {
+	local log=$1
+	[ -f "$log" ] || return 0
+
+	echo "  --- output ($log) ---"
+	if grep -qE 'AddressSanitizer|UndefinedBehaviorSanitizer|LeakSanitizer|runtime error:|SUMMARY:|Fatal|assert' "$log" 2>/dev/null; then
+		grep -nE 'AddressSanitizer|UndefinedBehaviorSanitizer|LeakSanitizer|runtime error:|SUMMARY:|Fatal|assert' "$log" | tail -n 20 | sed 's/^/  /'
+	fi
+	tail -n 20 "$log" | sed 's/^/  /'
+	echo "  --- end output ---"
+}
+
 # run_case LABEL "$@" -- run the binary and compare/update one baseline.
 # The output file is derived from LABEL.
 run_case() {
@@ -225,14 +259,25 @@ run_case() {
 	elapsed=$(awk "BEGIN { printf \"%.2f\", $(now) - $start }")
 
 	if [ "$rc" -ne 0 ]; then
-		echo "FAIL $label: exit code $rc (${elapsed}s)"
-		tail -n 5 "$log"
+		echo "FAIL $label: $(exit_status_description "$rc") (${elapsed}s)"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
 
 	if [ ! -f "$out" ]; then
 		echo "FAIL $label: no output written (${elapsed}s)"
+		dump_failure_log "$log"
+		failures=$((failures + 1))
+		return
+	fi
+
+	# An empty output file with a zero exit status is an early exit that never
+	# presented a frame -- the "first differing line 0" signature in CI.  Call
+	# it out instead of comparing it as an ordinary hash divergence.
+	if [ ! -s "$out" ]; then
+		echo "FAIL $label: empty output file - the run exited before presenting a frame (${elapsed}s)"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
@@ -259,6 +304,9 @@ run_case() {
 		first=${hunk%%[cad]*}
 		first=${first%%,*}
 		echo "FAIL $label: first differing line $((first - 1)) (${elapsed}s)"
+		# A diff can also hide an engine error or a sanitizer report on stderr;
+		# keep it in the failure output.
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 	fi
 }
@@ -486,9 +534,9 @@ run_state_case() {
 		>"$log" 2>&1
 	rc=$?
 
-	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
-		echo "FAIL $label: exit code $rc (no state output)"
-		tail -n 5 "$log"
+	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
+		echo "FAIL $label: $(exit_status_description "$rc") (no state output)"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
@@ -514,6 +562,7 @@ run_state_case() {
 		first=${hunk%%[cad]*}
 		first=${first%%,*}
 		echo "FAIL $label: first differing line $((first - 1))"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 	fi
 }
@@ -549,9 +598,10 @@ run_replay_case() {
 		>"$log" 2>&1
 	rc=$?
 
-	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
-		echo "FAIL $label: replay check failed (exit $rc)"
+	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
+		echo "FAIL $label: replay check failed ($(exit_status_description "$rc"))"
 		grep -E "Replay check|mismatch" "$log" | tail -n 3
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
@@ -566,6 +616,7 @@ run_replay_case() {
 		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, replay identical"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 	fi
 }
@@ -586,9 +637,10 @@ run_interp_case() {
 		>"$log" 2>&1
 	rc=$?
 
-	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
-		echo "FAIL $label: interpolation check failed (exit $rc)"
+	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
+		echo "FAIL $label: interpolation check failed ($(exit_status_description "$rc"))"
 		grep -E "Interp check|mismatch" "$log" | tail -n 3
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
@@ -603,6 +655,7 @@ run_interp_case() {
 		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, interp alpha=1 identical"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 	fi
 }
@@ -623,9 +676,10 @@ run_gameplay_case() {
 		>"$log" 2>&1
 	rc=$?
 
-	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
-		echo "FAIL $label: gameplay composition check failed (exit $rc)"
+	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
+		echo "FAIL $label: gameplay composition check failed ($(exit_status_description "$rc"))"
 		grep -E "Gameplay composition|FAILED" "$log" | tail -n 3
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
@@ -640,6 +694,7 @@ run_gameplay_case() {
 		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, sidebar dropped"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 	fi
 }
@@ -660,9 +715,10 @@ run_smoothness_case() {
 		>"$log" 2>&1
 	rc=$?
 
-	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
-		echo "FAIL $label: smoothness check failed (exit $rc)"
+	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
+		echo "FAIL $label: smoothness check failed ($(exit_status_description "$rc"))"
 		grep -E "Smoothness|FAILED" "$log" | tail -n 3
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 		return
 	fi
@@ -677,6 +733,7 @@ run_smoothness_case() {
 		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, motion monotonic"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
+		dump_failure_log "$log"
 		failures=$((failures + 1))
 	fi
 }

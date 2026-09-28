@@ -135,6 +135,19 @@ debug : CFLAGS += -O0
 debug : CFLAGS += -g3
 debug : all
 
+# AddressSanitizer + UndefinedBehaviorSanitizer build (clang/gcc).  Not installed;
+# used to hunt memory errors and undefined behaviour in the regression suite.
+# A clean rebuild is forced because make does not track a change of CFLAGS, and
+# the recursive invocation keeps `make -j asan` from racing clean against all.
+.PHONY : asan
+asan :
+	$(MAKE) clean
+	$(MAKE) CC="$(CC)" CPPFLAGS="-UNDEBUG" \
+	        CFLAGS="-pedantic -Wall -Wextra $(WNO_FORMAT_TRUNCATION) \
+	                -Wno-missing-field-initializers \
+	                -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1" \
+	        LDFLAGS="-fsanitize=address,undefined" all
+
 .PHONY : installdirs
 installdirs :
 	mkdir -p $(DESTDIR)$(bindir)
