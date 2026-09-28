@@ -161,6 +161,7 @@
     <ClCompile Include="..\src\regress.c" />
     <ClCompile Include="..\src\regress_audio.c" />
     <ClCompile Include="..\src\regress_screen.c" />
+    <ClCompile Include="..\src\resampler.c" />
     <ClCompile Include="..\src\shots.c" />
     <ClCompile Include="..\src\sndmast.c" />
     <ClCompile Include="..\src\sprite.c" />
@@ -223,6 +224,8 @@
     <ClInclude Include="..\src\picload.h" />
     <ClInclude Include="..\src\player.h" />
     <ClInclude Include="..\src\regress.h" />
+    <ClInclude Include="..\src\resampler.h" />
+    <ClInclude Include="..\src\resampler_table.h" />
     <ClInclude Include="..\src\shots.h" />
     <ClInclude Include="..\src\sndmast.h" />
     <ClInclude Include="..\src\sprite.h" />

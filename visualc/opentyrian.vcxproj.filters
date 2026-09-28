@@ -162,6 +162,9 @@
     <ClCompile Include="..\src\regress_screen.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\resampler.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\shots.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -342,6 +345,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\regress.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\resampler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\resampler_table.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\shots.h">
