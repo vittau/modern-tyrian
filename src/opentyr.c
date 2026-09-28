@@ -923,6 +923,12 @@ void setupMenu(void)
 				case MENU_ITEM_PRESENTATION:
 				{
 					presentation = (Presentation)pickerSelectedIndex;
+					// Modern pins the render detail to Pentium (or 6 while the
+					// SuperWild cheat is active); Classic restores the player's
+					// stored choice.  Re-derive the detail flags and the game
+					// speed immediately, so the switch needs no restart.
+					JE_applyProcessorType();
+					JE_setNewGameSpeed();
 					video_apply_display_settings();
 					break;
 				}
@@ -1054,6 +1060,13 @@ int main(int argc, char *argv[])
 	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
+
+	// A --presentation on the command line overrides opentyrian.cfg, so
+	// re-derive the effective detail after parsing it; loadConfiguration()
+	// applied the config-file presentation.  Regress mode pins its own
+	// presentation and detail in regress_init() instead.
+	if (!regress && !selftest)
+		JE_applyProcessorType();
 
 	if (selftest)
 	{

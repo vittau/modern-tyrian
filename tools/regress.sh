@@ -55,6 +55,12 @@ ACTUAL_DIR="$BASELINE_DIR/actual"
 MANIFEST="$BASELINE_DIR/data-manifest.txt"
 DEMOS="1 2 3 4 5"
 LEVELS="1 2 3 4 5 6"
+# Modern presentation: the product pins the effective render detail to Pentium,
+# so every Modern case runs at detail 4 whatever --regress-detail it requests.
+# The engine forces and logs the override (a request of 6 is kept: that is the
+# SuperWild cheat, which must still work in Modern).  Classic cases keep sweeping
+# LEVELS unchanged.
+MODERN_DETAIL=4
 
 # Synthetic scenarios: "name episode:level frame-cap detail...".
 #
@@ -354,13 +360,19 @@ done
 #
 # The Modern path composes on the CPU at the logical resolution; --regress-modern
 # hashes its XRGB8888 canvas instead of the 8-bit frame.  Keep the subset small:
-# all five demos at detail 2, plus every synthetic scenario at its lowest valid
-# detail.
+# all five demos at the effective Modern detail (Pentium, 4), plus every
+# synthetic scenario at the same level (all six render paths are reachable at
+# 4).  A Modern SuperWild case covers the cheat's effective level 6.
 
 for d in $DEMOS; do
 	pairs=$((pairs + 1))
-	run_case "modern-demo$d-d2" --regress-demo="$d" --regress-detail=2 --regress-modern
+	run_case "modern-demo$d-d$MODERN_DETAIL" --regress-demo="$d" --regress-detail="$MODERN_DETAIL" --regress-modern
 done
+
+# SuperWild (detail 6) is the one level Modern keeps from the player's choice;
+# it is not a duplicate of the Pentium cases.
+pairs=$((pairs + 1))
+run_case "modern-demo1-d6" --regress-demo=1 --regress-detail=6 --regress-modern
 
 for spec in "${SCENARIOS[@]}"; do
 	# shellcheck disable=SC2086
@@ -368,10 +380,9 @@ for spec in "${SCENARIOS[@]}"; do
 	sname=$1
 	slvl=$2
 	sframes=$3
-	sdetail=$4
 	pairs=$((pairs + 1))
-	run_case "modern-scenario-$sname-d$sdetail" \
-		--regress-level="$slvl" --regress-detail="$sdetail" --regress-frames="$sframes" --regress-modern
+	run_case "modern-scenario-$sname-d$MODERN_DETAIL" \
+		--regress-level="$slvl" --regress-detail="$MODERN_DETAIL" --regress-frames="$sframes" --regress-modern
 done
 
 # --- modern widescreen presentation ------------------------------------------
@@ -382,14 +393,14 @@ done
 # above pin 4:3.  A 16:10 case is included because 16:10 now has wide-enough
 # panels for the relocated HUD (60 px) and a different, compact layout.
 
-run_case "modern-wide-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9
+run_case "modern-wide-demo1-d$MODERN_DETAIL" --regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
-run_case "modern-wide-demo3-d2" --regress-demo=3 --regress-detail=2 --regress-modern --regress-aspect=16:9
+run_case "modern-wide-demo3-d$MODERN_DETAIL" --regress-demo=3 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
-run_case "modern-wide-scenario-spotlight-d3" \
-	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+run_case "modern-wide-scenario-spotlight-d$MODERN_DETAIL" \
+	--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
-run_case "modern-wide-16x10-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:10
+run_case "modern-wide-16x10-demo1-d$MODERN_DETAIL" --regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:10
 pairs=$((pairs + 1))
 
 # Script-driven death: E1:L3 has no item screen before the level, so
@@ -399,14 +410,14 @@ pairs=$((pairs + 1))
 # path otherwise inherits main()'s time(NULL) seed).  This guards the Modern
 # centring of the banner on the playfield, which the demo/scenario paths cannot
 # reach (they turn the !playDemo death into an end-of-level).
-run_case "modern-wide-script-death-d2" \
-	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+run_case "modern-wide-script-death-d$MODERN_DETAIL" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 	--regress-frames=3700 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
 # Same run with the ESC in-game menu opened on the last frame; owns the baseline
 # the gameplay-composition menu case below is compared against.
-run_case "modern-wide-script-menu-d2" \
-	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+run_case "modern-wide-script-menu-d$MODERN_DETAIL" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 	--regress-frames=700 --regress-menu=ingame --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
 
@@ -422,28 +433,28 @@ run_case "stick-classic-script-d2" \
 	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
 	--regress-frames=600 --regress-stick=32767,0
 pairs=$((pairs + 1))
-run_case "stick-modern-script-d2" \
-	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+run_case "stick-modern-script-d$MODERN_DETAIL" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 	--regress-frames=600 --regress-modern --regress-stick=32767,0
 pairs=$((pairs + 1))
 # A partial deflection locks the progressive momentum: the curve scales the
 # legacy +/-4 velocity cap by s, so 50% input tops out well below full speed.
-run_case "stick-modern-partial-script-d2" \
-	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+run_case "stick-modern-partial-script-d$MODERN_DETAIL" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 	--regress-frames=600 --regress-modern --regress-stick=16383,0
 pairs=$((pairs + 1))
 # Cross-axis noise: a full X push with a small -Y offset (the bottom wall hides
 # +Y) must not drift diagonally, so the momentum target is split per axis and a
 # near-axis push is snapped straight.  This would have failed before the fix.
-run_case "stick-modern-noise-script-d2" \
-	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+run_case "stick-modern-noise-script-d$MODERN_DETAIL" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 	--regress-frames=600 --regress-modern --regress-stick=32767,-300
 pairs=$((pairs + 1))
 # A 20% axial crawl must advance with a Bresenham-like step (consecutive ticks
 # differ by at most 1 px), with no momentum bursts.  This would have failed
 # before the fix (bursty 0,2,0,2...).
-run_case "stick-modern-crawl-script-d2" \
-	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+run_case "stick-modern-crawl-script-d$MODERN_DETAIL" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 	--regress-frames=600 --regress-modern --regress-stick=6553,0
 pairs=$((pairs + 1))
 
@@ -456,10 +467,10 @@ pairs=$((pairs + 1))
 # new levels have a baseline.  Both must be reproducible run to run.  See
 # src/vfx.c.
 
-run_case "vfx-demo2-d2" --regress-demo=2 --regress-detail=2 --regress-modern --regress-aspect=16:9 --regress-vfx=high
+run_case "vfx-demo2-d$MODERN_DETAIL" --regress-demo=2 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9 --regress-vfx=high
 pairs=$((pairs + 1))
-run_case "vfx-scenario-flip-d3" \
-	--regress-level=4:12 --regress-detail=3 --regress-frames=3600 --regress-modern --regress-aspect=16:9 --regress-vfx=low
+run_case "vfx-scenario-flip-d$MODERN_DETAIL" \
+	--regress-level=4:12 --regress-detail="$MODERN_DETAIL" --regress-frames=3600 --regress-modern --regress-aspect=16:9 --regress-vfx=low
 pairs=$((pairs + 1))
 
 # --- non-gameplay screens -----------------------------------------------------
@@ -559,12 +570,12 @@ run_case "modern-screen-ship-specs-21x9" \
 # tuning (the strongest level now, after the user found even that too strong
 # and asked for the weaker "low" to become the default).
 
-run_case "modern-light-demo1-d2" \
-	--regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9 \
+run_case "modern-light-demo1-d$MODERN_DETAIL" \
+	--regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9 \
 	--regress-lighting=high
 pairs=$((pairs + 1))
-run_case "modern-light-scenario-spotlight-d3" \
-	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9 \
+run_case "modern-light-scenario-spotlight-d$MODERN_DETAIL" \
+	--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9 \
 	--regress-lighting=high
 pairs=$((pairs + 1))
 
@@ -624,15 +635,15 @@ run_state_case() {
 	fi
 }
 
-run_state_case "state-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9
+run_state_case "state-demo1-d$MODERN_DETAIL" --regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
-run_state_case "state-demo3-d2" --regress-demo=3 --regress-detail=2 --regress-modern --regress-aspect=16:9
+run_state_case "state-demo3-d$MODERN_DETAIL" --regress-demo=3 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
-run_state_case "state-scenario-spotlight-d3" \
-	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+run_state_case "state-scenario-spotlight-d$MODERN_DETAIL" \
+	--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
-run_state_case "state-scenario-spotlight-2p-d3" \
-	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-players=2 --regress-modern --regress-aspect=16:9
+run_state_case "state-scenario-spotlight-2p-d$MODERN_DETAIL" \
+	--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-players=2 --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
 
 # --- draw-list replay check (Fase 2, stages 1-2) -----------------------------
@@ -941,10 +952,10 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	# alpha and require every interpolated value to stay between the two ticks
 	# (the level run covers the intro palette fade; both cover the HUD bars).
 	run_smooth_effects_case "smooth-effects-scenario-level1" \
-		--regress-level=1:1 --regress-detail=2 --regress-frames=1200
+		--regress-level=1:1 --regress-detail="$MODERN_DETAIL" --regress-frames=1200
 	pairs=$((pairs + 1))
-	run_smooth_effects_case "smooth-effects-demo2-d2" \
-		--regress-demo=2 --regress-detail=2
+	run_smooth_effects_case "smooth-effects-demo2-d$MODERN_DETAIL" \
+		--regress-demo=2 --regress-detail="$MODERN_DETAIL"
 	pairs=$((pairs + 1))
 
 	# --- gameplay composition check (Fase 2, bug B) -----------------------------
@@ -952,8 +963,8 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	# Assert that no presented in-level Modern frame falls back to the full
 	# 320x200 composition (the classic sidebar); the Modern canvas hash stream
 	# must still equal the modern-wide baseline, i.e. the check only observes.
-	run_gameplay_case "gameplay-wide-scenario-spotlight-d3" "modern-wide-scenario-spotlight-d3" \
-		--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
+	run_gameplay_case "gameplay-wide-scenario-spotlight-d$MODERN_DETAIL" "modern-wide-scenario-spotlight-d$MODERN_DETAIL" \
+		--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9
 	pairs=$((pairs + 1))
 
 	# In-game menu composition (pause-hud): --regress-menu opens the ESC in-game
@@ -962,8 +973,8 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	# classic full-frame composition.  Same pinned E1:L3 script/seed as the death
 	# case (real gameplay, playDemo == false); the menu replaces the final frame.
 	# This fails if the pause/menu stops holding the gameplay composition.
-	run_gameplay_case "gameplay-wide-script-menu-d2" "modern-wide-script-menu-d2" \
-		--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	run_gameplay_case "gameplay-wide-script-menu-d$MODERN_DETAIL" "modern-wide-script-menu-d$MODERN_DETAIL" \
+		--regress-script=1:3 --regress-seed=32402394 --regress-detail="$MODERN_DETAIL" \
 		--regress-frames=700 --regress-menu=ingame --regress-modern --regress-aspect=16:9
 	pairs=$((pairs + 1))
 fi

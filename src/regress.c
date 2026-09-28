@@ -737,11 +737,14 @@ void regress_init(void)
 	// Pin every setting that can change the 8-bit framebuffer or the gameplay.
 	// These mirror the defaults the engine uses when no config file is present,
 	// but are forced so the user's config and save files cannot leak in.
-	// processorType is the swept detail level; JE_initProcessorType() derives
-	// the detail-dependent flags (wild, superWild, smoothScroll,
-	// explosionTransparent, filtrationAvail, background2, displayScore).
+	// processorTypeChoice is the requested detail level (the player's choice);
+	// JE_applyProcessorType() below turns it into the effective processorType.
+	// In the Modern presentation that pins the render detail to Pentium (4), or
+	// keeps 6 while the SuperWild cheat is active, so a Modern case never
+	// renders below Pentium; the Classic cases still sweep 1..6.  Classic
+	// baselines are therefore unchanged.
 	gameSpeed           = 4;                       // Normal
-	processorType       = regress_detail;          // 1..6, sweepable
+	processorTypeChoice = regress_detail;          // 1..6, sweepable
 	gammaCorrection     = 0;                       // no gamma remap
 	difficultyLevel     = DIFFICULTY_NORMAL;       // beginPlayDemo sets this too
 	initialDifficulty   = DIFFICULTY_WIMP;         // fresh-run value used by scripts
@@ -848,7 +851,13 @@ void regress_init(void)
 	if (regress_seed_set)
 		mt_srand(regress_seed);
 
-	JE_initProcessorType();
+	// Modern pins the effective detail to Pentium (4); 6 is kept for the
+	// SuperWild cheat.  Log an explicit --regress-detail that the presentation
+	// ignored, so the run log makes the override visible.
+	if (presentation == PRESENTATION_MODERN && regress_detail != 4 && regress_detail != 6)
+		logInfo("Modern presentation forces detail level 4 (requested %d).", regress_detail);
+
+	JE_applyProcessorType();
 
 	// Start the virtual clock at a fixed value; setFrameSpeed() re-anchors the
 	// frame counters from it, so the absolute value is irrelevant.

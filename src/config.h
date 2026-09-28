@@ -139,6 +139,12 @@ extern JE_byte fastPlay;
 extern JE_boolean pentiumMode;
 extern JE_byte gameSpeed;
 extern JE_byte processorType;
+// The player's stored detail-level choice, saved to and loaded from tyrian.cfg.
+// Classic renders at exactly this level.  Modern ignores it and always renders
+// at Pentium (4) -- or 6 if the SuperWild cheat is active -- so the detail can
+// never be set below Pentium; processorType is the effective level actually
+// used by the renderer.  See JE_applyProcessorType().
+extern JE_byte processorTypeChoice;
 extern JE_SaveFilesType saveFiles;
 extern JE_EditorItemAvailType editorItemAvail;
 extern JE_word editorLevel;
@@ -146,6 +152,13 @@ extern JE_word editorLevel;
 extern Config opentyrian_config;
 
 void JE_initProcessorType(void);
+// Recomputes processorType (the effective render detail) from the stored
+// processorTypeChoice and the active presentation, then re-derives the
+// detail-dependent flags via JE_initProcessorType().  In Modern the effective
+// level is pinned to Pentium (4), or 6 while the SuperWild cheat is active, so
+// Modern never renders below Pentium; Classic uses the player's choice
+// unchanged.  Safe to call on every presentation/detail change and at startup.
+void JE_applyProcessorType(void);
 void JE_setNewGameSpeed(void);
 
 void loadConfiguration(void);
