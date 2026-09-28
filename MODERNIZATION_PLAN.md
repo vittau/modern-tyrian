@@ -138,8 +138,8 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 
 ### Fase 2 — O "Modern"
 - [ ] **Taxa de quadros independente da lógica (pedido do usuário, prioridade logo após as telas de menu):** a lógica continua no tick fixo de ~35 Hz, o que preserva demos, rede e regressão, e o desenho vai para a taxa do monitor (≥ 60 Hz, idealmente o refresh da tela, com vsync) com interpolação entre ticks. Etapas:
-  1. Lista de desenho por tick: cada blit com sprite, posição, blend, camada e identidade do objeto, mais o scroll das camadas. Só observa, sem tocar a lógica.
-  2. Renderizador que reproduz o quadro a partir da lista. Prova: hash idêntico ao quadro original em todos os casos da regressão.
+  1. [x] Lista de desenho por tick: cada blit com sprite, posição, blend, camada e identidade do objeto, mais o scroll das camadas. Só observa, sem tocar a lógica (`src/drawlist.c`, `f35198f`).
+  2. [x] Renderizador que reproduz o quadro a partir da lista. Prova: `--regress-replay-check`, 0 divergências em 82/82 casos (todas as demos e cenários em todos os detalhes); ~0,17 ms por quadro.
   3. Interpolação entre o tick anterior e o atual na taxa do monitor, obrigatória para a suavidade (pedido do usuário). Vale para todo movimento: inimigos (inclusive os de chão, que andam com o scroll), nave e sidekicks, tiros do jogador e dos inimigos, explosões que seguem objetos e scroll das três camadas. Nascimento, remoção, reuso de slot ou salto maior que um limiar entram direto na posição nova, sem deslizar. Os quadros de animação dos sprites não são misturados: só as posições são interpoladas.
   4. Efeitos, paleta e HUD sobre o quadro interpolado.
   Custo: ~1 tick (~28 ms) de atraso de imagem por interpolar, configurável. A infraestrutura das etapas 1 e 2 é a mesma do snapshot por tick e do tag buffer abaixo.
@@ -151,7 +151,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] HUD expandido, etapa 2 do HUD modernizado (§7), commit `5a5952b`. Pendente, pedido do usuário: no modo Modern, só o HUD novo, sem a barra lateral original
 - [x] Só o HUD novo no Modern (commit desta entrada): a barra lateral e a faixa de baixo originais saem do canvas nos quadros de jogo, e o HUD novo assume toda a informação delas e usa o espaço liberado
 - [x] Fallback de widescreen para telas fora do jogo: laterais com a própria tela desfocada e escurecida (média 40×25 + esticamento bilinear, ~0,08 ms em 16:9)
-- [ ] Telas fora do jogo em widescreen com conteúdo real (inventário em `.worker-reports/screens-inventory.md`, ferramenta `tools/dump_screens.py`):
+- [ ] Telas fora do jogo em widescreen com conteúdo real. S1 entregue em `296cf7e` (Vert-, painel alargado e borda sólida, mais `--regress-screen`); falta o S2 (mapa, ship specs, starfields, créditos). Inventário em `.worker-reports/screens-inventory.md`, ferramenta `tools/dump_screens.py`):
   - Vert- (fundo ampliado ~1,33× e cortado em cima e embaixo, elementos do menu nítidos por cima em 1×) no **título** (pic 4) e nos **menus** sobre a pic 2 (seleção de jogo, episódio e dificuldade, setup, ajuda, load/save, recordes). A pic 2 perde a linha "AN EPIC MEGAGAMES PRODUCTION ©1994" embutida no rodapé; tentar recompor essa faixa em 1×
   - Extensão real, montada por código: **mapa de navegação** (o espaço de coordenadas dos planetas já passa de 320), **ship specs** (grid procedural), **jukebox** e **simulador de armas** (starfields), **créditos**
   - Preenchimento sólido onde a borda da imagem é lisa (pic 5, pic 11/Destruct, telas pretas); overlays sobre o jogo com a sombra na largura toda
@@ -342,3 +342,13 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - `framerate`: design e etapas 1–2 da taxa de quadros independente da lógica (lista de desenho por tick e renderizador que reproduz o quadro, com a prova de hash idêntico).
   - `lighting`: bloom mais um mapa de luz dinâmica a partir dos pixels emissivos da paleta. Tiros, explosões e chamas iluminam o terreno com a própria cor. As luzes por objeto virão depois, alimentadas pela lista de desenho.
 - As telas S2 (mapa, ship specs, starfields, créditos) esperam o S1, porque usam o mesmo compositor.
+
+### 2026-09-28 — S1 das telas e etapas 1–2 dos 60 fps no branch principal
+- **S1 entregue (`296cf7e`).** Título e menus da pic 2 com Vert-; todas as telas da moldura da loja (menu do jogo, upgrade, compra, opções, data cubes, teclado, joystick, load/save) com o painel direito alargado; pic 5/11 com borda sólida. Nenhuma tela da pic 1 caiu no desfoque.
+  - As colunas de corte fixas da primeira tentativa (158/310) bloqueavam quase todas as telas: a linha de ajuda do rodapé cruza a tela inteira e o leitor de data cube vai até x=310. A solução foi um corte único, decidido pelo conteúdo: logo depois do elemento mais à direita do painel (y < 184), com a faixa de baixo tratada à parte (o fundo acompanha, o texto de ajuda fica no lugar).
+  - Efeito colateral aceito: o título da caixa ("Game Menu") não é recentralizado, porque um segundo corte à esquerda cortaria a linha de ajuda. A faixa de destaque do item selecionado termina onde o painel original acabava.
+  - `--regress-screen=NAME` renderiza 13 telas sem janela com as funções do próprio jogo (em modo tela, `hasInput()` diz que há entrada, e o limite de quadros encerra). São 28 casos novos: Modern 16:9 e 21:9, mais os Clássicos, que provam que o harness não altera as telas de 8 bits. A regressão passou a ter 99 casos.
+  - Mouse: o mapeamento por partes foi verificado por uma checagem temporária (a faixa inserida cai na coluna de corte, dentro da área clicável dos itens).
+- **Etapas 1–2 dos 60 fps (`f35198f`, merge `f7535d7`).** Lista de desenho por tick no nível das primitivas, com identidade de objeto, e replay com prova de igualdade byte a byte (82/82 casos). No merge, `--regress-replay-check` virou a opção 275, ao lado de `--regress-screen` (274). A regressão ficou com 103 casos.
+- **Etapa 3 despachada** para um agente novo na worktree `framerate`: interpolação na taxa do monitor, só no modo Modern e em jogo (o Clássico segue idêntico ao original), com opção "Smooth motion" ligada por padrão. Ponto de atenção passado ao agente: a identidade das linhas de fundo da etapa 1 (camada e linha de tela) salta 28 px quando o mapa avança uma linha de tiles; para interpolar o scroll, casar pela linha do mapa, não pela linha da tela.
+- Lição de processo: depois de um `worker_done`, a correção da revisão tem que ir por `worker-start --terminal` no mesmo terminal. Um `terminal send` simples funciona, mas o `worker_done` seguinte é rejeitado por capacidade revogada, e só a tela confirma o término.
