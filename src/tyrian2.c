@@ -3753,6 +3753,16 @@ void newSuperTyrianGame(void)
 
 void intro_logos(void)
 {
+	// The splash returns to the title, so whatever track was playing when the
+	// player left (a menu/shop, level, game-over or credits song) must not play
+	// under the logos.  Cut it at the start of the transition so the logos are
+	// as silent as on a first launch; titleScreen() then starts the title song.
+	// stop_song() rather than fade_song(): the fade only ramps the OPL volume
+	// over ~1 s and leaves the track running, whereas the splash must be silent
+	// from its first frame.  A stopped demo skips this function entirely (see
+	// the main loop), so its own stop_song() is unchanged.
+	stop_song();
+
 	moveTyrianLogoUp = true;
 
 	SDL_FillSurfaceRect(VGAScreen, NULL, 0);
