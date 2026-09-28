@@ -415,3 +415,22 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **VFX, rodada de correção 1.** Worktree `vfx`, commit `4830b8b` mais árvore em `refs/keep/vfx-wip`; nota em `.worker-reports/phase2-vfx-1-handoff.md`. Funcional e verde (fumaça com a translucidez do motor, níveis Off/Low/High, padrão Low). Falta atualizar o relatório (§9 com 125/125 e §7 com custo remedido) e mandar `worker_done`.
   - **Scaling, rodada 2.** Worktree `scaling`, commit `5062420` mais árvore em `refs/keep/scaling-wip`; nota em `.worker-reports/scaling-fit-handoff.md`. Implementado e verde: scalers removidos; sharp bilinear no Fit (Modern e Clássico); Modern com pixel aspect fixo 1,2 e sem Scaling Mode/Pixel Aspect no menu; iluminação Off/Low/High com seletor único e padrão Low. Falta: prova de pixels uniformes (o harness em `/tmp` pode se perder no reboot), capturas da iluminação, custo, relatório e reverificação depois de edições cosméticas.
 - **Para retomar:** conferir se há sessão fantasma do opencode (§2.22); agentes novos nas duas worktrees, com a nota de passagem; merges na ordem scaling → VFX (os dois mexem no menu Graphics em `src/opentyr.c` e em `params.c`/`config.c`). Depois: luz por objeto a partir dos eventos de VFX e partículas de ambiente.
+
+### 2026-09-28 — Retomada: escala e VFX no branch principal
+- Nenhuma sessão fantasma do opencode depois do reboot. A CI do Windows de `a5aff13` também ficou verde.
+- **Escala e níveis de luz (`159c519`, merge `ecf68e0`).**
+  - Scalers de software removidos: o quadro é convertido em 1x e a GPU escala.
+  - Fit usa sharp bilinear: pré-escala inteira nearest num render target em cache, depois um passe linear. As bordas dos pixels ficam numa grade uniforme (rms 0,04 px, contra 0,28 px do nearest).
+  - Modern: sempre Fit com PAR 1,2; Scaling Mode e Pixel Aspect ficam escondidos no menu.
+  - Luz: seletor único Off/Low/High, com padrão Low. High = o antigo low, Low = metade; `medium` vira alias de high.
+  - Custo no renderer de software: +1,9 ms/quadro, que é o limite superior. Na GPU é um quad a mais. Janela real a ~119 fps.
+  - No merge, os dois baselines `modern-light-*` mudaram só nas linhas de intro/fade da correção do HUD.
+- **VFX parte 1 (`e88167b`, merge `fbd9d80`).**
+  - Fumaça e anéis usam o blend/darken de nibble do motor, sem pontilhado.
+  - Níveis Off/Low/High, com padrão Low; `medium` vira alias de high.
+  - Custo com demo2 em Modern 16:9: +0,007 ms/quadro no high.
+  - No merge: o menu Graphics ganhou "Lighting" e "Effects" (o item Effects também ficou clicável com o mouse, que faltava). Os `vfx-*` mudaram só nas linhas de intro/fade.
+  - O `.filters` do Visual Studio tinha ficado com XML inválido na remoção dos scalers e foi corrigido. `vfx.c/h` entraram no projeto.
+  - 128/128 na regressão.
+- **A investigar:** a janela não pede `SDL_WINDOW_HIGH_PIXEL_DENSITY`. Numa tela Retina, o macOS amplia 2x um backbuffer em pontos, então o sharp bilinear roda na resolução lógica. Vale medir se a densidade alta deixa a imagem mais nítida.
+- **Próximo:** teste do usuário com o lote todo (escala, luz, VFX). Depois: luz por objeto a partir dos eventos de VFX e partículas de ambiente.
