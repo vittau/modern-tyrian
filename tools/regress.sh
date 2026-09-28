@@ -32,6 +32,7 @@ UPDATE=0
 UPDATE_MANIFEST=0
 REPLAY_CHECK=0
 INTERP_CHECK=0
+SMOOTH_CHECK=0
 if [ "${1:-}" = "--update" ]; then
 	UPDATE=1
 elif [ "${1:-}" = "--update-manifest" ]; then
@@ -40,6 +41,8 @@ elif [ "${1:-}" = "--replay-check" ]; then
 	REPLAY_CHECK=1
 elif [ "${1:-}" = "--interp-check" ]; then
 	INTERP_CHECK=1
+elif [ "${1:-}" = "--smoothness-check" ]; then
+	SMOOTH_CHECK=1
 fi
 
 DATA_DIR="${TYRIAN_DATA:-$ROOT/data}"
@@ -520,7 +523,81 @@ run_interp_case() {
 	fi
 }
 
-if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]; then
+# run_gameplay_case LABEL BASELINE_LABEL "$@" -- assert every presented in-level
+# Modern frame uses the gameplay composition (drops the classic sidebar).  The
+# run also emits the Modern canvas hash stream, which must still equal the
+# Modern baseline for the same case.
+run_gameplay_case() {
+	local label=$1 baseline_label=$2
+	shift 2
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+	local baseline="$BASELINE_DIR/$baseline_label.txt"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-gameplay-check "$@" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
+		echo "FAIL $label: gameplay composition check failed (exit $rc)"
+		grep -E "Gameplay composition|FAILED" "$log" | tail -n 3
+		failures=$((failures + 1))
+		return
+	fi
+
+	if [ ! -f "$baseline" ]; then
+		echo "FAIL $label: missing baseline $baseline_label"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if cmp -s "$baseline" "$out"; then
+		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, sidebar dropped"
+	else
+		echo "FAIL $label: frame hashes differ from $baseline_label"
+		failures=$((failures + 1))
+	fi
+}
+
+# run_smoothness_case LABEL BASELINE_LABEL "$@" -- per tick, check that every
+# background layer and matched object moves monotonically across the sub-frames
+# (the run exits non-zero on any non-monotonic motion) and that the frame-hash
+# stream still equals the Classic baseline.
+run_smoothness_case() {
+	local label=$1 baseline_label=$2
+	shift 2
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+	local baseline="$BASELINE_DIR/$baseline_label.txt"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-interp-smoothness "$@" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
+		echo "FAIL $label: smoothness check failed (exit $rc)"
+		grep -E "Smoothness|FAILED" "$log" | tail -n 3
+		failures=$((failures + 1))
+		return
+	fi
+
+	if [ ! -f "$baseline" ]; then
+		echo "FAIL $label: missing baseline $baseline_label"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if cmp -s "$baseline" "$out"; then
+		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, motion monotonic"
+	else
+		echo "FAIL $label: frame hashes differ from $baseline_label"
+		failures=$((failures + 1))
+	fi
+}
+
+if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ]; then
 	run_replay_case "replay-demo1-d2"   "demo1-d2"   --regress-demo=1 --regress-detail=2
 	pairs=$((pairs + 1))
 	run_replay_case "replay-demo3-d4"   "demo3-d4"   --regress-demo=3 --regress-detail=4
@@ -545,6 +622,27 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	pairs=$((pairs + 1))
 	run_interp_case "interp-scenario-iced-d2" "scenario-iced-d2" \
 		--regress-level=4:8 --regress-detail=2 --regress-frames=1200
+	pairs=$((pairs + 1))
+
+	# --- smoothness check (Fase 2, stage 3) -------------------------------------
+	#
+	# Per level tick, re-derive the sub-frame positions and require every
+	# background layer (including the ship-following pan that used to wrap) and
+	# every matched object to move monotonically between the two ticks.
+	run_smoothness_case "smoothness-demo1-d2" "demo1-d2" \
+		--regress-demo=1 --regress-detail=2
+	pairs=$((pairs + 1))
+	run_smoothness_case "smoothness-scenario-flip-d3" "scenario-flip-d3" \
+		--regress-level=4:12 --regress-detail=3 --regress-frames=3600
+	pairs=$((pairs + 1))
+
+	# --- gameplay composition check (Fase 2, bug B) -----------------------------
+	#
+	# Assert that no presented in-level Modern frame falls back to the full
+	# 320x200 composition (the classic sidebar); the Modern canvas hash stream
+	# must still equal the modern-wide baseline, i.e. the check only observes.
+	run_gameplay_case "gameplay-wide-scenario-spotlight-d3" "modern-wide-scenario-spotlight-d3" \
+		--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
 	pairs=$((pairs + 1))
 fi
 
@@ -576,6 +674,37 @@ if [ "$INTERP_CHECK" -eq 1 ]; then
 		exit 0
 	fi
 	echo "$failures interpolation-check cases failed in ${total}s."
+	exit 1
+fi
+
+# Full smoothness sweep: every demo and scenario at every detail level, checking
+# the sub-frame motion of every background layer and matched object.
+# (tools/regress.sh --smoothness-check)
+if [ "$SMOOTH_CHECK" -eq 1 ]; then
+	for d in $DEMOS; do
+		for m in $LEVELS; do
+			run_smoothness_case "smoothness-demo$d-d$m" "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		done
+	done
+
+	for spec in "${SCENARIOS[@]}"; do
+		set -- $spec
+		sname=$1
+		slvl=$2
+		sframes=$3
+		shift 3
+		for m in "$@"; do
+			run_smoothness_case "smoothness-scenario-$sname-d$m" "scenario-$sname-d$m" \
+				--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
+		done
+	done
+
+	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
+	if [ "$failures" -eq 0 ]; then
+		echo "All smoothness-check cases passed in ${total}s."
+		exit 0
+	fi
+	echo "$failures smoothness-check cases failed in ${total}s."
 	exit 1
 fi
 

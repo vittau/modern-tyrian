@@ -58,6 +58,9 @@ extern int regress_arcade;            // non-zero = start a scenario in 1-player
 extern const char *regress_screen;    // non-NULL = render one non-gameplay screen and exit
 extern int regress_replay_check;      // non-zero = record and replay-check every level frame
 extern int regress_interp_check;      // non-zero = record and validate the interpolated renderer
+extern int regress_interp_smoothness; // non-zero = per-tick monotonic motion check
+extern int regress_smooth_alphas;     // sub-frame alphas used by the smoothness check (>= 2)
+extern int regress_gameplay_check;    // non-zero = assert every in-level frame drops the classic sidebar
 extern int regress_realtime;          // non-zero = real window + real clock, for the pacing benchmark
 extern double regress_bench_seconds;  // benchmark duration (default 20)
 

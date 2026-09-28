@@ -162,6 +162,29 @@ void modern_update_canvas_size(void);
 // by modern_build_frame(); it does not affect gameplay.
 void modern_mark_gameplay_frame(void);
 
+// Holds every presented frame to the gameplay composition until cleared.  The
+// level intro (and its palette fade) and the end-of-level animation present
+// through JE_showVGA directly rather than JE_starShowVGA, so they bracket their
+// presentation block with this.  The pause and in-game menus are outside those
+// blocks and stay non-gameplay.  Consumed by modern_build_frame().
+void modern_set_gameplay_hold(bool hold);
+
+// Marks the level's presentation period (level setup .. the next level load).
+// Only the regression harness reads it; it does not select the composition.
+void modern_set_in_level(bool in_level);
+bool modern_in_level_period(void);
+
+// What the last modern_build_frame() did, for the harness assertion:
+// `gameplay` is true when the frame was requested as a gameplay frame, and
+// `gameplay_panels` when it additionally used the playfield + side-panel
+// composition (i.e. the classic sidebar was dropped).
+bool modern_last_frame_gameplay(void);
+bool modern_last_frame_gameplay_panels(void);
+
+// Clears the relocated HUD panels and the message strip at a level start so the
+// first level frames cannot show the previous level's HUD.  No allocation.
+void modern_level_reset(void);
+
 // --- Relocated in-game HUD (Phase 1b) ---------------------------------------
 //
 // In Modern mode, when both side panels are at least MODERN_HUD_MIN_PANEL_WIDTH

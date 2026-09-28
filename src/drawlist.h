@@ -225,4 +225,23 @@ unsigned long drawlist_interp_snap_jump(void);
 unsigned long drawlist_interp_snap_sheet(void);
 unsigned long drawlist_interp_overshoots(void);
 
+// --- smoothness diagnostics (--regress-interp-smoothness) ---------------------
+//
+// Per level tick, re-derives the interpolated positions at N sub-frame alphas
+// and checks that every background layer's presented offset and every matched
+// object's position move monotonically between the two ticks (no backtracking,
+// no overshoot).  See the implementation for the exact rule.
+void drawlist_set_smoothness_check(bool check);
+bool drawlist_smoothness_enabled(void);
+void drawlist_set_smoothness_alphas(unsigned int count);
+
+unsigned long drawlist_smoothness_ticks(void);
+unsigned long drawlist_smoothness_bg_checks(void);
+unsigned long drawlist_smoothness_object_checks(void);
+unsigned long drawlist_smoothness_horizontal_events(void);
+unsigned long drawlist_smoothness_vertical_events(void);
+unsigned long drawlist_smoothness_object_events(void);
+unsigned long drawlist_smoothness_frames(void);
+unsigned long drawlist_smoothness_events(void);
+
 #endif // DRAW_LIST_H

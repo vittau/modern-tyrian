@@ -607,7 +607,10 @@ start_level:
 		endPlayDemo();
 
 		stop_song();
+
+		modern_set_gameplay_hold(true);
 		fade_black(10);
+		modern_set_gameplay_hold(false);
 	}
 	else if (recordDemo)
 	{
@@ -621,14 +624,23 @@ start_level:
 		if ((!all_players_dead() || normalBonusLevelCurrent || bonusLevelCurrent) && !playerEndLevel)
 		{
 			mainLevel = nextLevel;
+
+			// The end-of-level animation is part of the level's presentation:
+			// keep it on the Modern gameplay composition (no classic sidebar).
+			modern_set_gameplay_hold(true);
 			JE_endLevelAni();
+			modern_set_gameplay_hold(false);
 
 			fade_song();
 		}
 		else
 		{
 			fade_song();
+
+			// The death / game-over fade out of the level.
+			modern_set_gameplay_hold(true);
 			fade_black(10);
+			modern_set_gameplay_hold(false);
 
 			JE_loadGame(twoPlayerMode ? 22 : 11);
 			if (doNotSaveBackup)
@@ -664,8 +676,16 @@ start_level_first:
 	// previous level's recorded frame.  Draw-list-only; no gameplay effect.
 	drawlist_level_reset();
 
+	// The Modern HUD panels are carried across levels; clear them so the
+	// level's first frames cannot show the previous level's HUD.  Display-only.
+	modern_level_reset();
+
 	if (mainLevel == 0)  // if quit itemscreen
 		return;          // back to titlescreen
+
+	// From here until the next level load, every presented frame belongs to
+	// this level's gameplay presentation (intro, fades, gameplay, end).
+	modern_set_in_level(true);
 
 	if (!playDemo)
 		mouseSetRelative(true);
@@ -707,9 +727,13 @@ start_level_first:
 
 	JE_outText(VGAScreen, 268, twoPlayerMode ? 76 : 118, levelName, 12, 4);
 
+	// The level intro and its palette fade-in are the level's first presented
+	// frames: hold the Modern gameplay composition across the whole fade.
+	modern_set_gameplay_hold(true);
 	JE_showVGA();
 	JE_gammaCorrect(&colors, gammaCorrection);
 	fade_palette(colors, 50, 0, 255);
+	modern_set_gameplay_hold(false);
 
 	if (explosionSpriteSheet.data == NULL)
 		JE_loadCompShapes(&explosionSpriteSheet, '6');
@@ -2334,6 +2358,10 @@ void JE_loadMap(void)
 	int i;
 	Uint8 pic_buffer[320*200]; /* screen buffer, 8-bit specific */
 	Uint8 *vga, *pic, *vga2; /* screen pointer, 8-bit specific */
+
+	// Leaving the level's presentation period: the item screen, the nav map and
+	// the other level-loading screens are non-gameplay.  Display-only.
+	modern_set_in_level(false);
 
 	lastCubeMax = cubeMax;
 

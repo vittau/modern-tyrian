@@ -77,6 +77,7 @@ typedef struct
 	int a, b, c, d;     // rect coords, table, index
 	Uint8 **map;        // background row source
 	intptr_t row_key;   // background: map pointer with the horizontal pan removed
+	int bg_pan;         // background: horizontal pan in whole tiles (mapX*bpPos family)
 	Sprite2_array sheet;  // blit_sprite2 source
 	Uint32 payload_off;
 	Uint32 payload_len;
@@ -437,6 +438,7 @@ void drawlist_record_bg_row(SDL_Surface *surface, int x, int y, Uint8 **map, boo
 				bp = mapX3bpPos;
 		}
 		c->row_key = (intptr_t)map / (intptr_t)sizeof(Uint8 *) - bp;
+		c->bg_pan = (int)bp;
 	}
 }
 
@@ -836,7 +838,18 @@ static int dl_snap_reason(const DlCommand *p, const DlCommand *c)
 	if (p == NULL)
 		return DL_SNAP_NEW;
 
-	int dx = c->x - p->x, dy = c->y - p->y;
+	int dx, dy;
+
+	// A background row's recorded x wraps at every tile crossing, so the jump
+	// has to be measured on the continuous origin (see dl_bg_presented), not on
+	// the raw x; a normal pan changes it by at most a few pixels per tick.
+	if (c->kind == DL_BG_ROW || c->kind == DL_BG_ROW_BLEND)
+		dx = (c->x - 24 * c->bg_pan) - (p->x - 24 * p->bg_pan);
+	else
+		dx = c->x - p->x;
+
+	dy = c->y - p->y;
+
 	if (dx < 0) dx = -dx;
 	if (dy < 0) dy = -dy;
 	if (dx > DL_INTERP_JUMP || dy > DL_INTERP_JUMP)
@@ -855,6 +868,29 @@ static int dl_snap_reason(const DlCommand *p, const DlCommand *c)
 static int dl_lerp(int a, int b, Uint32 alpha_fx16)
 {
 	return a + (int)(((Sint64)(b - a) * (Sint32)alpha_fx16) / 65536);
+}
+
+// Presented (x, map) of one background row partway between the previous tick and
+// the current one, plus the continuous content origin `x - 24*pan` that the
+// pair actually draws.  A background row is recorded at x = mapX*Pos (0..23)
+// and at a map pointer shifted by the pan in whole tiles; as the pan crosses a
+// tile both wrap, so interpolating the recorded x directly (stage 3 before this
+// fix) slid the whole layer ~23 px the wrong way on every crossing.  The fix
+// interpolates the continuous origin instead and keeps the map pointer of the
+// current command, so x = origin + 24*pan and alpha = 1 reproduces the tick.
+static void dl_bg_presented(const DlCommand *p, const DlCommand *c, Uint32 alpha_fx16,
+                            int *out_x, Uint8 ***out_map, int *out_origin)
+{
+	// Unwrap each endpoint with its own pan, interpolate the continuous origin,
+	// then re-express it against the current command's map pointer so the blit
+	// stays in the same tile range the real frame used.
+	const int hp = p->x - 24 * p->bg_pan;
+	const int hc = c->x - 24 * c->bg_pan;
+	const int origin = dl_lerp(hp, hc, alpha_fx16);
+
+	*out_map = c->map;
+	*out_x = origin + 24 * c->bg_pan;
+	*out_origin = origin;
 }
 
 bool drawlist_render_interpolated(Uint32 alpha_fx16)
@@ -883,12 +919,15 @@ bool drawlist_render_interpolated(Uint32 alpha_fx16)
 	{
 		const DlCommand *c = &cur->commands[i];
 		int x = c->x, y = c->y;
+		const DlCommand *p = NULL;
+		int reason = DL_SNAP_NEW;
 
 		if (dl_interpolatable(c))
 		{
 			const Sint32 pi = dl_match_take(c);
-			const DlCommand *p = (pi >= 0) ? &prev->commands[pi] : NULL;
-			const int reason = dl_snap_reason(p, c);
+			if (pi >= 0)
+				p = &prev->commands[pi];
+			reason = dl_snap_reason(p, c);
 
 			if (reason == DL_SNAP_NONE)
 			{
@@ -918,7 +957,25 @@ bool drawlist_render_interpolated(Uint32 alpha_fx16)
 		if (surface == NULL)
 			continue;
 
-		if (c->kind == DL_STARFIELD)
+		if (c->kind == DL_BG_ROW || c->kind == DL_BG_ROW_BLEND)
+		{
+			Uint8 **map = c->map;
+			int origin;  // only the smoothness pass reads this
+			if (reason == DL_SNAP_NONE)
+				dl_bg_presented(p, c, alpha_fx16, &x, &map, &origin);
+			else
+			{
+				x = c->x;
+				y = c->y;
+				map = c->map;
+			}
+
+			if (c->kind == DL_BG_ROW)
+				blit_background_row(surface, x, y, map);
+			else
+				blit_background_row_blend(surface, x, y, map);
+		}
+		else if (c->kind == DL_STARFIELD)
 			drawlist_draw_starfield_interp(surface, c->a, cur->payload + c->payload_off, c->payload_len, alpha_fx16);
 		else if (c->kind == DL_SUPERPIXELS)
 			drawlist_draw_superpixels_interp(surface, cur->payload + c->payload_off, c->payload_len, alpha_fx16);
@@ -977,6 +1034,242 @@ unsigned long drawlist_interp_snap_new(void)   { return dl_interp_new_count; }
 unsigned long drawlist_interp_snap_jump(void)  { return dl_interp_jump_count; }
 unsigned long drawlist_interp_snap_sheet(void) { return dl_interp_sheet_count; }
 unsigned long drawlist_interp_overshoots(void) { return dl_interp_overshoot_count; }
+
+// --- stage 3: smoothness proof ------------------------------------------------
+//
+// For every level tick this re-derives the interpolated positions at N
+// sub-frame alphas (alpha 0 = previous tick, alpha 1 = current tick) and checks
+// that what the renderer would present for each background layer and for each
+// matched object moves monotonically from the previous tick's position to the
+// current one, without backtracking or overshooting the tick's total motion.
+//
+// A background row is the case that matters: the recorded x (mapX*Pos, 0..23)
+// and the map pointer both wrap as the pan crosses a tile, so a naive
+// interpolation of the recorded x slides the layer ~23 px the wrong way once
+// per tile crossing.  Comparing the presented continuous origin against the
+// endpoints (each unwrapped with its own pan) makes that show up as a
+// horizontal event; after the fix the presented origin equals the interpolated
+// origin by construction.
+#define DL_SMOOTH_MAX_ALPHAS 33
+
+static bool dl_smoothness_check = false;
+static unsigned dl_smooth_alpha_count = 5;
+
+static unsigned long dl_smooth_ticks = 0;
+static unsigned long dl_smooth_bg_checks = 0;
+static unsigned long dl_smooth_obj_checks = 0;
+static unsigned long dl_smooth_h_events = 0;
+static unsigned long dl_smooth_v_events = 0;
+static unsigned long dl_smooth_obj_events = 0;
+static unsigned long dl_smooth_frames_with_events = 0;
+
+void drawlist_set_smoothness_check(bool check)
+{
+	dl_smoothness_check = check;
+}
+
+bool drawlist_smoothness_enabled(void)
+{
+	return dl_smoothness_check;
+}
+
+void drawlist_set_smoothness_alphas(unsigned int count)
+{
+	if (count >= 2 && count <= DL_SMOOTH_MAX_ALPHAS)
+		dl_smooth_alpha_count = count;
+}
+
+unsigned long drawlist_smoothness_ticks(void)             { return dl_smooth_ticks; }
+unsigned long drawlist_smoothness_bg_checks(void)         { return dl_smooth_bg_checks; }
+unsigned long drawlist_smoothness_object_checks(void)     { return dl_smooth_obj_checks; }
+unsigned long drawlist_smoothness_horizontal_events(void) { return dl_smooth_h_events; }
+unsigned long drawlist_smoothness_vertical_events(void)   { return dl_smooth_v_events; }
+unsigned long drawlist_smoothness_object_events(void)     { return dl_smooth_obj_events; }
+unsigned long drawlist_smoothness_frames(void)            { return dl_smooth_frames_with_events; }
+unsigned long drawlist_smoothness_events(void)
+{
+	return dl_smooth_h_events + dl_smooth_v_events + dl_smooth_obj_events;
+}
+
+static void dl_smoothness_tick(void)
+{
+	if (dl_last < 0)
+		return;
+
+	const DlSet *prev = &dl_sets[1 - dl_last];
+	const DlSet *cur = &dl_sets[dl_last];
+	if (cur->count == 0)
+		return;
+
+	const unsigned n = dl_smooth_alpha_count;
+
+	// True endpoints of each layer: the continuous origin of the pan computed
+	// with each command's own pan (so it does not wrap), and the minimum y of
+	// the matched rows.
+	int layer_h[3][2];
+	int layer_v[3][2];
+	bool layer_seen[3] = { false, false, false };
+	int hpos[3][DL_SMOOTH_MAX_ALPHAS];
+	int vmin[3][DL_SMOOTH_MAX_ALPHAS];
+	bool layer_ok[3][DL_SMOOTH_MAX_ALPHAS];
+
+	memset(layer_ok, 0, sizeof layer_ok);
+
+	dl_match_build(prev);
+
+	dl_match_reset_cursors();
+	for (Uint32 i = 0; i < cur->count; ++i)
+	{
+		const DlCommand *c = &cur->commands[i];
+		if (!dl_interpolatable(c))
+			continue;
+		const Sint32 pi = dl_match_take(c);
+		if (pi < 0)
+			continue;
+		const DlCommand *p = &prev->commands[pi];
+		if (dl_snap_reason(p, c) != DL_SNAP_NONE)
+			continue;
+		if (c->kind != DL_BG_ROW && c->kind != DL_BG_ROW_BLEND)
+			continue;
+
+		const int layer = c->obj_id;
+		if (layer < 1 || layer > 3)
+			continue;
+
+		if (!layer_seen[layer - 1])
+		{
+			layer_seen[layer - 1] = true;
+			layer_h[layer - 1][0] = p->x - 24 * p->bg_pan;
+			layer_h[layer - 1][1] = c->x - 24 * c->bg_pan;
+			layer_v[layer - 1][0] = p->y;
+			layer_v[layer - 1][1] = c->y;
+		}
+		else
+		{
+			layer_v[layer - 1][0] = MIN(layer_v[layer - 1][0], p->y);
+			layer_v[layer - 1][1] = MIN(layer_v[layer - 1][1], c->y);
+		}
+	}
+
+	unsigned long tick_events = 0;
+
+	for (unsigned k = 0; k < n; ++k)
+	{
+		const Uint32 alpha = (Uint32)(((Uint64)k << 16) / (n - 1));
+
+		dl_match_reset_cursors();
+		for (Uint32 i = 0; i < cur->count; ++i)
+		{
+			const DlCommand *c = &cur->commands[i];
+			if (!dl_interpolatable(c))
+				continue;
+			const Sint32 pi = dl_match_take(c);
+			if (pi < 0)
+				continue;
+			const DlCommand *p = &prev->commands[pi];
+			if (dl_snap_reason(p, c) != DL_SNAP_NONE)
+				continue;
+
+			if (c->kind == DL_BG_ROW || c->kind == DL_BG_ROW_BLEND)
+			{
+				const int layer = c->obj_id;
+				if (layer < 1 || layer > 3)
+					continue;
+
+				int x, origin;
+				Uint8 **map;
+				dl_bg_presented(p, c, alpha, &x, &map, &origin);
+				const int v = dl_lerp(p->y, c->y, alpha);
+
+				if (!layer_ok[layer - 1][k])
+				{
+					layer_ok[layer - 1][k] = true;
+					hpos[layer - 1][k] = origin;
+					vmin[layer - 1][k] = v;
+				}
+				else
+				{
+					if (origin != hpos[layer - 1][k])
+					{
+						// Rows of one layer must agree on the pan; a
+						// disagreement is itself a discontinuity.
+						dl_smooth_h_events++;
+						tick_events++;
+						hpos[layer - 1][k] = origin;
+					}
+					vmin[layer - 1][k] = MIN(vmin[layer - 1][k], v);
+				}
+			}
+			else
+			{
+				const int px = dl_lerp(p->x, c->x, alpha);
+				const int py = dl_lerp(p->y, c->y, alpha);
+				dl_smooth_obj_checks++;
+				if (px < MIN(p->x, c->x) || px > MAX(p->x, c->x) ||
+				    py < MIN(p->y, c->y) || py > MAX(p->y, c->y))
+				{
+					dl_smooth_obj_events++;
+					tick_events++;
+				}
+			}
+		}
+	}
+
+	for (int layer = 0; layer < 3; ++layer)
+	{
+		if (!layer_seen[layer])
+			continue;
+
+		bool complete = true;
+		for (unsigned k = 0; k < n; ++k)
+			if (!layer_ok[layer][k])
+				complete = false;
+		if (!complete)
+			continue;
+
+		dl_smooth_bg_checks++;
+
+		const int hp = layer_h[layer][0], hc = layer_h[layer][1];
+		const int hlo = MIN(hp, hc), hhi = MAX(hp, hc);
+		bool h_bad = false;
+		for (unsigned k = 0; k < n; ++k)
+			if (hpos[layer][k] < hlo || hpos[layer][k] > hhi)
+				h_bad = true;
+		for (unsigned k = 1; k < n; ++k)
+		{
+			const int step = hpos[layer][k] - hpos[layer][k - 1];
+			if ((hc > hp && step < 0) || (hc < hp && step > 0))
+				h_bad = true;
+		}
+		if (h_bad)
+		{
+			dl_smooth_h_events++;
+			tick_events++;
+		}
+
+		const int vp = layer_v[layer][0], vc = layer_v[layer][1];
+		const int vlo = MIN(vp, vc), vhi = MAX(vp, vc);
+		bool v_bad = false;
+		for (unsigned k = 0; k < n; ++k)
+			if (vmin[layer][k] < vlo || vmin[layer][k] > vhi)
+				v_bad = true;
+		for (unsigned k = 1; k < n; ++k)
+		{
+			const int step = vmin[layer][k] - vmin[layer][k - 1];
+			if ((vc > vp && step < 0) || (vc < vp && step > 0))
+				v_bad = true;
+		}
+		if (v_bad)
+		{
+			dl_smooth_v_events++;
+			tick_events++;
+		}
+	}
+
+	dl_smooth_ticks++;
+	if (tick_events > 0)
+		dl_smooth_frames_with_events++;
+}
 
 // Compares the replayed game_screen with the real one over every byte of every
 // row.  Reports the first mismatching frame and pixel.
@@ -1038,6 +1331,11 @@ void drawlist_frame_end(void)
 	dl_sets[dl_cur].player_y = player[0].y;
 	dl_last = dl_cur;
 	dl_have_prev = dl_sets[1 - dl_last].count > 0;
+
+	// Stage 3 proof: the smoothness pass.  Runs before the byte-for-byte checks
+	// because it only reads the two recorded lists (it does not draw).
+	if (dl_smoothness_check)
+		dl_smoothness_tick();
 
 	// Stages 1-2 proof: replay this tick's list.  The destination-reading
 	// filters need the frame the tick started from, which is the persistent
