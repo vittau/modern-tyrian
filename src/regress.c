@@ -27,6 +27,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "modern.h"
+#include "modern_bloom.h"
 #include "mtrand.h"
 #include "opentyr.h"
 #include "palette.h"
@@ -64,6 +65,8 @@ int regress_replay_check = 0;
 int regress_interp_check = 0;
 int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
+int regress_bloom_quality = -1;
+int regress_lighting_quality = -1;
 
 // Snapshot requests (--regress-snapshot=FRAME:FILE), repeatable.  Fixed size:
 // a run needs only a handful and parsing must not allocate per frame.
@@ -593,6 +596,13 @@ void regress_init(void)
 	// the requested duration.
 	if (regress_realtime_active())
 		interp_bench_start(regress_bench_seconds);
+
+	// Bloom and dynamic lighting are pinned OFF for every existing case so the
+	// baselines stay byte-for-byte unchanged; --regress-bloom/--regress-lighting
+	// opt a run into the new look.  The user's config cannot leak in because
+	// loadConfiguration() is skipped in regress mode.
+	modern_bloom_quality = regress_bloom_quality >= 0 ? (ModernQuality)regress_bloom_quality : MODERN_QUALITY_OFF;
+	modern_lighting_quality = regress_lighting_quality >= 0 ? (ModernQuality)regress_lighting_quality : MODERN_QUALITY_OFF;
 
 	JE_initProcessorType();
 

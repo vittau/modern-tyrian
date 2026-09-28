@@ -376,6 +376,22 @@ pairs=$((pairs + 1))
 run_case "modern-screen-jukebox-21x9" \
 	--regress-screen=jukebox --regress-modern --regress-aspect=21:9
 
+# --- modern bloom + dynamic lighting -----------------------------------------
+#
+# The bloom/dynamic-light pass is pinned OFF unless --regress-bloom/--regress-lighting
+# opt in, so every case above is unaffected.  These two cases cover the effects
+# on the 16:9 playfield: a demo with shots and explosions, and a smoothie
+# scenario (lava + the player spotlight).  Medium is the proposed default.
+
+run_case "modern-light-demo1-d2" \
+	--regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9 \
+	--regress-bloom=medium --regress-lighting=medium
+pairs=$((pairs + 1))
+run_case "modern-light-scenario-spotlight-d3" \
+	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9 \
+	--regress-bloom=medium --regress-lighting=medium
+pairs=$((pairs + 1))
+
 # --- game-state hashes --------------------------------------------------------
 #
 # The state-hash stream covers the RNG, the players, the enemy/shot arrays,

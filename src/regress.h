@@ -60,6 +60,8 @@ extern int regress_replay_check;      // non-zero = record and replay-check ever
 extern int regress_interp_check;      // non-zero = record and validate the interpolated renderer
 extern int regress_realtime;          // non-zero = real window + real clock, for the pacing benchmark
 extern double regress_bench_seconds;  // benchmark duration (default 20)
+extern int regress_bloom_quality;     // ModernQuality pinned in regress mode; -1 = off
+extern int regress_lighting_quality;  // ModernQuality pinned in regress mode; -1 = off
 
 // True when regress mode was requested.
 bool regress_active(void);

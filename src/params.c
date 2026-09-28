@@ -28,6 +28,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "modern.h"
+#include "modern_bloom.h"
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
@@ -92,6 +93,10 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 278, 0,   "smooth-motion",     true },
 		{ 279, 0,   "regress-realtime",  false },
 		{ 280, 0,   "bench-seconds",     true },
+		{ 281, 0,   "bloom",             true },
+		{ 282, 0,   "lighting",          true },
+		{ 283, 0,   "regress-bloom",     true },
+		{ 284, 0,   "regress-lighting",  true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -132,6 +137,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --presentation=MODE          Set presentation mode: classic or modern");
 			logInfo("  --aspect=RATIO               Modern aspect: 4:3, 16:10, 16:9, 21:9, 32:9, auto");
 			logInfo("  --pixel-aspect=SHAPE         Modern pixel aspect: original (1.2) or square");
+			logInfo("  --bloom=LEVEL                Modern bloom: off, low, medium or high");
+			logInfo("  --lighting=LEVEL             Modern dynamic lighting: off, low, medium or high");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
@@ -158,6 +165,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --bench-seconds=N            Duration of --regress-realtime (default 20)");
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
+			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
+			logInfo("  --regress-lighting=LEVEL     Pin Modern lighting in regress modes (default off)");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
 			logInfo("  --selftest-gamepad           Run the virtual-controller input self-test and exit");
 			exit(EXIT_SUCCESS);
@@ -445,6 +454,42 @@ void JE_paramCheck(int argc, char *argv[])
 				exit(EXIT_FAILURE);
 			}
 			regress_bench_seconds = seconds;
+			break;
+		}
+		case 281: // --bloom=off|low|medium|high
+			if (!set_modern_quality_by_name(option.arg, &modern_bloom_quality))
+			{
+				logError("%s: bloom must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 282: // --lighting=off|low|medium|high
+			if (!set_modern_quality_by_name(option.arg, &modern_lighting_quality))
+			{
+				logError("%s: lighting must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 283: // --regress-bloom=off|low|medium|high
+		{
+			ModernQuality quality = MODERN_QUALITY_OFF;
+			if (!set_modern_quality_by_name(option.arg, &quality))
+			{
+				logError("%s: regress bloom must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_bloom_quality = (int)quality;
+			break;
+		}
+		case 284: // --regress-lighting=off|low|medium|high
+		{
+			ModernQuality quality = MODERN_QUALITY_OFF;
+			if (!set_modern_quality_by_name(option.arg, &quality))
+			{
+				logError("%s: regress lighting must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_lighting_quality = (int)quality;
 			break;
 		}
 			

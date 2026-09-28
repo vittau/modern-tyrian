@@ -19,6 +19,7 @@
 #include "modern.h"
 
 #include "logging.h"
+#include "modern_bloom.h"
 #include "opentyr.h"
 #include "video.h"
 
@@ -307,6 +308,8 @@ void modern_set_canvas_size(int w, int h)
 	modern_frame_state.src = NULL;
 	modern_frame_state.src_pitch = 0;
 	modern_frame_state.palette = NULL;
+	modern_frame_state.gameplay = false;
+	modern_frame_state.content_offset_x = 0;
 
 	// Scratch for the side panels' per-row colours (four h*3 buffers) and their
 	// per-column fade factors (w Q32 values).  Grows only when the canvas is
@@ -575,6 +578,10 @@ void modern_hud_begin_frame(void)
 
 void modern_init(void)
 {
+	// The bloom + dynamic-light pass lives in modern_bloom.c; it is the only
+	// registered effect pass.  It reads the bloom/lighting settings itself.
+	modern_register_pass(modern_bloom_pass);
+
 	modern_ready = true;
 	modern_update_canvas_size();
 }
@@ -664,6 +671,8 @@ void modern_deinit(void)
 	modern_frame_state.src = NULL;
 	modern_frame_state.src_pitch = 0;
 	modern_frame_state.palette = NULL;
+	modern_frame_state.gameplay = false;
+	modern_frame_state.content_offset_x = 0;
 }
 
 bool modern_screen_wide(void)
@@ -844,6 +853,11 @@ void modern_build_frame(SDL_Surface *src_surface)
 		modern_frame_offset_x = offset_x;
 		modern_frame_offset_y = 0;
 	}
+
+	// Context for the effect passes: a gameplay frame exposes the playfield
+	// rectangle (its left edge is the content offset on those frames).
+	frame->gameplay = gameplay;
+	frame->content_offset_x = modern_frame_offset_x;
 
 	for (size_t i = 0; i < modern_passes_count; ++i)
 		modern_passes[i](frame);
