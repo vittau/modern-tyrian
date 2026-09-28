@@ -160,6 +160,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] Trava de dados na regressão (`7909049`); referência no zip oficial e regressão na CI, verde em Linux, macOS e Windows (`b4f42b6`)
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
+- [ ] HUD Modern, layout (pedido do usuário, 2026-09-28): inverter os lados, com escudo, armadura e gerador/força no painel **direito**, como no original, e armas e sidekicks à esquerda. As barras desses três ficam **verticais** e um pouco mais compridas. Vale para 1P, 2P e arcade e para 16:10/16:9/21:9. Vai depois do merge de `hud-fade`, porque os dois mexem em `src/modern_hud.c`.
 
 ### Fase 3 — Opcional e cara
 - [ ] Separar as camadas de fundo (bg1, bg2, bg3, inimigos) em buffers próprios, preservando a matemática dos blends
