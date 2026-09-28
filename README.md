@@ -201,6 +201,12 @@ In Modern, Scaling Mode and Pixel Aspect are hidden: the picture is always the
 sharp-bilinear **Fit** at the original 1.2 pixel aspect, so there is no worse
 option to pick.
 
+The game's own **Detail Level** (in the in-game options: Low, Medium, High,
+Pentium) is pinned the same way: Modern always renders at **Pentium**, the full
+detail with the translucent second background layer and the level colour
+filters, and the row is hidden. Classic keeps the row and your choice, saved in
+`tyrian.cfg`; a fresh install defaults to Pentium there too.
+
 <p align="center">
   <img src="docs/screenshots/menu.png" alt="The in-game Game Menu widened to the Modern 16:9 canvas" width="100%">
 </p>
@@ -454,7 +460,9 @@ Every option, exactly as `./opentyrian --help` prints it:
 --regress-realtime           Replay a demo in a real window with the wall clock and log
                              presented-fps statistics (uses --regress-demo)
 --bench-seconds=N            Duration of --regress-realtime (default 20)
---regress-detail=M           Pin processor detail level M (1-6, default 2)
+--regress-detail=M           Pin processor detail level M (1-6, default 2; with
+                             --regress-modern the engine forces Pentium 4, or 6 for
+                             the SuperWild cheat, and logs any override)
 --regress-modern             Hash the Modern canvas in regress modes
 --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)
 --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)
