@@ -212,7 +212,12 @@ static Uint8 mb_light_col_w[DL_TAG_MAX][256 * 3];
 
 // Ceiling on the combined per-pixel glow before it is screen-blended.  Keeps a
 // dense volley of overlapping shots from saturating into a solid coloured blob;
-// the base pixel keeps its own detail above it.
+// the base pixel keeps its own detail above it.  Round 3 raised the gains by
+// 1.3x and re-checked the cap on the busiest scene (busy-f530, the densest
+// player-shot volley of the demos): building with the cap at 255 produced
+// byte-identical output, i.e. the combined glow never reaches 216 in these
+// scenes, so the cap does not clip the increase and was left unchanged (raising
+// it would only weaken the flood guard).
 #define MB_GLOW_CAP 216
 
 static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int light_threshold,
@@ -356,25 +361,28 @@ typedef struct
 	Uint8 iterations;
 } MbParams;
 
-// Three levels (round 2 retune).  Thresholds are back at the pre-tag values
-// (224/216): only the bright cores of an emitter feed the glow, so a cube or a
-// shot keeps its shape and the halo stays a soft rim.  The gains are about
-// 0.7x the pre-tag High/Low, so per object High is a little under the way the
-// object glowed before the tag (which also carried the background); Low is
-// exactly half of High.  The ambient is a step closer to 256 than before, since
-// with backgrounds excluded the unlit field would otherwise read darker.
+// Three levels (round 3, "light-plus30").  Thresholds stay at the round-2
+// pre-tag values (224/216): only the bright cores of an emitter feed the glow,
+// so a cube or a shot keeps its shape and the halo stays a soft rim.  The round
+// 2 gains measured ~0.7x the pre-tag High/Low and the user found High a little
+// soft once only a few object classes emit, so round 3 raises every gain by
+// about 1.3x (bloom 108->140 / 180->234, light 380->494 / 640->832).  Low is
+// still 0.6x High.  MB_GLOW_CAP was re-checked against the higher gains and does
+// not clip them (see the cap comment), so it is unchanged.  The ambient is
+// unchanged (a step closer to 256 than before, since with backgrounds excluded
+// the unlit field would otherwise read darker).
 static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 224,  2,   108, 256, 3 },  // low  (0.6x high's gain; the screen blend and
-	{ 224,  2,   180, 256, 3 },  // high  lighter ambient put the result ~0.5x)
+	{ 224,  2,   140, 256, 3 },  // low  (0.6x high's gain; the screen blend and
+	{ 224,  2,   234, 256, 3 },  // high  lighter ambient put the result ~0.5x)
 };
 
 static const MbParams mb_light_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 216,  2,   380, 252, 3 },  // low  (0.6x high's gain, see above)
-	{ 216,  2,   640, 248, 3 },  // high
+	{ 216,  2,   494, 252, 3 },  // low  (0.6x high's gain, see above)
+	{ 216,  2,   832, 248, 3 },  // high
 };
 
 // --- Explicit light sources (extension point) -------------------------------
