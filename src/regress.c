@@ -165,6 +165,35 @@ static void hash_bytes(Uint64 *hash, const Uint8 *data, size_t size)
 	}
 }
 
+// Hash a scalar as explicit little-endian bytes of a fixed width, so the
+// digest does not depend on the host's `long`/`int` widths or endianness.
+// The widths match what the native-size hashing produced on the LP64
+// baselines (macOS/Linux), so those baselines stay valid.
+static void hash_u8(Uint64 *hash, Uint8 v)
+{
+	hash_bytes(hash, &v, 1);
+}
+
+static void hash_u16le(Uint64 *hash, Uint16 v)
+{
+	const Uint8 b[2] = { (Uint8)v, (Uint8)(v >> 8) };
+	hash_bytes(hash, b, sizeof b);
+}
+
+static void hash_u32le(Uint64 *hash, Uint32 v)
+{
+	const Uint8 b[4] = { (Uint8)v, (Uint8)(v >> 8), (Uint8)(v >> 16), (Uint8)(v >> 24) };
+	hash_bytes(hash, b, sizeof b);
+}
+
+static void hash_u64le(Uint64 *hash, Uint64 v)
+{
+	Uint8 b[8];
+	for (int i = 0; i < 8; ++i)
+		b[i] = (Uint8)(v >> (8 * i));
+	hash_bytes(hash, b, sizeof b);
+}
+
 Uint64 regress_fnv1a(const void *data, size_t size)
 {
 	Uint64 hash = fnv_offset_basis;
@@ -187,53 +216,63 @@ static Uint64 regress_state_hash(void)
 {
 	Uint64 hash = fnv_offset_basis;
 
-	const unsigned long long rng = mt_rand_state_hash();
-	hash_bytes(&hash, (const Uint8 *)&rng, sizeof rng);
+	hash_u64le(&hash, (Uint64)mt_rand_state_hash());
 
 	for (int i = 0; i < 2; ++i)
 	{
 		const Player *p = &player[i];
 
-		hash_bytes(&hash, (const Uint8 *)&p->cash, sizeof p->cash);
+		// Scalars are hashed as explicit little-endian fixed-width values so
+		// the digest is identical on LP64 (macOS/Linux) and LLP64 (Windows,
+		// where `unsigned long` is 4 bytes).  `cash` is an unsigned long that
+		// fits in 32 bits, so zero-extending it to 64 bits reproduces the 8
+		// bytes the LP64 baselines hash; every other scalar keeps its width.
+		hash_u64le(&hash, (Uint64)p->cash);
 		hash_bytes(&hash, (const Uint8 *)&p->items, sizeof p->items);
 		hash_bytes(&hash, (const Uint8 *)&p->last_items, sizeof p->last_items);
-		hash_bytes(&hash, (const Uint8 *)&p->is_dragonwing, sizeof p->is_dragonwing);
-		hash_bytes(&hash, (const Uint8 *)&p->shield_max, sizeof p->shield_max);
-		hash_bytes(&hash, (const Uint8 *)&p->initial_armor, sizeof p->initial_armor);
-		hash_bytes(&hash, (const Uint8 *)&p->shot_hit_area_x, sizeof p->shot_hit_area_x);
-		hash_bytes(&hash, (const Uint8 *)&p->shot_hit_area_y, sizeof p->shot_hit_area_y);
-		hash_bytes(&hash, (const Uint8 *)&p->is_alive, sizeof p->is_alive);
-		hash_bytes(&hash, (const Uint8 *)&p->invulnerable_ticks, sizeof p->invulnerable_ticks);
-		hash_bytes(&hash, (const Uint8 *)&p->exploding_ticks, sizeof p->exploding_ticks);
-		hash_bytes(&hash, (const Uint8 *)&p->shield, sizeof p->shield);
-		hash_bytes(&hash, (const Uint8 *)&p->armor, sizeof p->armor);
-		hash_bytes(&hash, (const Uint8 *)&p->weapon_mode, sizeof p->weapon_mode);
-		hash_bytes(&hash, (const Uint8 *)&p->superbombs, sizeof p->superbombs);
-		hash_bytes(&hash, (const Uint8 *)&p->purple_balls_needed, sizeof p->purple_balls_needed);
-		hash_bytes(&hash, (const Uint8 *)&p->mouseX, sizeof p->mouseX);
-		hash_bytes(&hash, (const Uint8 *)&p->mouseY, sizeof p->mouseY);
-		hash_bytes(&hash, (const Uint8 *)&p->x, sizeof p->x);
-		hash_bytes(&hash, (const Uint8 *)&p->y, sizeof p->y);
-		hash_bytes(&hash, (const Uint8 *)p->old_x, sizeof p->old_x);
-		hash_bytes(&hash, (const Uint8 *)p->old_y, sizeof p->old_y);
-		hash_bytes(&hash, (const Uint8 *)&p->x_velocity, sizeof p->x_velocity);
-		hash_bytes(&hash, (const Uint8 *)&p->y_velocity, sizeof p->y_velocity);
-		hash_bytes(&hash, (const Uint8 *)&p->x_friction_ticks, sizeof p->x_friction_ticks);
-		hash_bytes(&hash, (const Uint8 *)&p->y_friction_ticks, sizeof p->y_friction_ticks);
-		hash_bytes(&hash, (const Uint8 *)&p->delta_x_shot_move, sizeof p->delta_x_shot_move);
-		hash_bytes(&hash, (const Uint8 *)&p->delta_y_shot_move, sizeof p->delta_y_shot_move);
-		hash_bytes(&hash, (const Uint8 *)&p->last_x_shot_move, sizeof p->last_x_shot_move);
-		hash_bytes(&hash, (const Uint8 *)&p->last_y_shot_move, sizeof p->last_y_shot_move);
-		hash_bytes(&hash, (const Uint8 *)&p->last_x_explosion_follow, sizeof p->last_x_explosion_follow);
-		hash_bytes(&hash, (const Uint8 *)&p->last_y_explosion_follow, sizeof p->last_y_explosion_follow);
+		hash_u8(&hash, p->is_dragonwing ? 1 : 0);
+		hash_u32le(&hash, (Uint32)p->shield_max);
+		hash_u32le(&hash, (Uint32)p->initial_armor);
+		hash_u32le(&hash, (Uint32)p->shot_hit_area_x);
+		hash_u32le(&hash, (Uint32)p->shot_hit_area_y);
+		hash_u8(&hash, p->is_alive ? 1 : 0);
+		hash_u32le(&hash, (Uint32)p->invulnerable_ticks);
+		hash_u32le(&hash, (Uint32)p->exploding_ticks);
+		hash_u32le(&hash, (Uint32)p->shield);
+		hash_u32le(&hash, (Uint32)p->armor);
+		hash_u32le(&hash, (Uint32)p->weapon_mode);
+		hash_u32le(&hash, (Uint32)p->superbombs);
+		hash_u32le(&hash, (Uint32)p->purple_balls_needed);
+		hash_u16le(&hash, p->mouseX);
+		hash_u16le(&hash, p->mouseY);
+		hash_u32le(&hash, (Uint32)p->x);
+		hash_u32le(&hash, (Uint32)p->y);
+		for (int j = 0; j < 20; ++j)
+			hash_u32le(&hash, (Uint32)p->old_x[j]);
+		for (int j = 0; j < 20; ++j)
+			hash_u32le(&hash, (Uint32)p->old_y[j]);
+		hash_u32le(&hash, (Uint32)p->x_velocity);
+		hash_u32le(&hash, (Uint32)p->y_velocity);
+		hash_u32le(&hash, (Uint32)p->x_friction_ticks);
+		hash_u32le(&hash, (Uint32)p->y_friction_ticks);
+		hash_u32le(&hash, (Uint32)p->delta_x_shot_move);
+		hash_u32le(&hash, (Uint32)p->delta_y_shot_move);
+		hash_u32le(&hash, (Uint32)p->last_x_shot_move);
+		hash_u32le(&hash, (Uint32)p->last_y_shot_move);
+		hash_u32le(&hash, (Uint32)p->last_x_explosion_follow);
+		hash_u32le(&hash, (Uint32)p->last_y_explosion_follow);
+		// sidekick/items are all fixed-width fields with no `long`, so their
+		// raw bytes are the same on LP64 and LLP64.
 		hash_bytes(&hash, (const Uint8 *)p->sidekick, sizeof p->sidekick);
 
 		const Uint8 lives = (p->lives != NULL) ? *p->lives : 0;
-		hash_bytes(&hash, &lives, sizeof lives);
+		hash_u8(&hash, lives);
 	}
 
 	// Enemies: every field except the two pointers (sprite2s, enemydatofs),
-	// whose addresses vary with the process layout.
+	// whose addresses vary with the process layout.  The struct holds only
+	// fixed-width fields plus those pointers, so the byte ranges (and the zero
+	// padding) are the same on LP64 and LLP64.
 	for (unsigned int i = 0; i < COUNTOF(enemy); ++i)
 	{
 		const Uint8 *base = (const Uint8 *)&enemy[i];
@@ -249,11 +288,11 @@ static Uint64 regress_state_hash(void)
 	hash_bytes(&hash, (const Uint8 *)playerShotData, sizeof playerShotData);
 	hash_bytes(&hash, (const Uint8 *)shotAvail, sizeof shotAvail);
 	hash_bytes(&hash, (const Uint8 *)boss_bar, sizeof boss_bar);
-	hash_bytes(&hash, (const Uint8 *)&tempW, sizeof tempW);
-	hash_bytes(&hash, (const Uint8 *)&eventLoc, sizeof eventLoc);
-	hash_bytes(&hash, (const Uint8 *)&curLoc, sizeof curLoc);
-	hash_bytes(&hash, (const Uint8 *)&levelTimer, sizeof levelTimer);
-	hash_bytes(&hash, (const Uint8 *)&levelTimerCountdown, sizeof levelTimerCountdown);
+	hash_u16le(&hash, tempW);
+	hash_u16le(&hash, eventLoc);
+	hash_u16le(&hash, curLoc);
+	hash_u8(&hash, levelTimer ? 1 : 0);
+	hash_u16le(&hash, levelTimerCountdown);
 	hash_bytes(&hash, (const Uint8 *)explosions, sizeof explosions);
 	hash_bytes(&hash, (const Uint8 *)superpixels, sizeof superpixels);
 	hash_bytes(&hash, (const Uint8 *)rep_explosions, sizeof rep_explosions);
