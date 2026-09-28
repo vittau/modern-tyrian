@@ -29,6 +29,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 int joystick_axis_threshold(int j, int value);
@@ -41,10 +42,14 @@ int joystick_repeat_delay = 300; // milliseconds, repeat delay for buttons
 bool joydown = false;            // any joystick buttons down, updated by poll_joysticks()
 bool ignore_joystick = false;
 
+int joystick_deadzone_override = -1; // < 0: use the cfg; >= 0: force every joystick
+
 int joysticks = 0;
 Joystick *joystick = NULL;
 
 static const int joystick_analog_max = 32767;
+#define JOYSTICK_SUBPIXEL 1024                        // sub-pixel units per pixel
+#define JOYSTICK_RESPONSE_KNEE (75 * JOYSTICK_SUBPIXEL / 100) // full speed at 75%
 
 // eliminates axis movement below the threshold
 int joystick_axis_threshold(int j, int value)
@@ -74,6 +79,139 @@ int joystick_axis_reduce(int j, int value)
 		return 0;
 	
 	return value / (3000 - 200 * joystick[j].sensitivity);
+}
+
+// integer square root (floor), so the Modern curve needs no libm and stays
+// deterministic for demos and network play
+static unsigned int joystick_isqrt(unsigned long long value)
+{
+	unsigned long long x = value, result = 0, bit = 1ULL << 62;
+	
+	while (bit > x)
+		bit >>= 2;
+	
+	while (bit != 0)
+	{
+		if (x >= result + bit)
+		{
+			x -= result + bit;
+			result = (result >> 1) + bit;
+		}
+		else
+		{
+			result >>= 1;
+		}
+		bit >>= 2;
+	}
+	
+	return (unsigned int)result;
+}
+
+// Modern response: radial dead zone, then a linear ramp from the dead zone to
+// the 75% point, applied to the stick magnitude so a diagonal is no faster than
+// an axis at the same deflection.  Returns the fraction in 1/1024 units.
+int joystick_modern_response(int x, int y, int deadzone_percent)
+{
+	if (deadzone_percent < JOYSTICK_DEADZONE_MIN)
+		deadzone_percent = JOYSTICK_DEADZONE_MIN;
+	else if (deadzone_percent > JOYSTICK_DEADZONE_MAX)
+		deadzone_percent = JOYSTICK_DEADZONE_MAX;
+	
+	const int deadzone = deadzone_percent * JOYSTICK_SUBPIXEL / 100;
+	
+	unsigned long long magnitude = joystick_isqrt((unsigned long long)((long long)x * x + (long long)y * y));
+	if (magnitude == 0)
+		return 0;
+	
+	// The stick vector is normalized by the axis range; a diagonal can exceed it,
+	// so clamp the magnitude to 1 (full deflection).
+	int m = (int)(magnitude * JOYSTICK_SUBPIXEL / joystick_analog_max);
+	if (m > JOYSTICK_SUBPIXEL)
+		m = JOYSTICK_SUBPIXEL;
+	
+	if (m <= deadzone)
+		return 0;
+	
+	int s = (int)((long long)(m - deadzone) * JOYSTICK_SUBPIXEL / (JOYSTICK_RESPONSE_KNEE - deadzone));
+	if (s > JOYSTICK_SUBPIXEL)
+		s = JOYSTICK_SUBPIXEL;
+	
+	return s;
+}
+
+// The Modern ceiling is the joystick's current full-deflection analog speed: the
+// original path adds joystick_axis_reduce() to mouseXC, clamps it to +/-30 and
+// draws (mouseXC +/- 3) / 4 pixels per tick.  Reusing that formula is the proof
+// that 100% of the curve is exactly as fast as the original -- never faster.
+int joystick_modern_max_step(int j)
+{
+	assert(j < joysticks);
+	
+	int reduced = joystick_axis_reduce(j, joystick_analog_max);
+	if (reduced > 30)
+		reduced = 30;
+	else if (reduced < 0)
+		reduced = 0;
+	
+	return (reduced + 3) / 4;
+}
+
+// Modern analog movement in whole pixels per tick.  The sub-pixel remainder is
+// kept per device so a very slow stick still creeps instead of sticking, and the
+// cursor is reset inside the dead zone so releasing the stick cannot leave a
+// stale nudge.  *velocity_target is the momentum the stick asks for: the legacy
+// +/-4 cap scaled by the curve fraction s, carried in 1/1024 units so an integer
+// velocity can still average a fractional target; -1 means the stick is centred
+// (inside the dead zone) and no momentum should be imposed.
+void joystick_analog_movement(int j, int *dx, int *dy, int *velocity_target)
+{
+	assert(j < joysticks);
+	
+	*dx = 0;
+	*dy = 0;
+	
+	const int x = joystick[j].x, y = joystick[j].y;
+	const int s = joystick_modern_response(x, y, joystick[j].deadzone);
+	
+	if (s == 0)
+	{
+		joystick[j].analog_subpixel[0] = 0;
+		joystick[j].analog_subpixel[1] = 0;
+		joystick[j].velocity_target_frac = 0;
+		*velocity_target = -1;
+		return;
+	}
+	
+	// Momentum target: 4 * s in 1/1024 px/tick, with a sub-tick carry so the
+	// integer velocity can sit at floor(target) or ceil(target) in the right
+	// proportion and average the fractional target.
+	const int target_fixed = s * JOYSTICK_MODERN_VELOCITY_MAX;
+	int target = target_fixed / JOYSTICK_SUBPIXEL;
+	joystick[j].velocity_target_frac += target_fixed % JOYSTICK_SUBPIXEL;
+	if (joystick[j].velocity_target_frac >= JOYSTICK_SUBPIXEL)
+	{
+		++target;
+		joystick[j].velocity_target_frac -= JOYSTICK_SUBPIXEL;
+	}
+	*velocity_target = target;
+	
+	const unsigned long long magnitude = joystick_isqrt((unsigned long long)((long long)x * x + (long long)y * y));
+	if (magnitude == 0)
+		return;
+	
+	const int max_step = joystick_modern_max_step(j);
+	
+	// speed in 1/1024 pixels per tick, then split along (x, y) / magnitude
+	const long long speed = (long long)s * max_step;
+	
+	joystick[j].analog_subpixel[0] += (int)((long long)x * speed / (long long)magnitude);
+	joystick[j].analog_subpixel[1] += (int)((long long)y * speed / (long long)magnitude);
+	
+	*dx = joystick[j].analog_subpixel[0] / JOYSTICK_SUBPIXEL;
+	*dy = joystick[j].analog_subpixel[1] / JOYSTICK_SUBPIXEL;
+	
+	joystick[j].analog_subpixel[0] -= *dx * JOYSTICK_SUBPIXEL;
+	joystick[j].analog_subpixel[1] -= *dy * JOYSTICK_SUBPIXEL;
 }
 
 // converts analog joystick axes to an angle
@@ -172,6 +310,11 @@ static int check_assigned(const Joystick *joy, const Joystick_assignment assignm
 void poll_joystick(int j)
 {
 	assert(j < joysticks);
+	
+	// A synthetic stick (--regress-stick) holds its raw axes directly and never
+	// touches SDL; the harness reads them like a real device.
+	if (joystick[j].injected)
+		return;
 	
 	if (joystick[j].handle == NULL)
 		return;
@@ -363,6 +506,38 @@ static void joystick_reindex_input_devices(int removed, int old_count)
 	}
 }
 
+// Installs one synthetic analog stick at a fixed raw axis position.  Used only
+// by regress mode (--regress-stick): the harness never opens a real controller,
+// yet JE_playerMovement then runs the whole analog path headless.  The raw x/y
+// feed joystick_axis_reduce()/joystick_analog_movement() exactly like a device
+// would, so Classic and Modern can be compared tick by tick.
+void joystick_inject_stick(int x, int y)
+{
+	if (joysticks == 0)
+	{
+		joystick = malloc(sizeof(*joystick));
+		if (joystick == NULL)
+			return;
+		memset(joystick, 0, sizeof(*joystick));
+		joysticks = 1;
+	}
+	
+	Joystick *const joy = &joystick[0];
+	joy->injected = true;
+	joy->is_gamepad = false;
+	joy->handle = NULL;
+	joy->gamepad = NULL;
+	joy->analog = true;
+	joy->sensitivity = 5;
+	joy->threshold = 5;
+	joy->deadzone = JOYSTICK_DEADZONE_DEFAULT;
+	joy->x = x;
+	joy->y = y;
+	joy->analog_subpixel[0] = 0;
+	joy->analog_subpixel[1] = 0;
+	joy->velocity_target_frac = 0;
+}
+
 // initializes SDL joystick system and loads assignments for joysticks found
 void init_joysticks(void)
 {
@@ -400,7 +575,14 @@ void init_joysticks(void)
 void deinit_joysticks(void)
 {
 	if (ignore_joystick)
+	{
+		// A regress run never opens a device, but --regress-stick installs a
+		// synthetic one; release it here so it cannot leak.
+		free(joystick);
+		joystick = NULL;
+		joysticks = 0;
 		return;
+	}
 	
 	for (int j = 0; j < joysticks; j++)
 	{
@@ -522,10 +704,12 @@ void reset_joystick_assignments(int j)
 		
 		set_assignment(&joystick[j].assignment[4][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_SOUTH, false);          // fire
 		set_assignment(&joystick[j].assignment[5][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_EAST, false);           // change fire
-		set_assignment(&joystick[j].assignment[6][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);  // left sidekick
-		set_assignment(&joystick[j].assignment[7][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false); // right sidekick
-		set_assignment(&joystick[j].assignment[8][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_BACK, false);           // in-game menu
-		set_assignment(&joystick[j].assignment[9][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_START, false);          // pause
+		set_assignment(&joystick[j].assignment[6][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_NORTH, false);          // left sidekick
+		set_assignment(&joystick[j].assignment[6][1], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);  // left sidekick (alt)
+		set_assignment(&joystick[j].assignment[7][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_WEST, false);           // right sidekick
+		set_assignment(&joystick[j].assignment[7][1], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false); // right sidekick (alt)
+		set_assignment(&joystick[j].assignment[8][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_START, false);          // in-game menu
+		set_assignment(&joystick[j].assignment[9][0], GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_BACK, false);           // pause
 		
 		joystick[j].analog = true;
 	}
@@ -566,6 +750,12 @@ void reset_joystick_assignments(int j)
 	
 	joystick[j].sensitivity = 5;
 	joystick[j].threshold = 5;
+	joystick[j].deadzone = joystick_deadzone_override >= 0
+		? joystick_deadzone_override
+		: JOYSTICK_DEADZONE_DEFAULT;
+	joystick[j].analog_subpixel[0] = 0;
+	joystick[j].analog_subpixel[1] = 0;
+	joystick[j].velocity_target_frac = 0;
 }
 
 static const char* const assignment_names[] =
@@ -594,6 +784,15 @@ bool load_joystick_assignments(Config *config, int j)
 	joystick[j].sensitivity = config_get_or_set_int_option(section, "sensitivity", 5);
 
 	joystick[j].threshold = config_get_or_set_int_option(section, "threshold", 5);
+	
+	joystick[j].deadzone = config_get_or_set_int_option(section, "deadzone", JOYSTICK_DEADZONE_DEFAULT);
+	if (joystick[j].deadzone < JOYSTICK_DEADZONE_MIN)
+		joystick[j].deadzone = JOYSTICK_DEADZONE_MIN;
+	else if (joystick[j].deadzone > JOYSTICK_DEADZONE_MAX)
+		joystick[j].deadzone = JOYSTICK_DEADZONE_MAX;
+	
+	if (joystick_deadzone_override >= 0)
+		joystick[j].deadzone = joystick_deadzone_override;
 	
 	for (size_t a = 0; a < COUNTOF(assignment_names); ++a)
 	{
@@ -627,6 +826,8 @@ bool save_joystick_assignments(Config *config, int j)
 	config_set_int_option(section, "sensitivity", joystick[j].sensitivity);
 	
 	config_set_int_option(section, "threshold", joystick[j].threshold);
+	
+	config_set_int_option(section, "deadzone", joystick[j].deadzone);
 	
 	for (size_t a = 0; a < COUNTOF(assignment_names); ++a)
 	{

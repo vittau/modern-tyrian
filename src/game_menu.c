@@ -109,6 +109,15 @@ static void clamp_joystick_config(void)
 		joystick_config %= joysticks;
 }
 
+// In Modern the analog stick uses the radial dead zone + response curve instead
+// of the legacy threshold reduction, so the setup screen shows the dead zone in
+// the threshold row.  Without a controller the row is disabled and the screen
+// keeps its classic layout (and its regress baseline unchanged).
+static bool joystick_screen_modern_curve(void)
+{
+	return presentation == PRESENTATION_MODERN && joysticks > 0;
+}
+
 /*** Functions ***/
 static Uint8 *playeritem_map(PlayerItems *items, uint i)
 {
@@ -496,7 +505,7 @@ void JE_itemScreen(void)
 				"JOYSTICK",
 				"ANALOG AXES",
 				" SENSITIVITY",
-				" THRESHOLD",
+				joystick_screen_modern_curve() ? " DEADZONE" : " THRESHOLD",
 				menuInt[6][1],
 				menuInt[6][4],
 				menuInt[6][2],
@@ -536,7 +545,12 @@ void JE_itemScreen(void)
 				{
 					if (!joystick[joystick_config].analog)
 						temp -= 3;
-					sprintf(value, "%d", i == 2 ? joystick[joystick_config].sensitivity : joystick[joystick_config].threshold);
+					if (i == 2)
+						sprintf(value, "%d", joystick[joystick_config].sensitivity);
+					else if (joystick_screen_modern_curve())
+						sprintf(value, "%d%%", joystick[joystick_config].deadzone);
+					else
+						sprintf(value, "%d", joystick[joystick_config].threshold);
 				}
 				else if (i < 14) // assignments
 				{
@@ -1449,10 +1463,20 @@ void JE_itemScreen(void)
 									joystick[joystick_config].sensitivity--;
 								break;
 							case 5:
-								if (joystick[joystick_config].threshold == 0)
-									joystick[joystick_config].threshold = 10;
+								if (joystick_screen_modern_curve())
+								{
+									if (joystick[joystick_config].deadzone <= JOYSTICK_DEADZONE_MIN)
+										joystick[joystick_config].deadzone = JOYSTICK_DEADZONE_MAX;
+									else
+										joystick[joystick_config].deadzone--;
+								}
 								else
-									joystick[joystick_config].threshold--;
+								{
+									if (joystick[joystick_config].threshold == 0)
+										joystick[joystick_config].threshold = 10;
+									else
+										joystick[joystick_config].threshold--;
+								}
 								break;
 							default:
 								break;
@@ -1546,8 +1570,17 @@ void JE_itemScreen(void)
 								joystick[joystick_config].sensitivity %= 11;
 								break;
 							case 5:
-								joystick[joystick_config].threshold++;
-								joystick[joystick_config].threshold %= 11;
+								if (joystick_screen_modern_curve())
+								{
+									joystick[joystick_config].deadzone++;
+									if (joystick[joystick_config].deadzone > JOYSTICK_DEADZONE_MAX)
+										joystick[joystick_config].deadzone = JOYSTICK_DEADZONE_MIN;
+								}
+								else
+								{
+									joystick[joystick_config].threshold++;
+									joystick[joystick_config].threshold %= 11;
+								}
 								break;
 							default:
 								break;
@@ -3030,8 +3063,17 @@ void JE_menuFunction(JE_byte select)
 		case 5:
 			if (joystick[joystick_config].analog)
 			{
-				joystick[joystick_config].threshold++;
-				joystick[joystick_config].threshold %= 11;
+				if (joystick_screen_modern_curve())
+				{
+					joystick[joystick_config].deadzone++;
+					if (joystick[joystick_config].deadzone > JOYSTICK_DEADZONE_MAX)
+						joystick[joystick_config].deadzone = JOYSTICK_DEADZONE_MIN;
+				}
+				else
+				{
+					joystick[joystick_config].threshold++;
+					joystick[joystick_config].threshold %= 11;
+				}
 			}
 			break;
 		case 16:
