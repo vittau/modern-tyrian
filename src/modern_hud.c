@@ -747,6 +747,17 @@ void modern_hud_draw(void)
 	hud_draw_message_strip();
 }
 
+// The intro has no gameplay tick yet, so only the message strip (bar + level
+// name) is drawn; the panels stay cleared.  modern_hud_draw() draws the same
+// strip on the first gameplay frame, so the level name simply carries over.
+void modern_hud_show_intro(void)
+{
+	if (!modern_hud_in_panels())
+		return;
+
+	hud_draw_message_strip();
+}
+
 void modern_hud_draw_timer(const char *label, const char *value, int brightness)
 {
 	if (!modern_hud_in_panels())

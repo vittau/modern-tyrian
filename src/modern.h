@@ -180,12 +180,38 @@ void modern_set_gameplay_hold(bool hold);
 void modern_set_in_level(bool in_level);
 bool modern_in_level_period(void);
 
+// Marks the level's intro presentation (the palette fade-in).  The intro is not
+// playfield-formatted data, so the compositor draws the playfield empty and
+// avoids copying the intro art's sidebar border into it.  Cleared before the
+// first gameplay frame.  Display-only.
+void modern_set_level_intro(bool intro);
+
+// The engine's level filter is applied in place to the playfield pixels
+// (JE_filterScreen -> drawlist_apply_filter_screen) before the playfield is
+// copied; the HUD panels and message strip are drawn into separate 8-bit
+// surfaces and never see that write.  The playfield code reports the applied
+// brightness offset here, the playfield copy takes the note, and
+// modern_build_frame() mirrors the offset on the HUD **only when it is part of a
+// brightness ramp** (see modern.c).  `int_` is the JE_filterScreen brightness
+// offset (-99 = none); the colour override (`col`) is deliberately never mirrored.
+void modern_note_playfield_filter(int int_);
+// Records whether the offset currently being noted is part of a brightness ramp
+// (filterFade at JE_filterScreen entry).  Called by JE_filterScreen; the
+// interpolated replay does not touch it, so it stays the tick's value.
+void modern_note_playfield_filter_fade(bool fade);
+void modern_capture_playfield_filter(void);
+
 // What the last modern_build_frame() did, for the harness assertion:
 // `gameplay` is true when the frame was requested as a gameplay frame, and
 // `gameplay_panels` when it additionally used the playfield + side-panel
 // composition (i.e. the classic sidebar was dropped).
 bool modern_last_frame_gameplay(void);
 bool modern_last_frame_gameplay_panels(void);
+
+// True when the last gameplay-composition frame mirrored a brightness *fade* on
+// the HUD panels/message strip (the level-start fade-in or another brightness
+// ramp).  False for a colour override or a static offset.
+bool modern_last_frame_hud_filtered(void);
 
 // Clears the relocated HUD panels and the message strip at a level start so the
 // first level frames cannot show the previous level's HUD.  No allocation.

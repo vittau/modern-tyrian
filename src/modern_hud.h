@@ -59,6 +59,13 @@ void modern_hud_draw(void);
 // stay where they were.
 void modern_hud_draw_timer(const char *label, const char *value, int brightness);
 
+// Prepares the message strip for the level intro: it draws the strip bar and
+// the level name (the same top line modern_hud_draw() draws once gameplay
+// starts), so the intro's level name is part of the level's palette fade.  The
+// panels stay empty/cleared.  No-op unless modern_hud_in_panels().  Display-only;
+// does not touch game state or tempW.
+void modern_hud_show_intro(void);
+
 // Where boss bar `bar` should be drawn in panel mode.  In 2-player bar b goes
 // in panel b; in 1-player both bars are stacked in the status (left) panel.
 // Returns false (leaving the out parameters alone) outside panel mode.

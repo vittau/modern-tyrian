@@ -104,10 +104,16 @@ static unsigned long regress_smooth_seen_events = 0;
 static unsigned regress_smooth_log_count = 0;
 
 // Gameplay-composition assertion (--regress-gameplay-check): while a level is
-// being presented in Modern, every frame must drop the classic sidebar.
+// being presented in Modern, every frame must drop the classic sidebar, and
+// every frame in a level brightness *fade ramp* must mirror that brightness on
+// the HUD (otherwise the panels flash at full brightness over the darkened
+// playfield).  A colour override or a static brightness offset is not mirrored.
 static unsigned long regress_gameplay_frames = 0;
 static unsigned long regress_gameplay_missing = 0;
 static char regress_gameplay_first[128] = "";
+static unsigned long regress_gameplay_filter_frames = 0;
+static unsigned long regress_gameplay_filter_missing = 0;
+static char regress_gameplay_filter_first[128] = "";
 
 static void regress_check_gameplay_composition(void)
 {
@@ -122,6 +128,26 @@ static void regress_check_gameplay_composition(void)
 			         "frame %lu: in-level frame used the full-frame composition "
 			         "(gameplay=%d)", regress_frame, modern_last_frame_gameplay() ? 1 : 0);
 		regress_gameplay_missing++;
+	}
+
+	// The engine darkens the playfield in place while a brightness ramp is
+	// running (the level-start fade-in and filterFade events); the HUD panels
+	// and message strip must mirror exactly that brightness ramp, or they show
+	// at full brightness over a dark playfield (the level-start flash).  A
+	// colour override or a static offset is deliberately NOT mirrored.
+	const bool level_fade = levelBrightness != -99 && explosionTransparent &&
+	                        filterFade && levelBrightnessChg != 0;
+	if (level_fade)
+	{
+		regress_gameplay_filter_frames++;
+		if (!modern_last_frame_hud_filtered())
+		{
+			if (regress_gameplay_filter_missing == 0)
+				snprintf(regress_gameplay_filter_first, sizeof regress_gameplay_filter_first,
+				         "frame %lu: brightness fade active (int=%d) but the HUD "
+				         "did not follow it", regress_frame, levelBrightness);
+			regress_gameplay_filter_missing++;
+		}
 	}
 }
 
@@ -869,9 +895,16 @@ void regress_finish(void)
 	{
 		logInfo("Gameplay composition check: %lu in-level Modern frames, %lu without the panels.",
 		        regress_gameplay_frames, regress_gameplay_missing);
+		logInfo("Gameplay fade check: %lu frames in a brightness fade, %lu where the HUD did not follow.",
+		        regress_gameplay_filter_frames, regress_gameplay_filter_missing);
 		if (regress_gameplay_missing != 0)
 		{
 			logError("Gameplay composition check FAILED: %s", regress_gameplay_first);
+			exit(EXIT_FAILURE);
+		}
+		if (regress_gameplay_filter_missing != 0)
+		{
+			logError("Gameplay fade check FAILED: %s", regress_gameplay_filter_first);
 			exit(EXIT_FAILURE);
 		}
 	}

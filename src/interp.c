@@ -140,6 +140,10 @@ static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alph
 	Uint8 *s = VGAScreenSeg->pixels;
 	int x, y, lightx, lighty, lightdist;
 
+	// Remember the level filter just applied to this playfield so the Modern
+	// compositor can fade/tint the HUD panels and message strip with it.
+	modern_capture_playfield_filter();
+
 	src = game->pixels;
 	src += 24;
 

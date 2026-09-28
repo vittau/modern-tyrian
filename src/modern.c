@@ -18,6 +18,7 @@
  */
 #include "modern.h"
 
+#include "config.h"
 #include "logging.h"
 #include "modern_bloom.h"
 #include "opentyr.h"
@@ -99,9 +100,29 @@ static bool modern_gameplay_hold = false;
 // menus present off this path and stay non-gameplay).
 static bool modern_in_level = false;
 
+// While set, the presented frame is the level's intro (the level name on the
+// message strip, an empty playfield).  The intro is not playfield-formatted
+// data, so modern_build_frame() must not copy it into the playfield (that would
+// leak the intro art's sidebar border column into the playfield); it draws the
+// playfield empty instead.
+static bool modern_level_intro = false;
+
 // What the last modern_build_frame() actually did, for the harness assertion.
 static bool modern_last_gameplay = false;
 static bool modern_last_panels = false;
+static bool modern_last_hud_filtered = false;
+
+// The level brightness offset currently baked into the playfield being
+// presented, and whether that offset is part of a brightness *ramp* (a
+// transition/fade).  JE_filterScreen()/the replay report the applied offset
+// here; the playfield copy takes the note.  The HUD follows only a ramp, never a
+// static offset (see modern_hud_fade_active()).  -99 means no offset, matching
+// JE_filterScreen().
+static int modern_playfield_filter_int = -99;
+static bool modern_playfield_filter_fade = false;
+static bool modern_playfield_filter_pending = false;
+static int modern_frame_filter_int = -99;
+static bool modern_frame_filter_fade = false;
 
 // Row colours for the side panels: [left pre][right pre][left blur][right blur],
 // 3 bytes each.  Allocated by modern_set_canvas_size() for the canvas height,
@@ -231,6 +252,7 @@ static bool modern_frame_edge_flat(const ModernFrame *frame);
 static bool modern_edge_column_flat(const ModernFrame *frame, int x0, int x1);
 static void modern_composite_hud(ModernFrame *frame, int frame_x);
 static void modern_composite_message(ModernFrame *frame, int frame_x);
+static bool modern_hud_fade_active(void);
 static void modern_set_hud_surface(SDL_Surface **surface, int *stored_w, int panel_w);
 static void modern_set_message_surface(int playfield_w);
 
@@ -311,6 +333,34 @@ bool modern_last_frame_gameplay_panels(void)
 bool modern_in_level_period(void)
 {
 	return modern_in_level;
+}
+
+void modern_set_level_intro(bool intro)
+{
+	modern_level_intro = intro;
+}
+
+void modern_note_playfield_filter(int int_)
+{
+	modern_playfield_filter_int = int_;
+	modern_playfield_filter_pending = true;
+}
+
+void modern_note_playfield_filter_fade(bool fade)
+{
+	modern_playfield_filter_fade = fade;
+}
+
+void modern_capture_playfield_filter(void)
+{
+	modern_frame_filter_int = modern_playfield_filter_pending ? modern_playfield_filter_int : -99;
+	modern_frame_filter_fade = modern_playfield_filter_pending ? modern_playfield_filter_fade : false;
+	modern_playfield_filter_pending = false;
+}
+
+bool modern_last_frame_hud_filtered(void)
+{
+	return modern_last_hud_filtered;
 }
 
 void modern_register_pass(ModernPassFunction pass)
@@ -787,6 +837,7 @@ void modern_build_frame(SDL_Surface *src_surface)
 	modern_gameplay_frame = false;
 	modern_last_gameplay = gameplay;
 	modern_last_panels = false;
+	modern_last_hud_filtered = false;
 
 	modern_last_kind = MODERN_FRAME_BLUR;
 	modern_last_split_l = modern_last_split_r = 0;
@@ -812,13 +863,30 @@ void modern_build_frame(SDL_Surface *src_surface)
 		const int copy_w = MIN((int)src_surface->w, MODERN_PLAYFIELD_W);
 		const int copy_h = MIN(MIN((int)src_surface->h, frame->h), MODERN_PLAYFIELD_H);
 
-		for (int y = 0; y < copy_h; ++y)
+		if (modern_level_intro)
 		{
-			const Uint8 *src = frame->src + (size_t)y * frame->src_pitch;
-			Uint32 *dst = frame->pixels + (size_t)y * frame->w + playfield_x;
+			// The level intro art is a full-frame picture, not a playfield
+			// buffer; copying its first 264 columns would leak its sidebar
+			// border into the playfield.  Its playfield area is empty, so draw
+			// it as the level's background index (the palette may not be black).
+			const Uint32 empty = rgb_palette[0];
+			for (int y = 0; y < copy_h; ++y)
+			{
+				Uint32 *dst = frame->pixels + (size_t)y * frame->w + playfield_x;
+				for (int x = 0; x < copy_w; ++x)
+					dst[x] = empty;
+			}
+		}
+		else
+		{
+			for (int y = 0; y < copy_h; ++y)
+			{
+				const Uint8 *src = frame->src + (size_t)y * frame->src_pitch;
+				Uint32 *dst = frame->pixels + (size_t)y * frame->w + playfield_x;
 
-			for (int x = 0; x < copy_w; ++x)
-				dst[x] = rgb_palette[src[x]];
+				for (int x = 0; x < copy_w; ++x)
+					dst[x] = rgb_palette[src[x]];
+			}
 		}
 
 		const int right_x = playfield_x + MODERN_PLAYFIELD_W;
@@ -827,6 +895,7 @@ void modern_build_frame(SDL_Surface *src_surface)
 
 		modern_composite_hud(frame, playfield_x);
 		modern_composite_message(frame, playfield_x);
+		modern_last_hud_filtered = modern_hud_fade_active();
 
 		// Mouse mapping follows the playfield on gameplay frames.
 		modern_frame_offset_x = playfield_x;
@@ -927,6 +996,43 @@ void modern_build_frame(SDL_Surface *src_surface)
 	modern_cursor_h = 0;
 }
 
+// The engine filters the *playfield* pixels in place (JE_filterScreen ->
+// drawlist_apply_filter_screen): a low-nibble brightness offset and, when
+// `col != -99`, a high-nibble colour override (the hue).  The Modern HUD panels
+// and message strip are composed from separate surfaces, so modern_build_frame()
+// mirrors a *subset* of that filter on the HUD.
+//
+// Exact rule: the HUD applies ONLY the brightness offset, and only while it is
+// part of a brightness ramp (a transition/fade) — the level-start fade-in and a
+// filterFade event such as E4:L12.  The colour override is never applied (the
+// HUD is interface and must keep its own colours), and a static brightness
+// offset that persists is never applied (the HUD must stay readable).  The rule
+// is decided where the engine applies the filter (`modern_note_playfield_filter_fade`
+// from JE_filterScreen) and travels with the captured offset, so it is exact
+// even on the ramp's last frame, when the engine has already cleared filterFade.
+//
+// `modern_frame_filter_int` is the captured offset; `modern_frame_filter_fade`
+// is its ramp flag.  `explosionTransparent` mirrors the guard in
+// drawlist_apply_filter_screen() (without it the engine does not apply the
+// offset at all).
+static bool modern_hud_fade_active(void)
+{
+	return modern_frame_filter_int != -99 &&
+	       modern_frame_filter_fade &&
+	       explosionTransparent;
+}
+
+static Uint8 modern_hud_faded_index(Uint8 v)
+{
+	if (modern_frame_filter_int != -99 && modern_frame_filter_fade && explosionTransparent)
+	{
+		const unsigned int temp = (unsigned int)((v & 0x0f) + modern_frame_filter_int);
+		v = (Uint8)((v & 0xf0) | (temp >= 0x1f ? 0 : (temp >= 0x0f ? 0x0f : temp)));
+	}
+
+	return v;
+}
+
 // Copies the non-transparent pixels of one HUD panel surface over the canvas
 // side region starting at `dst_x`.  `panel_w` is the visible panel width; the
 // surface's extra MODERN_HUD_PANEL_PAD columns are never composited.
@@ -942,8 +1048,9 @@ static void modern_blit_hud_surface(const ModernFrame *frame, const SDL_Surface 
 
 		for (int x = 0; x < cols; ++x)
 		{
+			// Transparency is decided on the surface index, before the fade.
 			if (src[x] != 0)
-				dst[x] = rgb_palette[src[x]];
+				dst[x] = rgb_palette[modern_hud_faded_index(src[x])];
 		}
 	}
 }
@@ -977,7 +1084,7 @@ static void modern_composite_message(ModernFrame *frame, int frame_x)
 		Uint32 *dst = frame->pixels + (size_t)(MODERN_PLAYFIELD_H + y) * frame->w + frame_x;
 
 		for (int x = 0; x < cols; ++x)
-			dst[x] = rgb_palette[src[x]];
+			dst[x] = rgb_palette[modern_hud_faded_index(src[x])];
 	}
 }
 

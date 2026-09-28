@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "drawlist.h"
+#include "modern.h"
 #include "mtrand.h"
 #include "opentyr.h"
 #include "video.h"
@@ -272,6 +273,11 @@ void draw_background_3(SDL_Surface *surface)
 
 void JE_filterScreen(JE_shortint col, JE_shortint int_)
 {
+	// Whether this applied offset is a step of a brightness ramp.  Captured
+	// before the bookkeeping so the ramp's last step (which clears filterFade)
+	// still counts.  Drives whether the Modern HUD mirrors the offset.
+	modern_note_playfield_filter_fade(filterFade);
+
 	if (filterFade)
 	{
 		levelBrightness += levelBrightnessChg;
@@ -300,6 +306,11 @@ void drawlist_apply_filter_screen(SDL_Surface *surface, JE_shortint col, JE_shor
 	Uint8 *s = NULL; /* screen pointer, 8-bit specific */
 	int x, y;
 	unsigned int temp;
+
+	// The Modern compositor recomposes the HUD panels/message strip from
+	// separate surfaces; report the brightness offset baked into this playfield
+	// so it can mirror the fade on them.  Display-only.
+	modern_note_playfield_filter(int_);
 
 	if (col != -99 && filtrationAvail)
 	{
