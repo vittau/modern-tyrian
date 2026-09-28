@@ -32,7 +32,7 @@
 #       libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev \
 #       libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev \
 #       libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libgbm-dev \
-#       libdrm-dev libdbus-1-dev libudev-dev wayland-protocols
+#       libdrm-dev libdbus-1-dev libudev-dev libusb-1.0-0-dev wayland-protocols
 #
 # Usage: ./make_linux.sh [--deps-only] [data-dir]
 #   (default data dir: ./data, fetched if missing)

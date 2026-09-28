@@ -28,4 +28,14 @@
 
 void logFatal(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VARARG_FUNC(1);
 
+// Mirror every log message to `path` (truncating it) while still sending it to
+// the default destination (stderr).  Returns false if the file can't be opened.
+bool logOpenFile(const char *path);
+bool logFileIsOpen(void);
+
+// The path given by --log-file=PATH (or --log-file PATH) on the command line,
+// else NULL.  Scanned before SDL_Init()/loadConfiguration() so the log starts
+// before anything is configured.
+const char *logFileFromArgs(int argc, char *argv[]);
+
 #endif /* LOGGING_H */

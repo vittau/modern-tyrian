@@ -262,6 +262,19 @@ static void loadOpenTyrianConfig(void)
 	vfx_level = VFX_LOW;
 	starfield_set_speed_percent(25);
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
+
+	// Steam Deck first-run defaults.  A Deck is a 1280x800 16:10 handheld in a
+	// fullscreen game-scope session, so start fullscreen with the Modern canvas
+	// following the display ("auto" is exactly 16:10 at 1280x800 and still
+	// right on a docked 16:9 TV).  Any stored opentyrian.cfg overrides all three
+	// (it always writes fullscreen, presentation and aspect), so an existing
+	// install is never changed, and nothing changes off the Deck.
+	if (steamDeck())
+	{
+		fullscreen_display = 0;
+		presentation = PRESENTATION_MODERN;
+		modern_aspect = MODERN_ASPECT_AUTO;
+	}
 	
 	Config *config = &opentyrian_config;
 
