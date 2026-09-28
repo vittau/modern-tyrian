@@ -3570,19 +3570,24 @@ redo:
 							{
 								// Sub-pixel displacement from the response curve,
 								// plus the momentum the curve asks for (the legacy
-								// +/-4 velocity cap scaled by s, with a sub-tick
-								// carry).  The controller below turns that target
-								// into the transmitted +/-1 accel.
-								int analogDX, analogDY, velocityTarget;
-								joystick_analog_movement(j, &analogDX, &analogDY, &velocityTarget);
+								// +/-4 velocity cap split per axis by the same
+								// projection as the step, so cross-axis noise
+								// contributes ~0 instead of the full target).
+								// The controller below turns that target into the
+								// transmitted +/-1 accel.
+								int analogDX, analogDY, velocityTargetX, velocityTargetY;
+								joystick_analog_movement(j, &analogDX, &analogDY, &velocityTargetX, &velocityTargetY);
 								analogMoveX += analogDX;
 								analogMoveY += analogDY;
-								if (velocityTarget >= 0)
+								if (velocityTargetX >= 0)
 								{
-									if (joystick[j].x > 0) { stickVelX += velocityTarget; stickDriveX = true; }
-									else if (joystick[j].x < 0) { stickVelX -= velocityTarget; stickDriveX = true; }
-									if (joystick[j].y > 0) { stickVelY += velocityTarget; stickDriveY = true; }
-									else if (joystick[j].y < 0) { stickVelY -= velocityTarget; stickDriveY = true; }
+									if (joystick[j].x > 0) { stickVelX += velocityTargetX; stickDriveX = true; }
+									else if (joystick[j].x < 0) { stickVelX -= velocityTargetX; stickDriveX = true; }
+								}
+								if (velocityTargetY >= 0)
+								{
+									if (joystick[j].y > 0) { stickVelY += velocityTargetY; stickDriveY = true; }
+									else if (joystick[j].y < 0) { stickVelY -= velocityTargetY; stickDriveY = true; }
 								}
 							}
 							else

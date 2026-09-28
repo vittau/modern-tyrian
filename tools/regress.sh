@@ -432,6 +432,20 @@ run_case "stick-modern-partial-script-d2" \
 	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
 	--regress-frames=600 --regress-modern --regress-stick=16383,0
 pairs=$((pairs + 1))
+# Cross-axis noise: a full X push with a small -Y offset (the bottom wall hides
+# +Y) must not drift diagonally, so the momentum target is split per axis and a
+# near-axis push is snapped straight.  This would have failed before the fix.
+run_case "stick-modern-noise-script-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=600 --regress-modern --regress-stick=32767,-300
+pairs=$((pairs + 1))
+# A 20% axial crawl must advance with a Bresenham-like step (consecutive ticks
+# differ by at most 1 px), with no momentum bursts.  This would have failed
+# before the fix (bursty 0,2,0,2...).
+run_case "stick-modern-crawl-script-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=600 --regress-modern --regress-stick=6553,0
+pairs=$((pairs + 1))
 
 # --- Modern VFX (Fase 2) ------------------------------------------------------
 #
