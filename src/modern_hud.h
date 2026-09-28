@@ -29,20 +29,20 @@
 // in step 1 (see src/modern.h: modern_hud_surface(), modern_hud_begin_frame()).
 // This module owns the layout and every relocated element:
 //
-//   * player status: name, extra lives, cash, superbombs, shield/armor values
-//     and bars, generator;
+//   * ship status: name, extra lives, cash, superbombs and the special-weapon
+//     icon, together with the shield/armor values and the three vertical bars
+//     (shield, armor, power reserve);
 //   * armament: front/rear weapon name, power pips and rear firing mode;
-//     left/right sidekick name, ammo or charge gauge;
-//   * the step-1 globals: special-weapon icon, boss bars, level timer and the
-//     cheat notice.
+//     left/right sidekick name and ammo or charge gauge;
+//   * the step-1 globals: boss bars, level timer and the cheat notice.
 //
 // Layouts:
-//   * 1 player: the status panel is the left one, the armament panel the right
-//     one (mirrors the original sidebar, which puts the ship status on the left
-//     edge of the playfield and the armament on the right sidebar).
-//   * 2 players: each player gets their own panel, both drawn compact (status
-//     followed by armament); player 2's panel is right-aligned toward the outer
-//     screen edge.
+//   * 1 player: the armament is the left panel; the ship status lives in the
+//     right panel, where the original sidebar kept shield/armor/power.  Shield,
+//     armor and power are vertical bars filling bottom-up.
+//   * 2 players: each player gets their own panel (the compact layout, status
+//     then armament, both with the vertical vitals); player 2's panel is
+//     right-aligned toward the outer screen edge.
 //
 // Everything is on the original 320x200 logical grid, drawn with the game's own
 // fonts/sprites and procedural frames; the code only reads game state.
@@ -54,9 +54,10 @@
 // untouched.
 void modern_hud_draw(void);
 
-// Draws the level timer (label + value) in the status panel.  Called from the
-// exact spot of the original level-timer draw so its condition and side effects
-// stay where they were.
+// Draws the level timer (label + value) in the armament panel (the left one in
+// single player, player 1's panel in two player).  Called from the exact spot
+// of the original level-timer draw so its condition and side effects stay where
+// they were.
 void modern_hud_draw_timer(const char *label, const char *value, int brightness);
 
 // Prepares the message strip for the level intro: it draws the strip bar and
@@ -67,9 +68,9 @@ void modern_hud_draw_timer(const char *label, const char *value, int brightness)
 void modern_hud_show_intro(void);
 
 // Where boss bar `bar` should be drawn in panel mode.  In 2-player bar b goes
-// in panel b; in 1-player both bars are stacked in the status (left) panel.
-// Returns false (leaving the out parameters alone) outside panel mode.
-// `half_width` is the drawn half-width (the original bar is 25).
+// in panel b; in 1-player both bars are stacked at the bottom of the armament
+// (left) panel.  Returns false (leaving the out parameters alone) outside panel
+// mode.  `half_width` is the drawn half-width (the original bar is 25).
 bool modern_hud_boss_target(int bar, bool two_player, SDL_Surface **surface, int *cx, int *y, int *half_width);
 
 #endif /* MODERN_HUD_H */
