@@ -1,0 +1,99 @@
+name: Regression (full sweeps)
+
+# The normal per-push regression pass already includes the representative
+# replay/interp identity cases.  The full --replay-check and --interp-check
+# sweeps (every demo and every synthetic scenario at every detail level) take
+# long enough that they should not gate every push, so they only run when this
+# workflow is triggered by hand from the Actions tab.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux x86_64 (full sweeps)
+    runs-on: ubuntu-22.04
+    env:
+      PKG_CONFIG_PATH: ${{ github.workspace }}/build/sdl/lib/pkgconfig
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # git describe --tags for the version string
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config curl unzip \
+            libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libwayland-dev libxkbcommon-dev libdecor-0-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libgbm-dev libdrm-dev \
+            libdbus-1-dev libudev-dev wayland-protocols libpipewire-0.3-dev
+      - name: Cache static SDL3 build
+        uses: actions/cache@v6
+        with:
+          path: build/sdl
+          key: sdl3-static-x86_64-${{ hashFiles('make_linux.sh') }}
+      - name: Build static SDL3 + SDL3_net (deps only)
+        run: ./make_linux.sh --deps-only
+      - name: Cache game data
+        uses: actions/cache@v6
+        with:
+          path: data
+          key: tyrian21-data-${{ hashFiles('test/regress/data-manifest.txt') }}
+      - name: Fetch game data
+        run: ./get_data.sh
+      - name: Build (release, static SDL3)
+        run: make -j"$(nproc)"
+      - name: Full replay-check sweep
+        env:
+          REGRESS_SKIP_BUILD: "1"
+        run: make regress-replay
+      - name: Full interpolation-check sweep
+        env:
+          REGRESS_SKIP_BUILD: "1"
+        run: make regress-interp
+      - name: Upload regression output on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-actual-linux-x86_64-full
+          path: test/regress/actual
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS arm64 (full sweeps)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install build dependencies
+        run: brew install pkgconf sdl3 sdl3_net
+      - name: Cache game data
+        uses: actions/cache@v6
+        with:
+          path: data
+          key: tyrian21-data-${{ hashFiles('test/regress/data-manifest.txt') }}
+      - name: Fetch game data
+        run: ./get_data.sh
+      - name: Build (release)
+        run: make -j"$(sysctl -n hw.ncpu)"
+      - name: Full replay-check sweep
+        env:
+          REGRESS_SKIP_BUILD: "1"
+        run: make regress-replay
+      - name: Full interpolation-check sweep
+        env:
+          REGRESS_SKIP_BUILD: "1"
+        run: make regress-interp
+      - name: Upload regression output on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-actual-macos-full
+          path: test/regress/actual
+          if-no-files-found: ignore

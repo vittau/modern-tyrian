@@ -39,7 +39,7 @@ jobs:
           # still caches the resulting environment between runs.
           update: true
           install: >-
-            make git curl unzip zip
+            make git curl unzip zip diffutils perl
             ${{ matrix.prefix }}-cc
             ${{ matrix.prefix }}-pkgconf
             ${{ matrix.prefix }}-sdl3
@@ -49,18 +49,34 @@ jobs:
       - name: Smoke test
         run: ./opentyrian.exe --help
       - name: Cache game data
+        # Keyed on the data lock's manifest hash (the official Tyrian 2.1 zip
+        # fetched by ./get_data.sh); a manifest change re-downloads and the
+        # script is a no-op when the cache hits.
         uses: actions/cache@v6
         with:
           path: data
-          key: tyrian21-data-v1
+          key: tyrian21-data-${{ hashFiles('test/regress/data-manifest.txt') }}
       - name: Fetch game data
-        run: ./get_data.sh data
+        run: ./get_data.sh
       - name: Build (release)
         run: |
           make clean
           make -j"$(nproc)"
       - name: Smoke test
         run: ./opentyrian.exe --help
+      - name: Regression suite
+        # Normal pass; the full --replay-check/--interp-check sweeps live in the
+        # manually triggered "Regression (full sweeps)" workflow.
+        env:
+          REGRESS_SKIP_BUILD: "1"   # built just above with the release flags
+        run: make regress
+      - name: Upload regression output on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-actual-windows-${{ matrix.arch }}
+          path: test/regress/actual
+          if-no-files-found: ignore
       - name: Package (exe + DLLs + game data)
         run: |
           mkdir -p dist/opentyrian/licenses

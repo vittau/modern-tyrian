@@ -83,12 +83,33 @@ jobs:
           find "$DESTDIR" -type f | grep . && exit 1
           rm -rf "$DESTDIR"
       - name: Cache game data
+        # The reference data is the official Tyrian 2.1 zip fetched by
+        # ./get_data.sh.  Key the cache on the data lock's manifest hash, so a
+        # manifest change (a new reference data set) misses the cache and
+        # re-downloads; ./get_data.sh is idempotent and tools/regress.sh
+        # verifies the restored copy against the same manifest before running.
         uses: actions/cache@v6
         with:
           path: data
-          key: tyrian21-data-v1
+          key: tyrian21-data-${{ hashFiles('test/regress/data-manifest.txt') }}
+      - name: Fetch game data
+        run: ./get_data.sh
       - name: Build (make_linux.sh, static SDL3)
         run: ./make_linux.sh
+      - name: Regression suite
+        # The normal pass includes the representative replay/interp identity
+        # cases.  The full --replay-check/--interp-check sweeps are in the
+        # manually triggered "Regression (full sweeps)" workflow.
+        env:
+          REGRESS_SKIP_BUILD: "1"   # make_linux.sh already built ./opentyrian
+        run: make regress
+      - name: Upload regression output on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-actual-linux-${{ matrix.arch }}
+          path: test/regress/actual
+          if-no-files-found: ignore
       - name: Package (binary + game data)
         run: |
           mkdir -p dist/opentyrian/licenses
