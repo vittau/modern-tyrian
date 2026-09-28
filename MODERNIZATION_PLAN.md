@@ -515,3 +515,12 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - O caso do menu ganhou um caso de quadros próprio para que `tools/regress.sh --update` gere o baseline dele (`19059cc`).
 - Novo pedido do usuário: controle analógico com zona morta configurável e curva progressiva até 75% (§6, Fase 2, junto do Steam Deck). O jogo já tem analógico proporcional; a curva nova fica atrás do Modern.
 - **Saves do usuário apagados pela regressão (corrigido).** Os casos `--regress-script` jogam uma fase real e chegam ao autosave "LAST LEVEL" do início da fase; como a regressão não carrega os saves, `saveSaves()` gravava a tabela vazia em `~/.config/opentyrian/tyrian.sav`. Cada `make regress` (meu ou dos agentes) apagava os jogos salvos do usuário. Agora regressão e selftest cortam o acesso ao diretório do usuário (`userFilesDisable()`); config e saves nunca são gravados nesses modos.
+
+### 2026-09-28 — Quatro agentes em paralelo
+- O usuário aprovou paralelizar onde possível. Em worktrees próprias:
+  - `quit-centre`: centralizar a caixa do modal de Quit (a correção anterior centralizou a sombra, e a caixa ficou ~18 px à esquerda);
+  - `smooth4`: etapa 4 do movimento suave (auditar o que ainda anda a 35 Hz; fades de paleta, flashes e HUD no quadro interpolado; entrada "Smooth motion" em Setup › Graphics);
+  - `analog`: zona morta radial de 0–20%, velocidade progressiva até 75% de input, botões padrão e remapeáveis;
+  - `deck`: prontidão do `.tar.gz` Linux para o Steam Deck (glibc, backends do SDL3, padrões em 1280×800, logs, guia "Add to Steam").
+- O pacote Linux da CI já inclui os dados do Tyrian 2.1 (freeware), enquanto o item do Steam Deck no plano diz o contrário. O agente `deck` vai levantar prós e contras, e a decisão fica com o usuário.
+- As partículas de ambiente continuam sem posição definida na fila.
