@@ -2185,6 +2185,25 @@ draw_player_shot_loop_end:
 		// Ensure gameplay input does not affect pause or menu.
 		mouseClearInput();
 
+		// Regression harness: open the requested in-level menu on the run's
+		// last presented frame so the gameplay-composition check and snapshots
+		// cover it.  Regress-only; inert outside regress mode.
+		switch (regress_take_menu_request())
+		{
+		case REGRESS_MENU_INGAME:
+			ingamemenu_pressed = true;
+			break;
+		case REGRESS_MENU_PAUSE:
+			pause_pressed = true;
+			break;
+		case REGRESS_MENU_HELP:
+			JE_inGameHelp();
+			skipStarShowVGA = true;
+			break;
+		default:
+			break;
+		}
+
 		if (keyboardHasInput())
 		{
 			// Pause, menu, and cheats are triggered on keysactive, so this is fine.

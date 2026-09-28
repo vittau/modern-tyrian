@@ -71,6 +71,25 @@ extern double regress_bench_seconds;  // benchmark duration (default 20)
 extern int regress_bloom_quality;     // ModernQuality pinned in regress mode; -1 = off
 extern int regress_lighting_quality;  // ModernQuality pinned in regress mode; -1 = off
 
+// --regress-menu=NAME: open an in-level presentation screen (the ESC in-game
+// menu, the P pause, or the F1 in-game help) on the run's last presented frame
+// (--regress-frames - 1), so the Modern gameplay-composition check and the
+// snapshots can cover it.  Those screens present straight through JE_showVGA
+// and then block on input, so the frame cap ends the run on the first menu
+// frame.  Regress-only: the request is inert outside regress mode and when the
+// run has no frame cap.
+#define REGRESS_MENU_NONE   0
+#define REGRESS_MENU_INGAME 1
+#define REGRESS_MENU_PAUSE  2
+#define REGRESS_MENU_HELP   3
+
+extern int regress_menu_kind;  // REGRESS_MENU_* requested; NONE = disabled
+
+// Returns the requested REGRESS_MENU_* exactly once, on the frame the run should
+// show it, then NONE.  Called from the level loop; a no-op unless a
+// --regress-menu was requested and the run has a frame cap.
+int regress_take_menu_request(void);
+
 // True when regress mode was requested.
 bool regress_active(void);
 

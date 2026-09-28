@@ -171,8 +171,11 @@ void modern_mark_gameplay_frame(void);
 // Holds every presented frame to the gameplay composition until cleared.  The
 // level intro (and its palette fade) and the end-of-level animation present
 // through JE_showVGA directly rather than JE_starShowVGA, so they bracket their
-// presentation block with this.  The pause and in-game menus are outside those
-// blocks and stay non-gameplay.  Consumed by modern_build_frame().
+// presentation block with this.  The in-level pause, in-game menu and in-game
+// help screens present the same way, so they hold it for as long as they are
+// shown (the level's playfield stays on screen with the Modern HUD panels
+// instead of switching back to the classic full-frame composition).  Consumed
+// by modern_build_frame().
 void modern_set_gameplay_hold(bool hold);
 
 // Marks the level's presentation period (level setup .. the next level load).
@@ -266,6 +269,14 @@ int modern_side_panel_width(void);
 // is game_screen x 24..287).  `font` is a shapes font; `classic_x` is the x the
 // game passes to the draw call today.  Display-only; no game state is touched.
 int modern_playfield_center_x(const char *s, unsigned int font, int classic_x);
+
+// Same as modern_playfield_center_x() for text drawn in the presented frame's
+// own playfield-local coordinates, whose column 0 is the playfield's left edge
+// (the in-level pause/menu screens draw into VGAScreenSeg).  In Classic (and
+// Modern 4:3) the full 320-px frame is shown, so `classic_x` is returned
+// unchanged and the output stays byte-exact.  In panel mode it re-centres the
+// text by its measured width inside the 264-px playfield window.  Display-only.
+int modern_playfield_center_local_x(const char *s, unsigned int font, int classic_x);
 
 // The off-screen 8-bit surface for side panel `player` (0 = left/P1,
 // 1 = right/P2), index 0 transparent, or NULL when modern_hud_in_panels() is

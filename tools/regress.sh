@@ -873,6 +873,17 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	run_gameplay_case "gameplay-wide-scenario-spotlight-d3" "modern-wide-scenario-spotlight-d3" \
 		--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9
 	pairs=$((pairs + 1))
+
+	# In-game menu composition (pause-hud): --regress-menu opens the ESC in-game
+	# menu on the run's last presented frame, so the gameplay-composition check
+	# sees it presented over the Modern playfield + HUD panels instead of the
+	# classic full-frame composition.  Same pinned E1:L3 script/seed as the death
+	# case (real gameplay, playDemo == false); the menu replaces the final frame.
+	# This fails if the pause/menu stops holding the gameplay composition.
+	run_gameplay_case "gameplay-wide-script-menu-d2" "modern-wide-script-menu-d2" \
+		--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+		--regress-frames=700 --regress-menu=ingame --regress-modern --regress-aspect=16:9
+	pairs=$((pairs + 1))
 fi
 
 # Full interpolation identity sweep: every demo and scenario at every detail
