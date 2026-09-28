@@ -157,7 +157,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - Preenchimento sólido onde a borda da imagem é lisa (pic 5, pic 11/Destruct, telas pretas); overlays sobre o jogo com a sombra na largura toda
   - Continua com o desfoque: logos de abertura (pics 10 e 12), imagens da história (7, 8, 9, 13, tshp2) e animação final
   - Loja, armamentos, dados e demais telas da moldura mecânica (pic 1): alargar o painel liso da direita repetindo uma faixa de colunas internas dele até preencher o canvas (arte original em 1×, sem desfoque). A moldura com a nave fica à esquerda. É só composição: o jogo segue desenhando 320 px, o compositor corta numa coluna livre do painel e insere a faixa. Ajustes: recentralizar o título da caixa, mapear o mouse através da faixa inserida e checar tela por tela se a coluna de corte fica livre. Pedido do usuário, que prefere isso ao desfoque (Vert- não serve aqui: abre a moldura e desalinha as janelas)
-- [ ] Trava de dados na regressão: recusar dados diferentes do Tyrian 2.1 esperado (§2.19)
+- [x] Trava de dados na regressão (`7909049`); referência passando para o zip oficial, com regressão na CI (em andamento)
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
 
@@ -361,3 +361,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Provas: `--regress-interp-check`, com alpha = 1 byte a byte igual ao quadro real em 52 casos (demos e cenários em todos os detalhes) e 0 overshoots. `--regress-interp-alpha=A` captura quadros intermediários, e `--regress-realtime` mede o ritmo. Regressão com 107 casos.
 - Opção `smooth_motion` no `[video]` do cfg (ligada por padrão) e `--smooth-motion=on|off`. Só vale no Modern; o Clássico não muda.
 - Pendente: etapa 4 (a iluminação entra por cima do quadro interpolado quando for integrada); README sem as opções novas; opção no menu de setup para ligar e desligar.
+
+### 2026-09-28 — Manutenção entregue; referência dos testes passa a ser o zip oficial
+- **Manutenção (`7909049`).** O menu Setup → Graphics ganhou Presentation, Aspect, Pixel Aspect e Smooth Motion; antes, o Modern só era alcançável pelo cfg ou pela linha de comando. As opções valem na hora e ficam esmaecidas no Clássico. O Modern abre uma janela no formato escolhido, a ~80% da área útil da tela. O README documenta todas as opções. A trava de dados (`test/regress/data-manifest.txt`, tamanho + `cksum` POSIX) recusa dados diferentes e diz qual arquivo não bate. O projeto do Visual Studio voltou a listar todos os fontes, sem compilação testada. Regressão com 109 casos.
+- **Descoberta:** o zip oficial baixado por `./get_data.sh` tem `newsh9.shp` com 38831 bytes; a cópia de referência em `/Users/vitor/Tyrian` tem 34888 bytes, idêntica ao seu `newsh^.shp`. Por isso um clone novo não conseguia rodar a regressão, e a CI nunca rodou `make regress`: só compila.
+- **Decisão do usuário:** a referência dos testes passa a ser o zip oficial do `get_data.sh`, e a CI passa a rodar a regressão. Tarefa despachada na worktree `regress-ci`. Ela troca o manifesto, regenera só os baselines afetados (com prova de que a diferença vem do `newsh9.shp`) e cria os jobs de CI com cache dos dados.
