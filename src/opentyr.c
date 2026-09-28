@@ -35,6 +35,7 @@
 #include "loudness.h"
 #include "mainint.h"
 #include "modern.h"
+#include "modern_bloom.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "network.h"
@@ -825,7 +826,10 @@ int main(int argc, char *argv[])
 	logInfo("Presentation mode: %s.", presentation_names[presentation]);
 
 	if (presentation == PRESENTATION_MODERN)
+	{
 		logInfo("Modern geometry: aspect %s, pixel aspect %s.", modern_aspect_names[modern_aspect], modern_pixel_aspect_names[modern_pixel_aspect]);
+		logInfo("Modern lighting: bloom %s, lighting %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality]);
+	}
 
 	if (!findDataFiles())
 	{

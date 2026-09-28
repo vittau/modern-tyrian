@@ -110,6 +110,8 @@ typedef struct
 	const Uint8 *src;      // source 8-bit indices (read-only)
 	int src_pitch;         // bytes per source row
 	const SDL_Color *palette; // active palette (read-only)
+	bool gameplay;         // true on a gameplay frame (a playfield was composed)
+	int content_offset_x;  // canvas x of the playfield (gameplay) or of the frame
 } ModernFrame;
 
 // An effect pass over the canvas.

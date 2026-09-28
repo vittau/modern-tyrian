@@ -83,6 +83,10 @@ A Visual Studio solution is provided in `visualc/`.
                                  32:9 or auto (default is 4:3)
     --pixel-aspect=SHAPE         Set the Modern pixel aspect: original (1.2, the
                                  CRT look) or square (default is original)
+    --bloom=LEVEL                Set Modern bloom: off, low, medium or high
+                                 (default is medium)
+    --lighting=LEVEL             Set Modern dynamic lighting: off, low, medium
+                                 or high (default is medium)
     --selftest-gamepad           Run the virtual-controller input self-test and exit
 
 The `presentation` setting is also stored in `opentyrian.cfg` (in the `video`
@@ -130,6 +134,31 @@ outer edge.  Everything is drawn on the original 320x200 logical grid with the
 game's own fonts and sprites and procedural frames; the panels widen at 21:9
 and 32:9 without changing the layout tiers.  The power reserve bar is shown in
 every layout, including the compact ones.  Classic is always unchanged.
+
+Modern gameplay also has two lighting effects, computed on the logical grid and
+controlled by the `bloom` and `lighting` settings (CLI above, `video` section in
+`opentyrian.cfg`, both defaulting to `medium`):
+
+* **Bloom** is a tight additive glow around the brightest pixels -- shots,
+  lasers, explosions and engine flames.  The emissive strength comes from the
+  largest RGB channel of the active palette entry (so it follows palette fades
+  and ignores dark saturated colours), thresholded and blurred with two
+  separable box passes, then added back with a clamped add.
+* **Dynamic lighting** is the wide illumination: the same emissive pixels cast
+  their colour over the surrounding playfield, so nearby terrain, enemies and
+  the ship are lit in the hue of the fire.  It is built at half the logical
+  resolution, blurred with a large box radius and upsampled with a fixed 2x2
+  box; the unlit base is scaled by a slight ambient factor (~0.92 at medium) so
+  the light reads without making the game noticeably darker.
+
+Both effects run only on gameplay frames, only on the 264x184 playfield (never
+on the HUD panels, menus or title screen), are deterministic integer math, and
+allocate nothing per frame.  `bloom off` is byte-for-byte the previous Modern
+output, Classic never has either effect, and regression mode pins both off
+unless `--regress-bloom`/`--regress-lighting` opt in.  Combined cost is under
+0.4 ms/frame at 16:9 medium on the reference machine (under 0.6 ms at high).
+A later phase will feed exact per-object lights (from the per-tick draw list)
+through `modern_lighting_add_source()`, sharing this same light map.
 
 The regression harness can save a presented frame to a BMP for headless visual
 review: `--regress-snapshot=FRAME:FILE` (repeatable; the Modern canvas with
