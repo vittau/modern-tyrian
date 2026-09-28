@@ -76,6 +76,11 @@ int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
 int regress_bloom_quality = -1;
 int regress_lighting_quality = -1;
+int regress_menu_kind = REGRESS_MENU_NONE;
+
+// True once the --regress-menu request has been handed to the level loop, so it
+// fires on exactly one frame.
+static bool regress_menu_taken = false;
 
 // Snapshot requests (--regress-snapshot=FRAME:FILE), repeatable.  Fixed size:
 // a run needs only a handful and parsing must not allocate per frame.
@@ -194,6 +199,20 @@ bool regress_script_active(void)
 bool regress_screen_active(void)
 {
 	return regress_screen != NULL;
+}
+
+int regress_take_menu_request(void)
+{
+	if (regress_menu_kind == REGRESS_MENU_NONE || regress_menu_taken || regress_frames <= 0)
+		return REGRESS_MENU_NONE;
+
+	// Open on the run's last presented frame.  The in-level menus loop forever
+	// on input, so the frame cap ends the run on this first menu frame.
+	if (regress_frame + 1 < (unsigned long)regress_frames)
+		return REGRESS_MENU_NONE;
+
+	regress_menu_taken = true;
+	return regress_menu_kind;
 }
 
 bool regress_audio_active(void)

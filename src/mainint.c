@@ -1328,11 +1328,29 @@ JE_boolean JE_gammaCheck(void)
 	return temp;
 }
 
+// The relocated Modern HUD lives in off-screen surfaces that are cleared at the
+// start of every gameplay tick (modern_hud_begin_frame), before the pause/menu
+// input is handled.  When an in-level screen opens, redraw the panels from the
+// current (already advanced) game state so they do not appear empty under the
+// overlay.  No-op in Classic and Modern 4:3 (no panels); display-only, and it
+// preserves tempW exactly like the normal per-tick HUD draw.
+static void modern_redraw_hud_for_overlay(void)
+{
+	if (modern_hud_in_panels())
+		JE_inGameDisplays();
+}
+
 void JE_doInGameSetup(void)
 {
 	mouseSetRelative(false);
 
 	haltGame = false;
+
+	// The in-game menu (and the network "waiting" boxes it can show) presents
+	// straight through JE_showVGA, so hold the Modern gameplay composition
+	// (playfield + HUD panels) while it is up.
+	modern_set_gameplay_hold(true);
+	modern_redraw_hud_for_overlay();
 
 #ifdef WITH_NETWORK
 	if (isNetworkGame)
@@ -1449,6 +1467,8 @@ void JE_doInGameSetup(void)
 	yourInGameMenuRequest = false;
 
 	//skipStarShowVGA = true;
+
+	modern_set_gameplay_hold(false);
 
 	mouseSetRelative(true);
 }
@@ -1902,6 +1922,12 @@ void JE_inGameHelp(void)
 	blit_sprite(VGAScreenSeg, 16, 189, OPTION_SHAPES, 36);  // in-game text area
 	JE_outText(VGAScreenSeg, 120 - JE_textWidth(miscText[5-1], TINY_FONT) / 2 + 20, 190, miscText[5-1], 0, 4);
 
+	// The in-game help is presented straight through JE_showVGA, so hold the
+	// Modern gameplay composition (playfield + HUD panels) while it is up; the
+	// classic sidebar never comes back on pause/help.
+	modern_set_gameplay_hold(true);
+	modern_redraw_hud_for_overlay();
+
 	while (true)
 	{
 		JE_mouseStart();
@@ -1916,6 +1942,8 @@ void JE_inGameHelp(void)
 
 		setFrameCount(1);
 	}
+
+	modern_set_gameplay_hold(false);
 
 	textErase = 1;
 
@@ -3218,10 +3246,21 @@ void JE_pauseGame(void)
 	SDL_Surface *temp_surface = VGAScreen;
 	VGAScreen = VGAScreenSeg; /* side-effect of game_screen */
 
+	// The pause screen presents straight through JE_showVGA, so hold the Modern
+	// gameplay composition (playfield + HUD panels) while it is up; the classic
+	// sidebar must not come back when the game is paused.  Display-only.
+	modern_set_gameplay_hold(true);
+	modern_redraw_hud_for_overlay();
+
 	//tempScreenSeg = VGAScreenSeg; // sega000
 	if (!superPause)
 	{
-		JE_dString(VGAScreenSeg, 120, 90, miscText[22], FONT_SHAPES);
+		// Centre "PAUSED" on the playfield, not the whole 320-px frame: the
+		// Modern side panels drop the classic sidebar, so a frame-centred x
+		// drifts right.  Classic and Modern 4:3 keep the original x.
+		JE_dString(VGAScreenSeg,
+		           modern_playfield_center_local_x(miscText[22], FONT_SHAPES, 120),
+		           90, miscText[22], FONT_SHAPES);
 
 		VGAScreen = VGAScreenSeg;
 		JE_showVGA();
@@ -3310,6 +3349,8 @@ void JE_pauseGame(void)
 	set_volume(tyrMusicVolume, fxVolume);
 
 	//skipStarShowVGA = true;
+
+	modern_set_gameplay_hold(false);
 
 	VGAScreen = temp_surface; /* side-effect of game_screen */
 

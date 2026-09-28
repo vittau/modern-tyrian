@@ -116,6 +116,9 @@ A Visual Studio solution is provided in `visualc/`.
                                  HUD panels/message strip too (no HUD flash)
     --regress-parallax-check     Per level tick, assert the interpolated presentation
                                  leaves the starfield/background scroll untouched
+    --regress-menu=NAME          Open an in-level menu on the last presented frame:
+                                 ingame (ESC menu), pause (P) or help (F1)
+                                 (requires --regress-script and --regress-frames)
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log

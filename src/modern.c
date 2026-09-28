@@ -598,6 +598,17 @@ int modern_playfield_center_x(const char *s, unsigned int font, int classic_x)
 	return MODERN_PLAYFIELD_GAME_X + (MODERN_PLAYFIELD_W - JE_textWidth(s, font)) / 2;
 }
 
+int modern_playfield_center_local_x(const char *s, unsigned int font, int classic_x)
+{
+	// See modern_playfield_center_x(): same rule, but for text drawn in the
+	// presented frame's own playfield-local coordinates (column 0 is the
+	// playfield's left edge, as VGAScreenSeg is for the pause/menu screens).
+	if (!modern_hud_in_panels())
+		return classic_x;
+
+	return (MODERN_PLAYFIELD_W - JE_textWidth(s, font)) / 2;
+}
+
 SDL_Surface *modern_hud_surface(int player)
 {
 	if (player < 0 || player >= 2 || !modern_hud_in_panels())

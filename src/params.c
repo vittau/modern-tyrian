@@ -108,6 +108,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 292, 0,   "regress-script",    true },
 		{ 296, 0,   "regress-parallax-check", false },
 		{ 298, 0,   "regress-seed",      true },
+		{ 299, 0,   "regress-menu",      true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -179,6 +180,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               composition (drops the classic sidebar)");
 			logInfo("  --regress-parallax-check     Per level tick, assert the interpolated presentation leaves");
 			logInfo("                               the starfield/background scroll untouched (per-tick motion)");
+			logInfo("  --regress-menu=NAME          Open an in-level menu on the last presented frame:");
+			logInfo("                               ingame (ESC), pause (P) or help (F1)");
+			logInfo("                               (requires --regress-script and --regress-frames)");
 			logInfo("  --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated");
 			logInfo("                               motion (default on)");
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
@@ -593,6 +597,20 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_seed_set = 1;
 			break;
 
+		case 299: // --regress-menu=ingame|pause|help
+			if (strcmp(option.arg, "ingame") == 0)
+				regress_menu_kind = REGRESS_MENU_INGAME;
+			else if (strcmp(option.arg, "pause") == 0)
+				regress_menu_kind = REGRESS_MENU_PAUSE;
+			else if (strcmp(option.arg, "help") == 0)
+				regress_menu_kind = REGRESS_MENU_HELP;
+			else
+			{
+				logError("%s: --regress-menu must be ingame, pause or help", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			break;
+
 		default:
 			assert(false);
 			break;
@@ -646,6 +664,23 @@ void JE_paramCheck(int argc, char *argv[])
 	{
 		logError("%s: --regress-parallax-check requires --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
+	}
+
+	if (regress_menu_kind != REGRESS_MENU_NONE)
+	{
+		// The pause/menu/help screens only present on the real-gameplay
+		// (!playDemo) path, which is what --regress-script reaches; and they
+		// block on input, so the run needs a frame cap to end on the menu frame.
+		if (!regress_script_active())
+		{
+			logError("%s: --regress-menu requires --regress-script", argv[0]);
+			exit(EXIT_FAILURE);
+		}
+		if (regress_frames <= 0)
+		{
+			logError("%s: --regress-menu requires --regress-frames", argv[0]);
+			exit(EXIT_FAILURE);
+		}
 	}
 	
 	// legacy parameter support
