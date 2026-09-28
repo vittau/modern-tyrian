@@ -1058,9 +1058,27 @@ static Uint8 modern_hud_faded_index(Uint8 v)
 	return v;
 }
 
+// One darkened canvas pixel (30% of its brightness): the HUD drop shadow, so
+// bright text and bars stay legible over a bright frosted-glass panel.  The
+// shadow is barely visible over a dark background, where it is already near
+// black.
+static Uint32 modern_shadow_pixel(Uint32 p)
+{
+	const Uint32 r = ((p >> 16) & 0xff) * 3 / 10;
+	const Uint32 g = ((p >> 8) & 0xff) * 3 / 10;
+	const Uint32 b = (p & 0xff) * 3 / 10;
+
+	return (r << 16) | (g << 8) | b;
+}
+
 // Copies the non-transparent pixels of one HUD panel surface over the canvas
 // side region starting at `dst_x`.  `panel_w` is the visible panel width; the
 // surface's extra MODERN_HUD_PANEL_PAD columns are never composited.
+//
+// Every opaque HUD pixel also darkens the canvas one pixel down-right (kept
+// inside the panel).  The pass is row-major and the shadow lands one row below
+// the pixel being written, so content always overwrites its own shadow and no
+// pixel is darkened twice.
 static void modern_blit_hud_surface(const ModernFrame *frame, const SDL_Surface *hud, int dst_x, int panel_w)
 {
 	const int rows = MIN(frame->h, hud->h);
@@ -1074,8 +1092,13 @@ static void modern_blit_hud_surface(const ModernFrame *frame, const SDL_Surface 
 		for (int x = 0; x < cols; ++x)
 		{
 			// Transparency is decided on the surface index, before the fade.
-			if (src[x] != 0)
-				dst[x] = rgb_palette[modern_hud_faded_index(src[x])];
+			if (src[x] == 0)
+				continue;
+
+			if (x + 1 < cols && y + 1 < rows)
+				dst[frame->w + x + 1] = modern_shadow_pixel(dst[frame->w + x + 1]);
+
+			dst[x] = rgb_palette[modern_hud_faded_index(src[x])];
 		}
 	}
 }
@@ -1113,10 +1136,9 @@ static void modern_composite_message(ModernFrame *frame, int frame_x)
 	}
 }
 
-// One faded side-panel pixel.  `scale` is the precomputed Q32 fade factor:
-// strongly darkened (40% peak at the playfield edge) with a quadratic falloff
-// towards the outer edge.  Fixed point keeps it deterministic and division-free
-// in the per-pixel path.
+// One faded side-panel pixel.  `scale` is the precomputed Q32 translucency
+// factor (a frosted pane, not a blackout).  Fixed point keeps it deterministic
+// and division-free in the per-pixel path.
 static Uint32 modern_panel_pixel(int r, int g, int b, Uint64 scale)
 {
 	r = (int)(((Uint64)r * scale) >> 32);
@@ -1126,15 +1148,21 @@ static Uint32 modern_panel_pixel(int r, int g, int b, Uint64 scale)
 	return ((Uint32)(Uint8)r << 16) | ((Uint32)(Uint8)g << 8) | (Uint32)(Uint8)b;
 }
 
-// Q32 fade factor for a column at distance `d` from the playfield edge
-// (d == 0 at the edge, panel_width - 1 at the outer edge).  The 40% peak is
-// 2/5; the falloff is quadratic.
+// Q32 translucency factor for a column at distance `d` from the playfield edge
+// (d == 0 at the edge, panel_width - 1 at the outer edge).  The panel is a
+// frosted glass pane over the blurred playfield extension: it keeps a large
+// share of the background (68% at the playfield edge, easing to 32% at the
+// outer screen edge), so the playfield reads through it while the pane still
+// separates the HUD from the playfield.  The falloff is linear, so the pane
+// stays fairly even across its width instead of collapsing to black.  (The
+// original opaque-backed panels peaked at 40% and fell to 0, so this is roughly
+// three times more see-through on average.)
 static Uint64 modern_panel_scale(int panel_width, int d)
 {
-	const Uint64 num = (Uint64)(2 * (panel_width - d) * (panel_width - d));
-	const Uint64 den = (Uint64)(5 * panel_width * panel_width);
+	const Uint64 t = (Uint64)(panel_width - d);   // 1 .. panel_width
+	const Uint64 pct = 32 + (68 - 32) * t / (Uint64)panel_width;
 
-	return (num << 32) / den;
+	return (pct << 32) / 100;
 }
 
 // --- Non-gameplay backdrop composition (Phase 1, step S1) -------------------
@@ -1458,7 +1486,7 @@ static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right
 	if (left_width <= 0 && right_width <= 0)
 		return;
 
-	const int sample = 4;
+	const int sample = 6;
 	const int lx0 = left_edge;
 	const int lx1 = MIN(left_edge + sample - 1, w - 1);
 	const int rx0 = MAX(right_edge - (sample - 1), 0);
@@ -1500,8 +1528,8 @@ static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right
 		right_pre[y * 3 + 2] = (Uint8)(rb / rcount);
 	}
 
-	// Vertical box blur so the panels blend over a few rows.
-	const int blur = 8;
+	// Vertical box blur so the panels blend over a few rows: the frosted pane.
+	const int blur = 12;
 	for (int y = 0; y < h; ++y)
 	{
 		const int y0 = MAX(0, y - blur);

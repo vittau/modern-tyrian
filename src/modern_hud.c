@@ -51,6 +51,10 @@
 #define HUD_BAR_SHIELD 144
 #define HUD_BAR_ARMOR  224
 #define HUD_BAR_POWER  113
+// The value fill ramps up the bar within its hue block (base + 2 at the bottom
+// of the trough, base + 2 + HUD_BAR_RAMP at the top), like the original
+// sidebar's JE_dBar3, whose palette index climbs one step every few rows.
+#define HUD_BAR_RAMP 13
 #define HUD_SEP_COLOR  16
 #define HUD_LABEL_BANK 2
 #define HUD_LABEL_DIM  3
@@ -271,9 +275,12 @@ static const char *hud_pick_label(const char *full, const char *mid, const char 
 }
 
 // A procedural vertical bar with a 1px bevel, filled bottom-up and scaled to
-// `max_value`.  Mirrors the old hud_bar(), just turned 90 degrees: the whole
-// rectangle is the base-family trough, the value is a brighter column growing
-// from the bottom.
+// `max_value`.  The trough carries a light left / dark right edge; the value
+// column is a palette ramp like the original sidebar bars (JE_dBar3): its
+// brightness climbs as the column rises within the hue block, with a lit left
+// edge and a bright meniscus at the top of the fill.  The ramp is anchored to
+// the trough, so a given height keeps its colour as the bar drains, and the
+// dark trough stays clearly distinct from even a sliver of value.
 static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
                      uint value, uint max_value, Uint8 base)
 {
@@ -283,6 +290,8 @@ static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
 		h = 4;
 
 	HUD_ASSERT_FIT(surface, y, h);
+
+	const int top = (int)base + 15;   // top of the hue block
 
 	// Trough with a light left edge and a dark right edge, like the horizontal
 	// bar's top/bottom rows.
@@ -296,8 +305,25 @@ static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
 	int fh = (int)(((ulong)value * (ulong)(h - 2)) / max_value);
 	if (fh > h - 2)
 		fh = h - 2;
-	if (fh > 0)
-		fill_rectangle_xy(surface, x + 1, y + h - 1 - fh, x + w - 2, y + h - 2, (Uint8)(base + 12));
+
+	const int span = h - 2;           // trough interior: the ramp's span
+	const bool lit = (w >= 4);        // room for a lit column inside the fill
+
+	for (int r = 0; r < fh; ++r)      // r == 0 at the bottom of the fill
+	{
+		const int ry = y + h - 2 - r;
+
+		// Ramp up the trough within the hue block.
+		int idx = (int)base + 2 + (r * HUD_BAR_RAMP) / span;
+		// A brighter meniscus caps the fill, so even a sliver of value reads.
+		if (r == fh - 1)
+			idx = MIN(idx + 3, top);
+
+		fill_rectangle_xy(surface, x + 1, ry, x + w - 2, ry, (Uint8)idx);
+
+		if (lit)
+			fill_rectangle_xy(surface, x + 1, ry, x + 1, ry, (Uint8)MIN(idx + 1, top));
+	}
 }
 
 // The shield / armor / power-reserve block: three vertical bars side by side,
