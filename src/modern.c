@@ -388,7 +388,7 @@ void modern_set_canvas_size(int w, int h)
 	// (Re)allocate the canvas.  Only called at startup / on resize, never per
 	// frame.
 	free(modern_frame_state.pixels);
-	modern_frame_state.pixels = malloc((size_t)w * (size_t)h * sizeof(Uint32));
+	modern_frame_state.pixels = calloc((size_t)w * (size_t)h, sizeof(Uint32));
 	if (modern_frame_state.pixels == NULL)
 	{
 		logFatal("Failed to allocate the modern canvas (%dx%d).", w, h);
@@ -408,7 +408,7 @@ void modern_set_canvas_size(int w, int h)
 	// per-column fade factors (w Q32 values).  Grows only when the canvas is
 	// resized.
 	free(modern_panel_scratch);
-	modern_panel_scratch = malloc((size_t)h * 3 * 4);
+	modern_panel_scratch = calloc((size_t)h * 3, 4);
 	if (modern_panel_scratch == NULL)
 	{
 		logFatal("Failed to allocate the modern panel scratch (%dx%d).", w, h);
@@ -416,7 +416,7 @@ void modern_set_canvas_size(int w, int h)
 	}
 
 	free(modern_panel_scale_scratch);
-	modern_panel_scale_scratch = malloc((size_t)w * sizeof(Uint64));
+	modern_panel_scale_scratch = calloc((size_t)w, sizeof(Uint64));
 	if (modern_panel_scale_scratch == NULL)
 	{
 		logFatal("Failed to allocate the modern panel scale scratch (%dx%d).", w, h);
@@ -426,7 +426,7 @@ void modern_set_canvas_size(int w, int h)
 	// Scratch for the blurred background fill (non-gameplay frames): the
 	// downsampled frame and the per-column source map.
 	free(modern_blur_low);
-	modern_blur_low = malloc((size_t)MODERN_BLUR_LOW_W * MODERN_BLUR_LOW_H * 3);
+	modern_blur_low = calloc((size_t)MODERN_BLUR_LOW_W * MODERN_BLUR_LOW_H, 3);
 	if (modern_blur_low == NULL)
 	{
 		logFatal("Failed to allocate the modern blur buffer (%dx%d).", w, h);
@@ -434,7 +434,7 @@ void modern_set_canvas_size(int w, int h)
 	}
 
 	free(modern_blur_xmap);
-	modern_blur_xmap = malloc((size_t)w * sizeof(Uint32));
+	modern_blur_xmap = calloc((size_t)w, sizeof(Uint32));
 	if (modern_blur_xmap == NULL)
 	{
 		logFatal("Failed to allocate the modern blur column map (%dx%d).", w, h);
@@ -442,7 +442,7 @@ void modern_set_canvas_size(int w, int h)
 	}
 
 	free(modern_remap_x);
-	modern_remap_x = malloc((size_t)w * sizeof(int));
+	modern_remap_x = calloc((size_t)w, sizeof(int));
 	if (modern_remap_x == NULL)
 	{
 		logFatal("Failed to allocate the modern remap column map (%dx%d).", w, h);
