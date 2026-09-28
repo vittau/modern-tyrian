@@ -170,7 +170,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - "Add to Steam" a partir do Desktop Mode, com um passo a passo no README;
   - logs num lugar fácil de achar;
   - desempenho a 60/90 Hz na tela do Deck.
-- [ ] **Controle analógico bom no gamepad/Steam Deck (pedido do usuário, 2026-09-28).** Faz parte do suporte ao Deck.
+- [x] **Controle analógico bom no gamepad/Steam Deck (pedido do usuário, 2026-09-28; entregue no merge `analog`).** Faz parte do suporte ao Deck.
   - **Zona morta** configurável de 0% a 20% do curso do stick.
   - **Velocidade progressiva:** do fim da zona morta até 75% de input, a velocidade da nave cresce com a inclinação: devagar com pouco input, rápido com muito. Acima de 75% (medido de forma linear), velocidade máxima.
   - **Botões:** um padrão razoável de fábrica e todos remapeáveis.
@@ -531,3 +531,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - **Regressão interrompida por sinal.** Durante o merge, um caso terminou no quadro 2210 com saída 0 e sem a mensagem final, e rodando sozinho passou. O SDL transforma SIGTERM/SIGINT em evento de quit, e o jogo saía com `exit(0)`, então o harness via uma saída limpa com o arquivo truncado. Provável origem: outro agente encerrando os próprios processos do jogo. Agora a regressão desliga os handlers de sinal do SDL (o harness reporta "killed by signal") e um evento de quit aborta com erro.
 - **Movimento suave, etapa 4 (`1092367`).** Fades de paleta e barras do HUD interpolados na taxa do monitor; a regressão ficou com 145 casos. A entrada "Smooth Motion" em Setup › Graphics já existia.
 - **Controle analógico:** a curva, a zona morta e os botões foram aprovados, mas o movimento voltou para correção. O deslocamento do stick entrava na aceleração (`accelXC` → `x_velocity`) 4× mais forte que no analógico original, e o smoothie de controles invertidos não invertia o stick no Modern. Pedido um stick virtual na regressão para provar a trajetória contra o caminho antigo.
+- **Controle analógico entregue.** Só no Modern:
+  - zona morta radial de 0–20% (padrão 10%, por controle, `--deadzone`);
+  - curva linear até 75% e um alvo de momento escalado pela curva, com velocidade em regime monotônica até os 8 px/tick originais aos 75%;
+  - com o stick todo inclinado, a trajetória é idêntica ao analógico antigo; a rede segue consistente porque o accel transmitido continua ±1;
+  - botões no padrão Xbox/Deck, todos remapeáveis e persistidos.
+
+  Na diagonal o stick é radial: o máximo fica em 9,7 px/tick, contra 11,3 do analógico antigo, que era mais rápido na diagonal. A regressão ganhou um stick virtual (`--regress-stick`) e ficou com 148 casos.
