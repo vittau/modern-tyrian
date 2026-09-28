@@ -119,6 +119,8 @@ A Visual Studio solution is provided in `visualc/`.
     --regress-menu=NAME          Open an in-level menu on the last presented frame:
                                  ingame (ESC menu), pause (P) or help (F1)
                                  (requires --regress-script and --regress-frames)
+    --starfield-speed=PERCENT    Background starfield speed as a percentage of the
+                                 original rate (10-100, default 25), with sub-pixel motion
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log
@@ -184,6 +186,15 @@ in Classic.  A new window opens at the content aspect at the largest integer
 multiple of the 200 logical rows that fits in about 80% of the usable desktop,
 centered on the display; this is now also the Classic default (which no longer
 shrinks to 320x200).
+
+The procedural background starfield (the drifting stars in the asteroid levels)
+runs at a quarter of its original rate by default: each star keeps a sub-row
+accumulator and advances `(star speed + level starfield speed) * percent / 100`
+rows per logic tick, so the motion is sub-pixel instead of a whole row at a
+time.  The `starfield_speed_percent` key in the `video` section
+(`--starfield-speed=PERCENT`, 10-100, default 25) tunes that factor; `100`
+reproduces the original speed exactly.  It is presentation-only: it never
+touches gameplay, the RNG, the game-state hash or the audio.
 
 On non-gameplay frames (title/splash, menus, the shop, story/text screens and
 the in-game Esc menu) the side space is filled with a copy of the frame scaled

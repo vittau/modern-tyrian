@@ -513,6 +513,7 @@ void blur_filter(SDL_Surface *dst, SDL_Surface *src)
 typedef struct
 {
 	Uint8 color;
+	Uint8 subpixel;   // Q8 fractional row accumulator; carries into position
 	JE_word position; // relies on overflow wrap-around
 	int speed;
 } StarfieldStar;
@@ -520,7 +521,26 @@ typedef struct
 #define MAX_STARS 100
 #define STARFIELD_HUE 0x90
 static StarfieldStar starfield_stars[MAX_STARS];
+
+// `starfield_speed` is the per-level event speed (event type 1) added to each
+// star's own 2..4; `starfield_speed_percent` scales the whole per-tick advance
+// and `starfield_speed_fx` is that scale in Q8 fixed point (256 = 100%).  The
+// default 25% makes the stars drift at a quarter of the original rate while the
+// Q8 accumulator keeps the motion sub-pixel instead of snapping a whole row.
 int starfield_speed;
+int starfield_speed_percent = 25;
+int starfield_speed_fx = 64;  // 25% in Q8
+
+void starfield_set_speed_percent(int percent)
+{
+	if (percent < 10)
+		percent = 10;
+	else if (percent > 100)
+		percent = 100;
+
+	starfield_speed_percent = percent;
+	starfield_speed_fx = (percent * 256 + 50) / 100;
+}
 
 void initialize_starfield(void)
 {
@@ -536,6 +556,7 @@ void initialize_starfield(void)
 		starfield_stars[i].position = (JE_word)(sx + sy * VGAScreen->pitch);
 		starfield_stars[i].speed = mt_rand() % 3 + 2;
 		starfield_stars[i].color = mt_rand() % 16 + STARFIELD_HUE;
+		starfield_stars[i].subpixel = 0;
 	}
 }
 
@@ -549,7 +570,13 @@ void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 	{
 		StarfieldStar* star = &starfield_stars[i];
 
-		star->position += (star->speed + move_speed) * surface->pitch;
+		// Advance by (speed + move_speed) rows per tick, scaled by the tuning
+		// factor.  The Q8 accumulator carries whole rows into the 16-bit
+		// position (which still wraps around, exactly as upstream did).
+		const int step = (star->speed + move_speed) * starfield_speed_fx;
+		const int accum = star->subpixel + step;
+		star->subpixel = (Uint8)(accum & 0xFF);
+		star->position += (accum >> 8) * surface->pitch;
 
 		if (star->position < 177 * surface->pitch)
 		{
@@ -580,8 +607,10 @@ void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 // Regress-only parallax guard (see drawlist_parallax_tick()): `pre` is the star
 // state captured at the start of one tick (the recorded payload) and the live
 // array is the state after the level logic advanced it once.  Returns how many
-// stars did not advance by exactly (speed + move_speed) rows over the tick -- a
-// starfield updated twice per tick, or at the wrong speed, shows up here.
+// stars did not advance by exactly the scaled per-tick step -- a starfield
+// updated twice per tick, or at the wrong speed, shows up here.  The fractional
+// accumulator is checked too, so a star that only stepped the whole rows but
+// dropped the fraction is caught.
 int starfield_check_advance(const void *pre, size_t bytes, int move_speed, int pitch)
 {
 	if (bytes != sizeof starfield_stars)
@@ -592,8 +621,12 @@ int starfield_check_advance(const void *pre, size_t bytes, int move_speed, int p
 
 	for (int i = 0; i < MAX_STARS; ++i)
 	{
-		const Uint16 expected = (Uint16)(before[i].position + (before[i].speed + move_speed) * pitch);
-		if (starfield_stars[i].position != expected)
+		const int step = (before[i].speed + move_speed) * starfield_speed_fx;
+		const int accum = before[i].subpixel + step;
+		const Uint16 expected = (Uint16)(before[i].position + (accum >> 8) * pitch);
+		const Uint8 expected_sub = (Uint8)(accum & 0xFF);
+
+		if (starfield_stars[i].position != expected || starfield_stars[i].subpixel != expected_sub)
 			++bad;
 	}
 
@@ -626,9 +659,11 @@ void drawlist_replay_starfield(SDL_Surface *surface, int move_speed, const void 
 
 // Stage-3 interpolated starfield: draws each star partway (alpha_fx16, 16.16)
 // between the previous frame's position and this tick's advanced position,
-// without touching the live array.  A star whose position wrapped snaps to the
-// advanced position.  At alpha = 1 this is byte-identical to the draw half of
-// update_and_draw_starfield().
+// without touching the live array.  The Q8 accumulator is interpolated too, so
+// the star moves continuously at the scaled rate instead of holding still and
+// then jumping a whole row at the end of the tick.  A star whose position
+// wrapped snaps to the advanced position.  At alpha = 1 this is byte-identical
+// to the draw half of update_and_draw_starfield().
 void drawlist_draw_starfield_interp(SDL_Surface *surface, int move_speed, const void *pre, size_t bytes, Uint32 alpha_fx16)
 {
 	if (bytes != sizeof starfield_stars)
@@ -643,13 +678,21 @@ void drawlist_draw_starfield_interp(SDL_Surface *surface, int move_speed, const 
 	{
 		const StarfieldStar *star = &stars[i];
 		const Uint16 prev_pos = star->position;
-		const Uint16 next_pos = (Uint16)(prev_pos + (star->speed + move_speed) * surface->pitch);
+		const int step = (star->speed + move_speed) * starfield_speed_fx;
+		const int full_accum = star->subpixel + step;
+
+		// The interpolated advance in Q8 rows; `>> 24` is the whole-row part of
+		// (fraction << 16) scaled by alpha, i.e. floor((subpixel + step*alpha)/256).
+		const Sint64 accum_fx16 = (Sint64)step * (Sint64)alpha_fx16 + (Sint64)star->subpixel * 65536;
+		const int rows = (int)(accum_fx16 >> 24);
+
+		const Uint16 next_pos = (Uint16)(prev_pos + (full_accum >> 8) * surface->pitch);
 
 		Uint16 pos;
 		if (next_pos < prev_pos)
 			pos = next_pos;  // wrapped: snap
 		else
-			pos = (Uint16)(prev_pos + (Uint16)(((Sint32)(next_pos - prev_pos) * (Sint32)alpha_fx16) / 65536));
+			pos = (Uint16)(prev_pos + rows * surface->pitch);
 
 		if (pos < 177 * surface->pitch)
 		{

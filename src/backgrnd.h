@@ -36,6 +36,11 @@ extern JE_boolean anySmoothies;  // if yes, I want one :D
 extern JE_byte smoothie_data[9];
 
 extern int starfield_speed;
+extern int starfield_speed_percent;  // tuning factor, 10..100 (default 25)
+extern int starfield_speed_fx;       // the same factor in Q8 (256 = 100%)
+
+// Sets the starfield tuning factor, clamped to 10..100 percent.  Default 25.
+void starfield_set_speed_percent(int percent);
 
 void JE_darkenBackground(JE_word neat);
 

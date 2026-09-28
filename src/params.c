@@ -19,6 +19,7 @@
 #include "params.h"
 
 #include "arg_parse.h"
+#include "backgrnd.h"
 #include "demo.h"
 #include "episodes.h"
 #include "file.h"
@@ -107,6 +108,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 291, 0,   "light-threshold",   true },
 		{ 292, 0,   "regress-script",    true },
 		{ 296, 0,   "regress-parallax-check", false },
+		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
 		
@@ -183,6 +185,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-menu=NAME          Open an in-level menu on the last presented frame:");
 			logInfo("                               ingame (ESC), pause (P) or help (F1)");
 			logInfo("                               (requires --regress-script and --regress-frames)");
+			logInfo("  --starfield-speed=PERCENT    Background starfield speed as a percentage of the");
+			logInfo("                               original rate (10-100, default 25); sub-pixel motion");
 			logInfo("  --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated");
 			logInfo("                               motion (default on)");
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
@@ -591,6 +595,18 @@ void JE_paramCheck(int argc, char *argv[])
 		case 296: // --regress-parallax-check
 			regress_parallax_check = 1;
 			break;
+
+		case 297: // --starfield-speed=PERCENT
+		{
+			const int percent = atoi(option.arg);
+			if (percent < 10 || percent > 100)
+			{
+				logError("%s: --starfield-speed must be between 10 and 100", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			starfield_set_speed_percent(percent);
+			break;
+		}
 
 		case 298: // --regress-seed=N
 			regress_seed = strtoul(option.arg, NULL, 0);

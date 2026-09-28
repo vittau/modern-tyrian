@@ -18,6 +18,7 @@
  */
 #include "config.h"
 
+#include "backgrnd.h"
 #include "episodes.h"
 #include "file.h"
 #include "interp.h"
@@ -259,6 +260,7 @@ static void loadOpenTyrianConfig(void)
 	modern_bloom_quality = MODERN_QUALITY_LOW;
 	modern_lighting_quality = MODERN_QUALITY_LOW;
 	vfx_level = VFX_LOW;
+	starfield_set_speed_percent(25);
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
 	Config *config = &opentyrian_config;
@@ -359,6 +361,10 @@ static void loadOpenTyrianConfig(void)
 		const char *vfx_name;
 		if (config_get_string_option(section, "vfx", &vfx_name))
 			set_vfx_by_name(vfx_name);
+
+		int starfield_percent;
+		if (config_get_int_option(section, "starfield_speed_percent", &starfield_percent))
+			starfield_set_speed_percent(starfield_percent);
 	}
 
 	section = config_find_section(config, "keyboard", NULL);
@@ -398,6 +404,8 @@ static void saveOpenTyrianConfig(void)
 	config_set_string_option(section, "pixel_aspect", modern_pixel_aspect_names[modern_pixel_aspect]);
 	config_set_string_option(section, "smooth_motion", interp_smooth_motion ? "on" : "off");
 	config_set_string_option(section, "vfx", vfx_level_names[vfx_level]);
+
+	config_set_int_option(section, "starfield_speed_percent", starfield_speed_percent);
 
 	config_set_string_option(section, "lighting", modern_quality_names[modern_lighting_quality]);
 
