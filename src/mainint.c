@@ -2014,10 +2014,16 @@ void JE_highScoreCheck(void)
 				char stemp[30], tempstr[30];
 				char buffer[256];
 
+				// The box is drawn over a cleared/centred 320 frame, so this
+				// re-centres it on the Modern canvas (and keeps its shadow's
+				// original offset).  Zero in Classic / Modern 4:3.
+				const int dx = modern_dialog_offset_x(50, sprite(OPTION_SHAPES, 35)->width);
+				const int shade_right = MIN(255 + dx, MODERN_PIC1_SPLIT_MAX - 1);
+
 				strcpy(stemp, "                             ");
 				temp = 0;
 
-				JE_barShade(VGAScreen, 65, 55, 255, 155);
+				JE_barShade(VGAScreen, 65 + dx, 55, shade_right, 155);
 
 				SDL_StartTextInput(main_window);
 
@@ -2031,20 +2037,20 @@ void JE_highScoreCheck(void)
 
 					JE_dString(VGAScreen, JE_fontCenter(miscText[temp3-1], SMALL_FONT_SHAPES), 30, miscText[temp3-1], SMALL_FONT_SHAPES);
 
-					blit_sprite(VGAScreenSeg, 50, 50, OPTION_SHAPES, 35);  // message box
+					blit_sprite(VGAScreenSeg, 50 + dx, 50, OPTION_SHAPES, 35);  // message box
 
 					if (twoPlayerMode)
 					{
 						sprintf(buffer, "%s %s", miscText[48 + p], miscText[53]);
-						JE_textShade(VGAScreen, 60, 55, buffer, 11, 4, FULL_SHADE);
+						JE_textShade(VGAScreen, 60 + dx, 55, buffer, 11, 4, FULL_SHADE);
 					}
 					else
 					{
-						JE_textShade(VGAScreen, 60, 55, miscText[53], 11, 4, FULL_SHADE);
+						JE_textShade(VGAScreen, 60 + dx, 55, miscText[53], 11, 4, FULL_SHADE);
 					}
 
 					sprintf(buffer, "%s %d", miscText[37], temp_score);
-					JE_textShade(VGAScreen, 70, 70, buffer, 11, 4, FULL_SHADE);
+					JE_textShade(VGAScreen, 70 + dx, 70, buffer, 11, 4, FULL_SHADE);
 
 					// TODO: Rework this so that cursor blink timing is independent of input.
 					while (true)
@@ -2054,8 +2060,8 @@ void JE_highScoreCheck(void)
 
 						strncpy(tempstr, stemp, temp);
 						tempstr[temp] = '\0';
-						JE_outText(VGAScreen, 65, 89, tempstr, 8, 3);
-						tempW = 65 + JE_textWidth(tempstr, TINY_FONT);
+						JE_outText(VGAScreen, 65 + dx, 89, tempstr, 8, 3);
+						tempW = 65 + dx + JE_textWidth(tempstr, TINY_FONT);
 						JE_barShade(VGAScreen, tempW + 2, 90, tempW + 6, 95);
 						fill_rectangle_xy(VGAScreen, tempW + 1, 89, tempW + 5, 94, flash);
 
@@ -2090,12 +2096,12 @@ void JE_highScoreCheck(void)
 
 					if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 					{
-						if (mouseInput.x > 56 && mouseInput.x < 142 &&
+						if (mouseInput.x > 56 + dx && mouseInput.x < 142 + dx &&
 						    mouseInput.y > 123 && mouseInput.y < 149)
 						{
 							quit = true;
 						}
-						else if (mouseInput.x > 151 && mouseInput.x < 237 &&
+						else if (mouseInput.x > 151 + dx && mouseInput.x < 237 + dx &&
 						         mouseInput.y > 123 && mouseInput.y < 149)
 						{
 							quit = true;
