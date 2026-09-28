@@ -61,7 +61,7 @@ typedef struct
 	int sensitivity, threshold;
 	int deadzone;          // Modern radial dead zone, percent of full deflection (0..20)
 	int analog_subpixel[2]; // Modern sub-pixel remainder, 1/1024 px (x, y)
-	int velocity_target_frac; // Modern momentum-target remainder, 1/1024 px/tick
+	int velocity_target_frac[2]; // Modern momentum-target remainder, 1/1024 px/tick (x, y)
 	
 	signed int x, y;
 	int analog_direction[4];
@@ -109,10 +109,16 @@ int joystick_modern_response(int x, int y, int deadzone_percent);
 int joystick_modern_max_step(int j);
 // Modern analog movement for the joystick's current x/y in whole pixels per tick,
 // keeping the sub-pixel remainder in the device so slow speeds still creep.
-// *velocity_target receives the momentum target the stick asks for in whole
-// px/tick (0..legacy 4, with a sub-tick carry so intermediate averages are
-// reachable), or -1 when the stick is inside the dead zone (no momentum target).
-void joystick_analog_movement(int j, int *dx, int *dy, int *velocity_target);
+// The requested momentum is split per axis by the same projection as the step
+// (target_x = target*x/mag, target_y = target*y/mag, each with its own sub-tick
+// carry), so cross-axis noise inside or near the dead zone contributes ~0
+// instead of the full target.  *velocity_target_x/_y receive the momentum target
+// magnitude in whole px/tick (0..legacy 4); the axis sign comes from the raw
+// joystick x/y.  Both are -1 when the stick is inside the dead zone (no momentum
+// target).  A push within JOYSTICK_SNAP_* of an axis is snapped onto it so it
+// moves perfectly straight.
+void joystick_analog_movement(int j, int *dx, int *dy,
+                              int *velocity_target_x, int *velocity_target_y);
 
 void poll_joystick(int j);
 void poll_joysticks(void);

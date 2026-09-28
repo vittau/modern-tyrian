@@ -51,6 +51,15 @@ static const int joystick_analog_max = 32767;
 #define JOYSTICK_SUBPIXEL 1024                        // sub-pixel units per pixel
 #define JOYSTICK_RESPONSE_KNEE (75 * JOYSTICK_SUBPIXEL / 100) // full speed at 75%
 
+// A push whose cross-axis component is within this tangent of the main axis is
+// snapped exactly onto that axis so it moves perfectly straight.  The value is
+// tan(5 degrees) rounded down (5 degrees is ~1/9 of the 45 degree quadrant); a
+// real Deck stick at full deflection reports a few degrees of cross-axis error
+// (the reported cases are 0.5-3.5 degrees), while an intentional diagonal is
+// 45 degrees, so the cone cannot swallow a deliberate diagonal.
+#define JOYSTICK_SNAP_NUM 87
+#define JOYSTICK_SNAP_DEN 1000
+
 // eliminates axis movement below the threshold
 int joystick_axis_threshold(int j, int value)
 {
@@ -159,16 +168,31 @@ int joystick_modern_max_step(int j)
 // Modern analog movement in whole pixels per tick.  The sub-pixel remainder is
 // kept per device so a very slow stick still creeps instead of sticking, and the
 // cursor is reset inside the dead zone so releasing the stick cannot leave a
-// stale nudge.  *velocity_target is the momentum the stick asks for: the legacy
-// +/-4 cap scaled by the curve fraction s, carried in 1/1024 units so an integer
-// velocity can still average a fractional target; -1 means the stick is centred
-// (inside the dead zone) and no momentum should be imposed.
-void joystick_analog_movement(int j, int *dx, int *dy, int *velocity_target)
+// stale nudge.
+//
+// The curve's total desired speed is the legacy full-deflection steady state
+// (max step + velocity cap) scaled by s, i.e. v = (max_step + 4) * s.
+//   * v <= max_step: move with the sub-pixel step only (velocity target 0), so
+//     a slow crawl is steady (no +/-1 momentum bursts);
+//   * v >  max_step: step = max_step and momentum target = v - max_step.
+// At s = 1 this is exactly the legacy full-deflection path (step 4 + target 4
+// for the default sensitivity), so full deflection stays bit-identical.
+//
+// Both the step and the momentum target are projected per axis exactly like the
+// stick vector (x/mag, y/mag, own sub-tick carry), so a cross-axis component
+// inside/near the dead zone contributes proportionally (~0) instead of the full
+// target.  A near-axis push is snapped onto the axis first so it is exactly
+// straight; the snap is applied to the direction only, so the radial speed (s)
+// is unchanged.
+void joystick_analog_movement(int j, int *dx, int *dy,
+                              int *velocity_target_x, int *velocity_target_y)
 {
 	assert(j < joysticks);
 	
 	*dx = 0;
 	*dy = 0;
+	*velocity_target_x = -1;
+	*velocity_target_y = -1;
 	
 	const int x = joystick[j].x, y = joystick[j].y;
 	const int s = joystick_modern_response(x, y, joystick[j].deadzone);
@@ -177,41 +201,89 @@ void joystick_analog_movement(int j, int *dx, int *dy, int *velocity_target)
 	{
 		joystick[j].analog_subpixel[0] = 0;
 		joystick[j].analog_subpixel[1] = 0;
-		joystick[j].velocity_target_frac = 0;
-		*velocity_target = -1;
+		joystick[j].velocity_target_frac[0] = 0;
+		joystick[j].velocity_target_frac[1] = 0;
 		return;
 	}
 	
-	// Momentum target: 4 * s in 1/1024 px/tick, with a sub-tick carry so the
-	// integer velocity can sit at floor(target) or ceil(target) in the right
-	// proportion and average the fractional target.
-	const int target_fixed = s * JOYSTICK_MODERN_VELOCITY_MAX;
-	int target = target_fixed / JOYSTICK_SUBPIXEL;
-	joystick[j].velocity_target_frac += target_fixed % JOYSTICK_SUBPIXEL;
-	if (joystick[j].velocity_target_frac >= JOYSTICK_SUBPIXEL)
-	{
-		++target;
-		joystick[j].velocity_target_frac -= JOYSTICK_SUBPIXEL;
-	}
-	*velocity_target = target;
+	// Snap a near-axis push onto the axis: move perfectly straight.
+	const int nax = x < 0 ? -x : x;
+	const int nay = y < 0 ? -y : y;
+	int sx = x, sy = y;
+	if ((long long)nay * JOYSTICK_SNAP_DEN <= (long long)nax * JOYSTICK_SNAP_NUM)
+		sy = 0;
+	else if ((long long)nax * JOYSTICK_SNAP_DEN <= (long long)nay * JOYSTICK_SNAP_NUM)
+		sx = 0;
 	
-	const unsigned long long magnitude = joystick_isqrt((unsigned long long)((long long)x * x + (long long)y * y));
+	// Magnitude of the snapped direction; s still comes from the raw vector.
+	const int snax = sx < 0 ? -sx : sx;
+	const int snay = sy < 0 ? -sy : sy;
+	const unsigned long long magnitude = joystick_isqrt((unsigned long long)((long long)sx * sx + (long long)sy * sy));
 	if (magnitude == 0)
 		return;
 	
 	const int max_step = joystick_modern_max_step(j);
+	const int full_speed = max_step + JOYSTICK_MODERN_VELOCITY_MAX;
 	
-	// speed in 1/1024 pixels per tick, then split along (x, y) / magnitude
-	const long long speed = (long long)s * max_step;
+	// Desired total speed in 1/1024 px/tick, and the step/target split.
+	const long long desired = (long long)s * full_speed;
+	long long step_fixed, target_fixed;
+	if (desired <= (long long)max_step * JOYSTICK_SUBPIXEL)
+	{
+		step_fixed = desired;
+		target_fixed = 0;
+	}
+	else
+	{
+		step_fixed = (long long)max_step * JOYSTICK_SUBPIXEL;
+		target_fixed = desired - step_fixed;
+	}
 	
-	joystick[j].analog_subpixel[0] += (int)((long long)x * speed / (long long)magnitude);
-	joystick[j].analog_subpixel[1] += (int)((long long)y * speed / (long long)magnitude);
+	// Step: the same projection the stick vector uses, with a sub-pixel carry.
+	joystick[j].analog_subpixel[0] += (int)(step_fixed * sx / (long long)magnitude);
+	joystick[j].analog_subpixel[1] += (int)(step_fixed * sy / (long long)magnitude);
 	
 	*dx = joystick[j].analog_subpixel[0] / JOYSTICK_SUBPIXEL;
 	*dy = joystick[j].analog_subpixel[1] / JOYSTICK_SUBPIXEL;
 	
 	joystick[j].analog_subpixel[0] -= *dx * JOYSTICK_SUBPIXEL;
 	joystick[j].analog_subpixel[1] -= *dy * JOYSTICK_SUBPIXEL;
+	
+	// Momentum: project the target per axis, each with its own sub-tick carry so
+	// the integer velocity can average a fractional target.  The carry persists
+	// across ticks; it is only cleared in the step-only and dead-zone regimes.
+	if (target_fixed > 0)
+	{
+		const long long tx_fixed = target_fixed * snax / (long long)magnitude;
+		const long long ty_fixed = target_fixed * snay / (long long)magnitude;
+		
+		long long tx = tx_fixed / JOYSTICK_SUBPIXEL;
+		joystick[j].velocity_target_frac[0] += (int)(tx_fixed % JOYSTICK_SUBPIXEL);
+		if (joystick[j].velocity_target_frac[0] >= JOYSTICK_SUBPIXEL)
+		{
+			++tx;
+			joystick[j].velocity_target_frac[0] -= JOYSTICK_SUBPIXEL;
+		}
+		
+		long long ty = ty_fixed / JOYSTICK_SUBPIXEL;
+		joystick[j].velocity_target_frac[1] += (int)(ty_fixed % JOYSTICK_SUBPIXEL);
+		if (joystick[j].velocity_target_frac[1] >= JOYSTICK_SUBPIXEL)
+		{
+			++ty;
+			joystick[j].velocity_target_frac[1] -= JOYSTICK_SUBPIXEL;
+		}
+		
+		*velocity_target_x = (int)tx;
+		*velocity_target_y = (int)ty;
+	}
+	else
+	{
+		// Step-only regime: hold the momentum at 0 (steady crawl).
+		joystick[j].velocity_target_frac[0] = 0;
+		joystick[j].velocity_target_frac[1] = 0;
+		*velocity_target_x = 0;
+		*velocity_target_y = 0;
+	}
 }
 
 // converts analog joystick axes to an angle
@@ -535,7 +607,8 @@ void joystick_inject_stick(int x, int y)
 	joy->y = y;
 	joy->analog_subpixel[0] = 0;
 	joy->analog_subpixel[1] = 0;
-	joy->velocity_target_frac = 0;
+	joy->velocity_target_frac[0] = 0;
+	joy->velocity_target_frac[1] = 0;
 }
 
 // initializes SDL joystick system and loads assignments for joysticks found
@@ -755,7 +828,8 @@ void reset_joystick_assignments(int j)
 		: JOYSTICK_DEADZONE_DEFAULT;
 	joystick[j].analog_subpixel[0] = 0;
 	joystick[j].analog_subpixel[1] = 0;
-	joystick[j].velocity_target_frac = 0;
+	joystick[j].velocity_target_frac[0] = 0;
+	joystick[j].velocity_target_frac[1] = 0;
 }
 
 static const char* const assignment_names[] =

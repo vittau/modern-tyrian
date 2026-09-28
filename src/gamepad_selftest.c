@@ -153,6 +153,18 @@ static void gamepad_set_axis(SDL_Joystick *feed, SDL_GamepadAxis axis, Sint16 va
 	selftest_poll();
 }
 
+// Sets two axes at once (the gamepad helpers release the device first).
+static void gamepad_set_axes(SDL_Joystick *feed,
+                             SDL_GamepadAxis axis_a, Sint16 a,
+                             SDL_GamepadAxis axis_b, Sint16 b)
+{
+	release_gamepad(feed);
+	SDL_SetJoystickVirtualAxis(feed, axis_a, a);
+	SDL_SetJoystickVirtualAxis(feed, axis_b, b);
+	SDL_UpdateJoysticks();
+	selftest_poll();
+}
+
 // Counts pushed KEY_DOWN events for a scancode, draining the queue.
 static int drain_key_down(SDL_Scancode scancode)
 {
@@ -341,49 +353,140 @@ static void test_modern_analog_curve(SDL_Joystick *feed)
 	               "20% dead zone responds past 20%", "20% dead zone swallowed input");
 
 	// Per-tick movement through the virtual stick.  Full deflection advances
-	// exactly the legacy step; a weak deflection creeps with some zero-pixel
-	// ticks (sub-pixel accumulation); half input travels less than full.  The
-	// velocity target is the legacy +/-4 cap scaled by the curve fraction.
-	int dx = 0, dy = 0, velocity_target = 0;
+	// exactly the legacy step; the total speed is split into the sub-pixel step
+	// plus the per-axis momentum target; a weak deflection creeps with some
+	// zero-pixel ticks (sub-pixel accumulation); half input travels less than
+	// full.  At full deflection the per-axis split is the legacy +/-4 cap.
+	int dx = 0, dy = 0, tx = 0, ty = 0;
 
 	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 32767);
 	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
-	joystick[0].velocity_target_frac = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
 	int full_total = 0;
 	for (int i = 0; i < 16; i++)
 	{
-		joystick_analog_movement(0, &dx, &dy, &velocity_target);
+		joystick_analog_movement(0, &dx, &dy, &tx, &ty);
 		full_total += dx;
 	}
 	selftest_expect_int(full_total, legacy_step * 16,
 	                    "16 ticks at full deflection == legacy step * 16");
-	selftest_expect_int(velocity_target, JOYSTICK_MODERN_VELOCITY_MAX,
+	selftest_expect_int(tx, JOYSTICK_MODERN_VELOCITY_MAX,
 	                    "full deflection -> legacy velocity cap");
+	selftest_expect_int(ty, 0, "full deflection on X -> no Y momentum");
 
 	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 16383);
 	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
-	joystick[0].velocity_target_frac = 0;
-	int half_total = 0, half_target_total = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+	int half_total = 0, half_target = 0;
 	for (int i = 0; i < 16; i++)
 	{
-		joystick_analog_movement(0, &dx, &dy, &velocity_target);
+		joystick_analog_movement(0, &dx, &dy, &tx, &ty);
 		half_total += dx;
-		half_target_total += velocity_target;
+		half_target += tx;
 	}
-	selftest_check(half_total > 0 && half_total < full_total,
+	// The total desired speed is step + momentum, so compare that, not the step
+	// (50% already has the full 4 px/tick step and a fractional momentum).
+	selftest_check(half_total + half_target < full_total + JOYSTICK_MODERN_VELOCITY_MAX * 16,
 	               "half input travels less than full input", "half input was not slower");
-	// 50% of the ramp is ~0.61 s, so the 4 * s target averages ~2.45.
-	selftest_check(half_target_total / 16 >= 2 && half_target_total / 16 <= 3,
-	               "half input -> scaled velocity target",
-	               "half input velocity target is not between 2 and 3");
+	// 50% is just above the max step, so it carries a small fractional momentum
+	// target (0.92 px/tick) rather than reaching the full cap.
+	selftest_check(half_target > 0 && half_target < JOYSTICK_MODERN_VELOCITY_MAX * 16,
+	               "50% input keeps a fractional momentum target",
+	               "50% input momentum target was not fractional");
 
-	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 8000);
+	// Below the max step the movement is step-only, so it cannot burst.
+	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 6553);
 	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
-	joystick[0].velocity_target_frac = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+	int low_target = 0;
+	for (int i = 0; i < 16; i++)
+	{
+		joystick_analog_movement(0, &dx, &dy, &tx, &ty);
+		low_target += tx;
+	}
+	selftest_expect_int(low_target, 0, "below the max step -> step-only crawl (no momentum)");
+
+	// Crawl steadiness: over 30 ticks at constant input, consecutive per-tick
+	// displacements differ by at most 1 px (Bresenham-like); no 0,2,0,1 bursts.
+	const int crawl[] = { 3932, 4915, 6553, 9830, 13107, 16383 };
+	for (size_t c = 0; c < COUNTOF(crawl); c++)
+	{
+		char what[80];
+		gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, (Sint16)crawl[c]);
+		joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+		joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+		int prev = 0, total = 0, max_jump = 0;
+		for (int i = 0; i < 30; i++)
+		{
+			joystick_analog_movement(0, &dx, &dy, &tx, &ty);
+			if (i > 0)
+			{
+				int jump = dx - prev;
+				if (jump < 0)
+					jump = -jump;
+				if (jump > max_jump)
+					max_jump = jump;
+			}
+			prev = dx;
+			total += dx;
+		}
+		snprintf(what, sizeof what, "crawl at %d is steady (max jump %d px)", crawl[c], max_jump);
+		selftest_check(max_jump <= 1, what, "per-tick displacement bursted more than 1 px");
+		snprintf(what, sizeof what, "crawl at %d still moves", crawl[c]);
+		selftest_check(total > 0, what, "a crawl input did not move");
+	}
+
+	// Cross-axis noise: a full X push with Y inside/near the dead zone must not
+	// impose the full momentum target on Y (the diagonal-drift bug).  Within the
+	// 5 degree snap cone the Y contribution is exactly zero.
+	gamepad_set_axes(feed, SDL_GAMEPAD_AXIS_LEFTX, 32767, SDL_GAMEPAD_AXIS_LEFTY, 300);
+	selftest_check(joystick[0].x == 32767 && joystick[0].y == 300,
+	               "cross-axis noise reaches the stick", "stick noise was not polled");
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+	joystick_analog_movement(0, &dx, &dy, &tx, &ty);
+	selftest_check(dy == 0 && ty == 0 && dx == legacy_step && tx == JOYSTICK_MODERN_VELOCITY_MAX,
+	               "full X + small Y noise is exactly axial",
+	               "small cross-axis noise moved or angled the ship");
+
+	// Outside the snap cone the cross axis is projected proportionally, not full.
+	gamepad_set_axes(feed, SDL_GAMEPAD_AXIS_LEFTX, 20000, SDL_GAMEPAD_AXIS_LEFTY, 10000);
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+	int diag_tx = 0, diag_ty = 0;
+	for (int i = 0; i < 16; i++)
+	{
+		joystick_analog_movement(0, &dx, &dy, &tx, &ty);
+		diag_tx += tx;
+		diag_ty += ty;
+	}
+	selftest_check(diag_tx > diag_ty && diag_ty > 0 && diag_ty < JOYSTICK_MODERN_VELOCITY_MAX * 16,
+	               "diagonal target is split per axis, not full on both",
+	               "a cross-axis component got the full momentum target");
+
+	// D-pad: pressed right while the left stick rests with Y noise.  The D-pad
+	// enters direction slot [1] (32767) and the stick noise becomes Y, so the
+	// movement must be exactly axial at full speed with no Y momentum.
+	release_gamepad(feed);
+	SDL_SetJoystickVirtualAxis(feed, SDL_GAMEPAD_AXIS_LEFTY, 200);
+	SDL_SetJoystickVirtualButton(feed, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, true);
+	SDL_UpdateJoysticks();
+	selftest_poll();
+	selftest_check(joystick[0].x == 32767 && joystick[0].y == 200 && joystick[0].direction[1],
+	               "D-pad right with resting Y noise reaches the stick", "D-pad/noise not polled");
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+	joystick_analog_movement(0, &dx, &dy, &tx, &ty);
+	selftest_check(dy == 0 && ty == 0 && dx + tx == legacy_step + JOYSTICK_MODERN_VELOCITY_MAX,
+	               "D-pad is exactly axial at full speed", "D-pad angled or ran at the wrong speed");
+
+	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 5000);
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
 	int slow_total = 0, slow_zeros = 0;
 	for (int i = 0; i < 16; i++)
 	{
-		joystick_analog_movement(0, &dx, &dy, &velocity_target);
+		joystick_analog_movement(0, &dx, &dy, &tx, &ty);
 		slow_total += dx;
 		if (dx == 0)
 			slow_zeros++;
@@ -395,9 +498,9 @@ static void test_modern_analog_curve(SDL_Joystick *feed)
 	// velocity target is imposed.
 	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 3200);
 	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
-	joystick[0].velocity_target_frac = 0;
-	joystick_analog_movement(0, &dx, &dy, &velocity_target);
-	selftest_check(dx == 0 && dy == 0 && joystick[0].analog_subpixel[0] == 0 && velocity_target == -1,
+	joystick[0].velocity_target_frac[0] = joystick[0].velocity_target_frac[1] = 0;
+	joystick_analog_movement(0, &dx, &dy, &tx, &ty);
+	selftest_check(dx == 0 && dy == 0 && joystick[0].analog_subpixel[0] == 0 && tx == -1 && ty == -1,
 	               "inside the dead zone -> no movement and no momentum", "dead zone moved the ship");
 
 	release_gamepad(feed);
