@@ -2483,19 +2483,21 @@ JE_boolean JE_quitRequest(void)
 
 	// Modern widescreen keeps the 320x200 frame left-aligned and widens the
 	// right panel, so a dialog drawn at its original x hugs the left edge.  The
-	// dialog's dark backdrop is centred in the 320 frame (65..255), so shifting
-	// the whole dialog right by the frame's centred offset lands it on the
-	// canvas centre, matching Classic.  The shift is capped so the dialog stays
-	// left of the last usable widening column (its rightmost element is the
-	// x=255 shade): a canvas wider than the 320 buffer cannot be reached from
-	// it, so on ultrawide the dialog stays fully visible just left of centre.
-	// Classic and Modern 4:3 keep offset 0 and are byte-identical.
-	const int centred = modern_screen_wide()
-		? MAX(0, modern_current_frame()->w - vga_width) / 2
-		: 0;
-	const int off = MIN(centred, MODERN_PIC1_SPLIT_MAX - 1 - 255);
+	// dark backdrop (65..255) is a drop shadow offset down-right of the message
+	// box (sprite 35, 50..238), so centring the backdrop -- as the original 320
+	// frame does -- still leaves the box ~16 px left of the canvas centre.
+	// Centre the box itself instead and keep the shadow's original offset; the
+	// text and the two labels move with it.  The right panel cannot be widened
+	// past MODERN_PIC1_SPLIT_MAX, so the box can only reach
+	// MODERN_PIC1_SPLIT_MAX - box_w: on ultrawide it stops just left of centre.
+	// The shadow's right edge is clipped at that cap too, so the backdrop never
+	// crosses the widening split (crossing it would tear a backdrop-coloured
+	// hole in the shadow).  Classic and Modern 4:3 keep offset 0 and are
+	// byte-identical.
+	const int off = modern_dialog_offset_x(50, sprite(OPTION_SHAPES, 35)->width);
+	const int shade_right = MIN(255 + off, MODERN_PIC1_SPLIT_MAX - 1);
 
-	JE_barShade(VGAScreen, 65 + off, 55, 255 + off, 155);
+	JE_barShade(VGAScreen, 65 + off, 55, shade_right, 155);
 
 	while (!done)
 	{

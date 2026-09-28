@@ -662,6 +662,34 @@ void modern_backdrop_clear(void)
 	modern_backdrop_pic = 0;
 }
 
+int modern_dialog_offset_x(int box_left, int box_w)
+{
+	if (!modern_screen_wide())
+		return 0;
+
+	const int w = modern_frame_state.w;
+	const int canvas_left = (w - box_w) / 2;
+	int frame_left = box_left;
+
+	if (modern_backdrop_valid && modern_backdrop_pic == 1)
+	{
+		// Widened pic-1 layout: the frame is left-aligned, so the box's frame
+		// x is its canvas x.  Keep the box's right column left of the split.
+		frame_left = MIN(canvas_left, MODERN_PIC1_SPLIT_MAX - box_w);
+	}
+	else
+	{
+		// Centred 320 frame: its centre maps to the canvas centre, so the box
+		// only moves inside the frame.
+		frame_left = canvas_left - (w - vga_width) / 2;
+	}
+
+	if (frame_left < box_left)
+		frame_left = box_left;
+
+	return frame_left - box_left;
+}
+
 void modern_mouse_cursor_set(int x, int y, int w, int h)
 {
 	modern_cursor_x = x;
