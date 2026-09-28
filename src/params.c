@@ -139,9 +139,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)");
 			logInfo("  --presentation=MODE          Set presentation mode: classic or modern");
 			logInfo("  --aspect=RATIO               Modern aspect: 4:3, 16:10, 16:9, 21:9, 32:9, auto");
-			logInfo("  --pixel-aspect=SHAPE         Pixel aspect: original (1.2) or square");
-			logInfo("  --bloom=LEVEL                Modern bloom: off, low, medium or high");
-			logInfo("  --lighting=LEVEL             Modern dynamic lighting: off, low, medium or high");
+			logInfo("  --pixel-aspect=SHAPE         Classic pixel aspect: original (1.2) or square");
+			logInfo("  --bloom=LEVEL                Modern bloom override: off, low or high");
+			logInfo("  --lighting=LEVEL             Modern bloom + lighting: off, low or high (default low)");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
@@ -174,7 +174,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-detail=M           Pin processor detail level M (1-6, default 2)");
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
-			logInfo("  --regress-lighting=LEVEL     Pin Modern lighting in regress modes (default off)");
+			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
 			logInfo("  --selftest-gamepad           Run the virtual-controller input self-test and exit");
 			exit(EXIT_SUCCESS);
@@ -464,37 +464,42 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_bench_seconds = seconds;
 			break;
 		}
-		case 281: // --bloom=off|low|medium|high
+		case 281: // --bloom=off|low|high (advanced override of bloom only)
 			if (!set_modern_quality_by_name(option.arg, &modern_bloom_quality))
 			{
-				logError("%s: bloom must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				logError("%s: bloom must be 'off', 'low' or 'high'", argv[0]);
 				exit(EXIT_FAILURE);
 			}
 			break;
-		case 282: // --lighting=off|low|medium|high
-			if (!set_modern_quality_by_name(option.arg, &modern_lighting_quality))
+		case 282: // --lighting=off|low|high (sets bloom and lighting together)
+		{
+			ModernQuality quality = MODERN_QUALITY_LOW;
+			if (!set_modern_quality_by_name(option.arg, &quality))
 			{
-				logError("%s: lighting must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				logError("%s: lighting must be 'off', 'low' or 'high'", argv[0]);
 				exit(EXIT_FAILURE);
 			}
+			modern_bloom_quality = quality;
+			modern_lighting_quality = quality;
 			break;
-		case 283: // --regress-bloom=off|low|medium|high
+		}
+		case 283: // --regress-bloom=off|low|high
 		{
 			ModernQuality quality = MODERN_QUALITY_OFF;
 			if (!set_modern_quality_by_name(option.arg, &quality))
 			{
-				logError("%s: regress bloom must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				logError("%s: regress bloom must be 'off', 'low' or 'high'", argv[0]);
 				exit(EXIT_FAILURE);
 			}
 			regress_bloom_quality = (int)quality;
 			break;
 		}
-		case 284: // --regress-lighting=off|low|medium|high
+		case 284: // --regress-lighting=off|low|high
 		{
 			ModernQuality quality = MODERN_QUALITY_OFF;
 			if (!set_modern_quality_by_name(option.arg, &quality))
 			{
-				logError("%s: regress lighting must be 'off', 'low', 'medium' or 'high'", argv[0]);
+				logError("%s: regress lighting must be 'off', 'low' or 'high'", argv[0]);
 				exit(EXIT_FAILURE);
 			}
 			regress_lighting_quality = (int)quality;

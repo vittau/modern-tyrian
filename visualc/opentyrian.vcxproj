@@ -173,7 +173,6 @@
     <ClCompile Include="..\src\vga_palette.c" />
     <ClCompile Include="..\src\video.c" />
     <ClCompile Include="..\src\video_scale.c" />
-    <ClCompile Include="..\src\video_scale_hqNx.c" />
     <ClCompile Include="..\src\xmas.c" />
   </ItemGroup>
   <ItemGroup>

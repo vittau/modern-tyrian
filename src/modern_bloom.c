@@ -26,18 +26,25 @@ const char *const modern_quality_names[MODERN_QUALITY_MAX] =
 {
 	"off",
 	"low",
-	"medium",
 	"high",
 };
 
-// Modern users get the effects on by default; Classic never reaches this code
-// (the Modern pass list is only run by modern_build_frame()).  Regression mode
-// pins both OFF.
-ModernQuality modern_bloom_quality = MODERN_QUALITY_MEDIUM;
-ModernQuality modern_lighting_quality = MODERN_QUALITY_MEDIUM;
+// Modern users get the effects on by default (Low); Classic never reaches this
+// code (the Modern pass list is only run by modern_build_frame()).  Regression
+// mode pins both OFF unless --regress-lighting asks otherwise.
+ModernQuality modern_bloom_quality = MODERN_QUALITY_LOW;
+ModernQuality modern_lighting_quality = MODERN_QUALITY_LOW;
 
 bool set_modern_quality_by_name(const char *name, ModernQuality *quality)
 {
+	// "medium" is the pre-merge spelling of today's High; keep accepting it from
+	// old configs and command lines.
+	if (strcmp(name, "medium") == 0)
+	{
+		*quality = MODERN_QUALITY_HIGH;
+		return true;
+	}
+
 	for (int i = 0; i < MODERN_QUALITY_MAX; ++i)
 	{
 		if (strcmp(name, modern_quality_names[i]) == 0)
@@ -198,20 +205,21 @@ typedef struct
 	Uint8 iterations;
 } MbParams;
 
+// Three levels.  High is the pre-merge Low; Low is half of it (gains halved,
+// ambient moved halfway toward 256).  Thresholds, radii and iterations are the
+// pre-merge Low's, per the user's decision.
 static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 224,  2,   260, 256, 3 },  // low
-	{ 208,  2,   560, 256, 3 },  // medium
-	{ 184,  3,  1100, 256, 3 },  // high
+	{ 224,  2,   130, 256, 3 },  // low  (half of high's gain; bloom ambient was already 256)
+	{ 224,  2,   260, 256, 3 },  // high (the pre-merge low)
 };
 
 static const MbParams mb_light_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 216,  2,   900, 246, 3 },  // low   (radius 2 quarter px = 8 logical)
-	{ 204,  3,  1800, 240, 3 },  // medium(radius 3 quarter px = 12 logical)
-	{ 188,  5,  3200, 234, 3 },  // high  (radius 5 quarter px = 20 logical)
+	{ 216,  2,   450, 251, 3 },  // low  (half gain, ambient halfway to 256)
+	{ 216,  2,   900, 246, 3 },  // high (the pre-merge low)
 };
 
 // --- Explicit light sources (extension point) -------------------------------

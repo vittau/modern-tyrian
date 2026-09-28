@@ -50,7 +50,6 @@ void init_video(void);
 void video_on_win_resize(void);
 void reinit_fullscreen(int new_display);
 void toggle_fullscreen(void);
-bool init_scaler(unsigned int new_scaler);
 bool set_scaling_mode_by_name(const char *name);
 
 // Applies a runtime change to the presentation/aspect/pixel-aspect settings:
@@ -60,11 +59,13 @@ void video_apply_display_settings(void);
 
 // Shared presentation helpers, used by both the Classic and Modern paths.
 SDL_Renderer *video_renderer(void);
-// Computes the destination rectangle for a logical surface of src_w x src_h
-// pixels uploaded to `texture`, honoring the current scaling mode.  Classic
-// passes the 8-bit surface size and its software-scaled texture; Modern passes
-// the canvas size and its canvas texture.
-void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_Rect *dst_rect);
+// Presents `texture` (src_w x src_h logical pixels) in the window and returns
+// the destination rectangle (also used for mouse mapping).  `content_aspect` is
+// the on-screen width/height of the whole image: Classic passes the 4:3 or 8:5
+// frame selected by the pixel aspect, Modern passes the canvas display aspect.
+// `mode` is the fit strategy; Modern always passes SCALE_FIT.  Center and
+// Integer draw with nearest-neighbour; Fit uses the sharp-bilinear path.
+SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float content_aspect, ScalingMode mode);
 // Records the presented output rectangle for mouse mapping.
 void video_set_last_output_rect(const SDL_Rect *rect);
 // Modern variant: also records the canvas size and the offset of the 320x200
