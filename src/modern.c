@@ -185,9 +185,9 @@ static int modern_cursor_w = 0, modern_cursor_h = 0;
 // repeat, so the screen falls back to the blurred fill.
 //
 // MIN skips the panel's left divider and its shadow; MAX is the last flat column
-// before the right border.
+// before the right border (MODERN_PIC1_SPLIT_MAX, shared with the callers that
+// cap a code-drawn overlay's position).
 #define MODERN_PIC1_SPLIT_MIN 170
-#define MODERN_PIC1_SPLIT_MAX 311
 
 // Rows below the pic-1 right panel (the bottom frame band) carry the one-line
 // help text, which can span almost the whole width.  The widening still shifts
@@ -1087,10 +1087,30 @@ static bool modern_pic1_widens(const ModernFrame *frame, int *split_out)
 	// so it must not block the widening (the navigation map's right margin fill
 	// lives there).
 	const int element_max = modern_max_element_x(frame, MODERN_PIC1_SPLIT_MAX, MODERN_PIC1_HELP_Y);
-	const int split = MAX(MODERN_PIC1_SPLIT_MIN, element_max + 1);
+	int split = MAX(MODERN_PIC1_SPLIT_MIN, element_max + 1);
 
 	if (split > MODERN_PIC1_SPLIT_MAX)
-		return false;
+	{
+		// No flat panel column is left to the right of every element.  This is
+		// the in-game load/save screen, whose right-aligned "Ep1" episode text
+		// sits at the panel's right border (x=311).  Fall back to the last
+		// element-free panel column: the band repeats that flat column and the
+		// right-aligned text shifts with the widened panel instead of being
+		// split, so the screen still widens like every other pic-1 menu.
+		for (split = MODERN_PIC1_SPLIT_MAX; split >= MODERN_PIC1_SPLIT_MIN; --split)
+		{
+			bool free_column = true;
+
+			for (int y = 0; y < MODERN_PIC1_HELP_Y && free_column; ++y)
+				free_column = !modern_pixel_is_element(frame, split, y);
+
+			if (free_column)
+				break;
+		}
+
+		if (split < MODERN_PIC1_SPLIT_MIN)
+			return false;
+	}
 
 	*split_out = split;
 	return true;
