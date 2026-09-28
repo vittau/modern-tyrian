@@ -381,3 +381,11 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - Na CI, o agente tinha trocado o conversor sinc do SDL por interpolação linear só para o teste de áudio ficar portátil. Recusado na revisão, porque piora o som do jogador. Pedido um conversor polifásico sinc próprio, em ponto fixo e idêntico em todas as plataformas, com qualidade igual ou melhor que a do SDL e resposta de frequência medida.
 - **Decisão do usuário:** das melhorias propostas (estéreo posicional, Nuked OPL3, limitador suave e trilha OGG fornecida pelo usuário), só o **Nuked OPL3** (emulação de referência do chip, LGPL-2.1+, compatível com a GPL-2+). As outras três não serão feitas.
 - Ordem: o Nuked começa depois que o conversor sinc estiver no branch. Ele gera o som em 49716 Hz e precisa desse conversor, em modo contínuo, para chegar a 44,1 kHz.
+
+### 2026-09-28 — Testes do usuário: bugs e decisões de escala
+- O usuário testou o binário. Três bugs viraram tarefas, e duas decisões foram tomadas:
+  - **Bug: o cenário e as nuvens "pulam" quando a nave se move.** Causa provável: o pan horizontal segue a nave. O x da linha de fundo dá a volta (`mapXOfs % 24`) enquanto o ponteiro do mapa avança um tile, e a interpolação desliza ~23 px para o lado errado a cada tile. Tarefa `interp-fix`, com uma checagem de suavidade na regressão.
+  - **Bug: o HUD clássico pisca no início da fase.** Os primeiros quadros saem como quadro de menu. Mesma tarefa.
+  - **Bug: "Fit 4:3" e "Fit 8:5" são iguais no Modern.** Unificados em "Fit"; a diferença passa para o Pixel Aspect, que agora vale também no Clássico. Tarefa `scaling`.
+- **Decisão:** o pixel aspect correto para a arte é o Original (1,2, desenhada para CRT 4:3). No Modern, o usuário não deve conseguir escolher a pior opção. Pixel Aspect e Scaling Mode saem do menu Modern, e a escala passa a ser sempre "sharp bilinear": pré-escala inteira com nearest, e depois o ajuste fracionário final com linear. Isso deixa os pixels uniformes, sem linhas de 4 e 5 px misturadas que tremem no scroll, com aspecto exato. O Fit do Clássico usa o mesmo caminho.
+- **Decisão:** os scalers de software (hq2x etc.) são removidos do jogo: "só queremos pixels perfeitos". A janela do Clássico passa a usar o dimensionamento por múltiplo inteiro.
