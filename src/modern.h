@@ -258,6 +258,15 @@ bool modern_hud_in_panels(void);
 // Width in logical pixels of the narrower side panel (0 when there is none).
 int modern_side_panel_width(void);
 
+// Horizontal position for a text the game centres over the gameplay playfield.
+// In Classic (and Modern 4:3) the full 320-px frame is shown, so `classic_x` is
+// returned unchanged and the output stays byte-exact.  In Modern panel mode the
+// 56-px classic sidebar is dropped and the 264-px playfield is centred, so the
+// text is re-centred by its measured width inside the playfield (the playfield
+// is game_screen x 24..287).  `font` is a shapes font; `classic_x` is the x the
+// game passes to the draw call today.  Display-only; no game state is touched.
+int modern_playfield_center_x(const char *s, unsigned int font, int classic_x);
+
 // The off-screen 8-bit surface for side panel `player` (0 = left/P1,
 // 1 = right/P2), index 0 transparent, or NULL when modern_hud_in_panels() is
 // false.  Owned by modern.c; the game draws into it with the usual 8-bit

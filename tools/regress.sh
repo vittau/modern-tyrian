@@ -327,6 +327,18 @@ pairs=$((pairs + 1))
 run_case "modern-wide-16x10-demo1-d2" --regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:10
 pairs=$((pairs + 1))
 
+# Script-driven death: E1:L3 has no item screen before the level, so
+# --regress-script reaches real gameplay (playDemo == false) and the
+# un-invincible player sits still and dies, presenting the "GAME OVER" banner
+# over the playfield.  --regress-seed makes that run reproducible (the script
+# path otherwise inherits main()'s time(NULL) seed).  This guards the Modern
+# centring of the banner on the playfield, which the demo/scenario paths cannot
+# reach (they turn the !playDemo death into an end-of-level).
+run_case "modern-wide-script-death-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=3700 --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+
 # --- Modern VFX (Fase 2) ------------------------------------------------------
 #
 # VFX are pinned OFF for every other case (so no pre-VFX baseline changes); these

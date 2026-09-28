@@ -89,7 +89,8 @@ A Visual Studio solution is provided in `visualc/`.
     --regress-script=E:L         Start level L of episode E through the episode
                                  script (reaches script-driven screens such as
                                  the WARNING text) and exit
-    --regress-frames=N           Cap a --regress-level run at N frames
+    --regress-seed=N             Pin the RNG seed for a reproducible regress run
+    --regress-frames=N          Cap a --regress-level run at N frames
     --regress-out=FILE           Write per-frame hashes to FILE (regress modes)
     --regress-state-out=FILE     Write per-frame game-state hashes to FILE
     --regress-snapshot=F:FILE    Save the presented image of frame F to FILE (BMP)

@@ -47,6 +47,8 @@ extern int regress_demo;              // 0 = disabled, 1..5 = demo to replay
 extern int regress_scenario_episode;  // 0 = disabled, 1..4 = episode to start
 extern int regress_scenario_level;    // lvlFileNum within that episode (1-based)
 extern int regress_script;            // non-zero = run the episode script to reach the level
+extern int regress_seed_set;          // non-zero = pin the RNG seed (--regress-seed)
+extern unsigned long regress_seed;    // the pinned RNG seed
 extern int regress_frames;            // scenario length cap; 0 = run to the end
 extern const char *regress_out_path;  // where frame hashes are written
 extern int regress_detail;            // processorType to use (1..6)
