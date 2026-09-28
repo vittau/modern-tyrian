@@ -404,3 +404,14 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   3. Hash de estado: `Player.cash` é `unsigned long` e era hasheado com `sizeof`, que dá 8 bytes no LP64 e 4 no LLP64. Agora todos os escalares vão como little-endian de largura fixa, sem mudar os baselines.
 - Todos os hashes de quadro bateram entre plataformas desde a primeira rodada: o desenho do jogo é portátil.
 - As varreduras completas (`--replay-check`, `--interp-check`) ficam no workflow manual `regress-full.yml`.
+
+### 2026-09-28 — Nuked OPL3, correções de tremido e HUD; pausa para desligar a máquina
+- **Nuked-OPL3 (`570aa48`, merge `1536c6c`).** Upstream `765ec962` (LGPL-2.1+), em modo OPL2, gerado a 49716 Hz e convertido por um resampler polifásico contínuo. É integer-only, com o LFSR de ruído do próprio Nuked, e o Park–Miller saiu. Custo de ~3% do callback de áudio. Mudaram só as linhas music/mix do `audio.txt`. De quebra, foi corrigido um bug na decomposição de fase do resampler ao reduzir a taxa. CI verde nos três sistemas.
+- **Bugs do teste do usuário corrigidos (`d9c9c21`, merge `a5aff13`).**
+  - Tremido: a origem contínua do pan (`x − 24·bp`) é interpolada e depois reexpressa contra o mapa do tick atual. O novo `--regress-interp-smoothness` acusava 303 eventos na demo1-d2 e agora acusa 0.
+  - HUD clássico piscando: a composição de gameplay fica mantida no intro, nos fades de morte e de fim de demo e na animação de fim de fase. `--regress-gameplay-check`: 0 quadros sem os painéis.
+  - As opções novas ficaram em 287–289; 285/286 estão reservadas para o VFX. Os baselines Modern de gameplay mudaram só nos quadros de intro/fade.
+- **Pausa (usuário vai desligar a máquina).** Dois trabalhos ficaram em andamento, cada um salvo em ref, com nota de passagem:
+  - **VFX, rodada de correção 1.** Worktree `vfx`, commit `4830b8b` mais árvore em `refs/keep/vfx-wip`; nota em `.worker-reports/phase2-vfx-1-handoff.md`. Funcional e verde (fumaça com a translucidez do motor, níveis Off/Low/High, padrão Low). Falta atualizar o relatório (§9 com 125/125 e §7 com custo remedido) e mandar `worker_done`.
+  - **Scaling, rodada 2.** Worktree `scaling`, commit `5062420` mais árvore em `refs/keep/scaling-wip`; nota em `.worker-reports/scaling-fit-handoff.md`. Implementado e verde: scalers removidos; sharp bilinear no Fit (Modern e Clássico); Modern com pixel aspect fixo 1,2 e sem Scaling Mode/Pixel Aspect no menu; iluminação Off/Low/High com seletor único e padrão Low. Falta: prova de pixels uniformes (o harness em `/tmp` pode se perder no reboot), capturas da iluminação, custo, relatório e reverificação depois de edições cosméticas.
+- **Para retomar:** conferir se há sessão fantasma do opencode (§2.22); agentes novos nas duas worktrees, com a nota de passagem; merges na ordem scaling → VFX (os dois mexem no menu Graphics em `src/opentyr.c` e em `params.c`/`config.c`). Depois: luz por objeto a partir dos eventos de VFX e partículas de ambiente.
