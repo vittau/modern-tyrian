@@ -159,6 +159,17 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - Loja, armamentos, dados e demais telas da moldura mecânica (pic 1): alargar o painel liso da direita repetindo uma faixa de colunas internas dele até preencher o canvas (arte original em 1×, sem desfoque). A moldura com a nave fica à esquerda. É só composição: o jogo segue desenhando 320 px, o compositor corta numa coluna livre do painel e insere a faixa. Ajustes: recentralizar o título da caixa, mapear o mouse através da faixa inserida e checar tela por tela se a coluna de corte fica livre. Pedido do usuário, que prefere isso ao desfoque (Vert- não serve aqui: abre a moldura e desalinha as janelas)
 - [x] Trava de dados na regressão (`7909049`); referência no zip oficial e regressão na CI, verde em Linux, macOS e Windows (`b4f42b6`)
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
+- [ ] **Steam Deck (prioridade, pedido do usuário, 2026-09-28).** Build Linux x86_64 distribuída como binário direto num `.tar.gz`, sem AppImage, Flatpak ou similar:
+  - o executável vai com as libs SDL3/SDL3_net ao lado, com `rpath=$ORIGIN`, para rodar no SteamOS sem instalar nada;
+  - os dados do jogo não vão no pacote: vai junto um script ou uma instrução para baixá-los;
+  - release gerada pela CI a partir de uma tag.
+
+  Validar no Deck:
+  - 1280×800 (16:10) em tela cheia, com os painéis do HUD na geometria 16:10;
+  - controle nativo, sem template do Steam Input;
+  - "Add to Steam" a partir do Desktop Mode, com um passo a passo no README;
+  - logs num lugar fácil de achar;
+  - desempenho a 60/90 Hz na tela do Deck.
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
 - [ ] README novo (pedido do usuário, 2026-09-28), com a qualidade e o estilo do README de `vittau/antivirus-95`: banner e cabeçalhos de seção em SVG gerados por script, badges, tagline, tabelas curtas e prosa enxuta. **As capturas de tela só depois dos ajustes em andamento.** Esboço das seções:
   - banner, badges (CI, licença, release) e tagline;
@@ -464,3 +475,6 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   4. Em seguida, luz com a cor do objeto.
   5. Acessibilidade fica para o futuro.
   6. A posição das partículas de ambiente na fila ficou por confirmar com o usuário.
+
+### 2026-09-28 — Steam Deck no roadmap
+- O usuário definiu o suporte a Steam Deck como prioridade: build Linux em `.tar.gz` com o binário direto (sem AppImage). Item na Fase 2 (§6). Entra na fila logo depois do lote atual, junto com o README, que ganha a seção de instalação no Deck.
