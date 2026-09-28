@@ -114,6 +114,12 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 310, 0,   "log-file",          true },
 		{ 301, 0,   "regress-smooth-effects-check", false },
 		
+		{ 305, 0,   "deadzone",          true },
+		
+		{ 306, 0,   "regress-stick",     true },
+		{ 307, 0,   "regress-stick-log", true },
+		{ 308, 0,   "regress-reverse-y", false },
+		
 		{ 0, 0, NULL, false }
 	};
 	
@@ -208,6 +214,12 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --light-threshold=N          Debug: force both bloom/light thresholds to N");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
 			logInfo("  --selftest-gamepad           Run the virtual-controller input self-test and exit");
+			logInfo("  --deadzone=PERCENT           Modern analog stick dead zone, 0-20 (default 10)");
+			logInfo("  --regress-stick=X,Y          Regress only: inject a synthetic analog stick at raw");
+			logInfo("                               axis values X,Y and run the whole stick path headless");
+			logInfo("  --regress-stick-log=FILE     Log the per-tick ship x/y and x/y velocity of a");
+			logInfo("                               --regress-stick run to FILE");
+			logInfo("  --regress-reverse-y          Regress only: force the reverse-controls smoothie on");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -643,6 +655,42 @@ void JE_paramCheck(int argc, char *argv[])
 			// (which would truncate) an already-open log.
 			if (!logFileIsOpen() && !logOpenFile(option.arg))
 				logWarn("Failed to open '%s' for logging.", option.arg);
+			break;
+
+		case 305: // --deadzone=PERCENT
+		{
+			const int percent = atoi(option.arg);
+			if (percent < JOYSTICK_DEADZONE_MIN || percent > JOYSTICK_DEADZONE_MAX)
+			{
+				logError("%s: --deadzone must be between %d and %d",
+				         argv[0], JOYSTICK_DEADZONE_MIN, JOYSTICK_DEADZONE_MAX);
+				exit(EXIT_FAILURE);
+			}
+			joystick_deadzone_override = percent;
+			break;
+		}
+
+		case 306: // --regress-stick=X,Y
+		{
+			int x, y;
+			if (sscanf(option.arg, "%d,%d", &x, &y) != 2 ||
+			    x < -32768 || x > 32767 || y < -32768 || y > 32767)
+			{
+				logError("%s: --regress-stick must be X,Y with axis values in -32768..32767", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_stick = 1;
+			regress_stick_x = x;
+			regress_stick_y = y;
+			break;
+		}
+
+		case 307: // --regress-stick-log=FILE
+			regress_stick_log_path = option.arg;
+			break;
+
+		case 308: // --regress-reverse-y
+			regress_reverse_y = 1;
 			break;
 
 		default:

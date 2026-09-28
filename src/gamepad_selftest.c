@@ -256,28 +256,165 @@ static void test_gamepad_actions(SDL_Joystick *feed)
 	selftest_check(drain_key_down(SDL_SCANCODE_ESCAPE) == 1,
 	               "B -> Esc in menus", "B did not push Esc");
 
+	// Face buttons drive the sidekicks; the shoulders are a second binding.
+	gamepad_press_button(feed, SDL_GAMEPAD_BUTTON_NORTH);
+	selftest_check(joystick[0].action[2], "Y -> left sidekick", "Y not mapped to left sidekick");
+
 	gamepad_press_button(feed, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
 	selftest_check(joystick[0].action[2], "left shoulder -> left sidekick", "left shoulder not detected");
+
+	gamepad_press_button(feed, SDL_GAMEPAD_BUTTON_WEST);
+	selftest_check(joystick[0].action[3], "X -> right sidekick", "X not mapped to right sidekick");
 
 	gamepad_press_button(feed, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
 	selftest_check(joystick[0].action[3], "right shoulder -> right sidekick", "right shoulder not detected");
 
-	gamepad_press_button_for_key(feed, SDL_GAMEPAD_BUTTON_BACK);
-	selftest_check(joystick[0].action[4] && joystick[0].action_pressed[4],
-	               "back -> in-game menu", "back not mapped to menu");
-	selftest_check(drain_key_down(SDL_SCANCODE_RETURN) == 1,
-	               "back -> Enter in menus", "back did not push Enter");
-
 	gamepad_press_button_for_key(feed, SDL_GAMEPAD_BUTTON_START);
+	selftest_check(joystick[0].action[4] && joystick[0].action_pressed[4],
+	               "start -> in-game menu", "start not mapped to menu");
+	selftest_check(drain_key_down(SDL_SCANCODE_RETURN) == 1,
+	               "start -> Enter in menus", "start did not push Enter");
+
+	gamepad_press_button_for_key(feed, SDL_GAMEPAD_BUTTON_BACK);
 	selftest_check(joystick[0].action[5] && joystick[0].action_pressed[5],
-	               "start -> pause", "start not mapped to pause");
+	               "back -> pause", "back not mapped to pause");
 	selftest_check(drain_key_down(SDL_SCANCODE_ESCAPE) == 1,
-	               "start -> Esc in menus", "start did not push Esc");
+	               "back -> Esc in menus", "back did not push Esc");
 
 	release_gamepad(feed);
 }
 
-// Writes a config with the game's writer and parses it back with the game's
+// Modern radial dead zone + response curve, without real hardware: the pure
+// response function is unit-tested at the dead-zone edge, 50%, 75% and 100%,
+// and the per-tick movement (with its sub-pixel remainder) is driven through a
+// virtual stick.
+static void test_modern_analog_curve(SDL_Joystick *feed)
+{
+	printf("-- Modern analog response curve --\n");
+
+	joystick[0].sensitivity = 5;
+	joystick[0].threshold = 5;
+	joystick[0].deadzone = 10;
+
+	// s = 1 must equal the original analog full-deflection speed: the legacy
+	// path reduces the raw axis and draws (reduce +/- 3) / 4 pixels per tick.
+	const int legacy_step = (joystick_axis_reduce(0, 32767) + 3) / 4;
+	selftest_expect_int(joystick_modern_max_step(0), legacy_step,
+	                    "Modern full deflection == legacy analog full speed");
+
+	// Pure curve: dead-zone edge.
+	selftest_expect_int(joystick_modern_response(0, 0, 10), 0,
+	                    "centred stick -> no speed");
+	selftest_expect_int(joystick_modern_response(3200, 0, 10), 0,
+	                    "inside the dead zone -> no speed");
+	selftest_check(joystick_modern_response(4000, 0, 10) > 0,
+	               "just outside the dead zone -> positive speed", "no speed past 10%");
+
+	// 50% input sits on the linear ramp from the 10% dead zone to the 75% knee.
+	const int half = joystick_modern_response(16383, 0, 10);
+	selftest_expect_int(half, (((16383 * 1024 / 32767) - 102) * 1024) / (768 - 102),
+	                    "50% input follows the linear ramp");
+	selftest_check(half > 0 && half < 1024,
+	               "50% input is slower than full speed", "50% input reached full speed");
+
+	// 75% and 100% are full speed.
+	selftest_expect_int(joystick_modern_response(24576, 0, 10), 1024,
+	                    "75% input -> full speed");
+	selftest_expect_int(joystick_modern_response(32767, 0, 10), 1024,
+	                    "100% input -> full speed");
+
+	// Radial: equal stick magnitudes give equal speeds on an axis and a diagonal,
+	// so pushing into a corner is not sqrt(2) faster.
+	selftest_expect_int(joystick_modern_response(11584, 11584, 10),
+	                    joystick_modern_response(16383, 0, 10),
+	                    "diagonal speed == axis speed at equal magnitude");
+	selftest_expect_int(joystick_modern_response(32767, 32767, 10), 1024,
+	                    "full diagonal is clamped to full speed");
+
+	// The dead zone range itself: 0% moves from the first sample, 20% only past
+	// 20% of the travel.
+	selftest_check(joystick_modern_response(200, 0, 0) > 0,
+	               "0% dead zone responds to a small input", "0% dead zone swallowed input");
+	selftest_expect_int(joystick_modern_response(200, 0, 20), 0,
+	                    "20% dead zone ignores a 0.6% input");
+	selftest_check(joystick_modern_response(7000, 0, 20) > 0,
+	               "20% dead zone responds past 20%", "20% dead zone swallowed input");
+
+	// Per-tick movement through the virtual stick.  Full deflection advances
+	// exactly the legacy step; a weak deflection creeps with some zero-pixel
+	// ticks (sub-pixel accumulation); half input travels less than full.  The
+	// velocity target is the legacy +/-4 cap scaled by the curve fraction.
+	int dx = 0, dy = 0, velocity_target = 0;
+
+	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac = 0;
+	int full_total = 0;
+	for (int i = 0; i < 16; i++)
+	{
+		joystick_analog_movement(0, &dx, &dy, &velocity_target);
+		full_total += dx;
+	}
+	selftest_expect_int(full_total, legacy_step * 16,
+	                    "16 ticks at full deflection == legacy step * 16");
+	selftest_expect_int(velocity_target, JOYSTICK_MODERN_VELOCITY_MAX,
+	                    "full deflection -> legacy velocity cap");
+
+	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 16383);
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac = 0;
+	int half_total = 0, half_target_total = 0;
+	for (int i = 0; i < 16; i++)
+	{
+		joystick_analog_movement(0, &dx, &dy, &velocity_target);
+		half_total += dx;
+		half_target_total += velocity_target;
+	}
+	selftest_check(half_total > 0 && half_total < full_total,
+	               "half input travels less than full input", "half input was not slower");
+	// 50% of the ramp is ~0.61 s, so the 4 * s target averages ~2.45.
+	selftest_check(half_target_total / 16 >= 2 && half_target_total / 16 <= 3,
+	               "half input -> scaled velocity target",
+	               "half input velocity target is not between 2 and 3");
+
+	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 8000);
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac = 0;
+	int slow_total = 0, slow_zeros = 0;
+	for (int i = 0; i < 16; i++)
+	{
+		joystick_analog_movement(0, &dx, &dy, &velocity_target);
+		slow_total += dx;
+		if (dx == 0)
+			slow_zeros++;
+	}
+	selftest_check(slow_total > 0 && slow_total < 16 && slow_zeros > 0,
+	               "slow input creeps with sub-pixel ticks", "slow input did not accumulate sub-pixels");
+
+	// Inside the dead zone, movement stops, the remainder is dropped and no
+	// velocity target is imposed.
+	gamepad_set_axis(feed, SDL_GAMEPAD_AXIS_LEFTX, 3200);
+	joystick[0].analog_subpixel[0] = joystick[0].analog_subpixel[1] = 0;
+	joystick[0].velocity_target_frac = 0;
+	joystick_analog_movement(0, &dx, &dy, &velocity_target);
+	selftest_check(dx == 0 && dy == 0 && joystick[0].analog_subpixel[0] == 0 && velocity_target == -1,
+	               "inside the dead zone -> no movement and no momentum", "dead zone moved the ship");
+
+	release_gamepad(feed);
+
+	joystick[0].sensitivity = 5;
+	joystick[0].threshold = 5;
+	joystick[0].deadzone = JOYSTICK_DEADZONE_DEFAULT;
+
+	// The --deadzone override pins every joystick (used by command-line tests).
+	const int saved_override = joystick_deadzone_override;
+	joystick_deadzone_override = 7;
+	reset_joystick_assignments(0);
+	selftest_expect_int(joystick[0].deadzone, 7, "--deadzone override reaches the joystick");
+	joystick_deadzone_override = saved_override;
+	reset_joystick_assignments(0);
+}
+
 // parser.  Uses $OPENTYRIAN_SELFTEST_CONFIG as the file when set (so a real
 // opentyrian.cfg can be inspected), otherwise an anonymous temporary file.
 static bool write_config_then_parse(const Config *config, Config *parsed, const char *env_var)
@@ -354,6 +491,57 @@ static void test_gamepad_config_roundtrip(void)
 	// The default mapping must be restored for the later tests.
 	reset_joystick_assignments(0);
 
+	config_deinit(&loaded);
+	config_deinit(&saved);
+}
+
+// Every action is remappable to a gamepad button, and the whole remap (plus the
+// dead zone) survives a config write + parse + load round-trip.
+static void test_gamepad_remap_roundtrip(void)
+{
+	printf("-- gamepad full remap round-trip --\n");
+
+	const int deadzone = 17;
+	joystick[0].deadzone = deadzone;
+
+	for (int a = 0; a < 10; ++a)
+	{
+		joystick[0].assignment[a][0].type = GAMEPAD_BUTTON;
+		joystick[0].assignment[a][0].num = SDL_GAMEPAD_BUTTON_SOUTH + a;
+		joystick[0].assignment[a][0].negative_axis = false;
+		joystick[0].assignment[a][1].type = NONE;
+	}
+
+	Config saved;
+	config_init(&saved);
+	save_joystick_assignments(&saved, 0);
+
+	Config loaded;
+	config_init(&loaded);
+	if (!write_config_then_parse(&saved, &loaded, "OPENTYRIAN_SELFTEST_CONFIG_REMAP"))
+	{
+		selftest_check(false, "full remap config parses", "config write/parse failed");
+		config_deinit(&loaded);
+		config_deinit(&saved);
+		reset_joystick_assignments(0);
+		return;
+	}
+
+	reset_joystick_assignments(0);
+	load_joystick_assignments(&loaded, 0);
+
+	bool all_actions = true;
+	for (int a = 0; a < 10 && all_actions; ++a)
+	{
+		all_actions = joystick[0].assignment[a][0].type == GAMEPAD_BUTTON &&
+		              joystick[0].assignment[a][0].num == SDL_GAMEPAD_BUTTON_SOUTH + a;
+	}
+	selftest_check(all_actions, "all 10 actions remap to gamepad buttons",
+	               "an action did not round-trip");
+
+	selftest_expect_int(joystick[0].deadzone, deadzone, "dead zone survives config round-trip");
+
+	reset_joystick_assignments(0);
 	config_deinit(&loaded);
 	config_deinit(&saved);
 }
@@ -494,7 +682,9 @@ int gamepad_selftest_run(void)
 
 		test_gamepad_defaults_and_movement(feed);
 		test_gamepad_actions(feed);
+		test_modern_analog_curve(feed);
 		test_gamepad_config_roundtrip();
+		test_gamepad_remap_roundtrip();
 
 		// --- hot-unplug / hot-replug a gamepad ---
 		printf("-- hot-unplug / hot-replug --\n");

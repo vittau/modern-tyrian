@@ -410,6 +410,29 @@ run_case "modern-wide-script-menu-d2" \
 	--regress-frames=700 --regress-menu=ingame --regress-modern --regress-aspect=16:9
 pairs=$((pairs + 1))
 
+# --- analog stick integration -------------------------------------------------
+#
+# --regress-stick installs a synthetic analog stick and drives the whole
+# JE_playerMovement stick path headless (regress never opens a device).  The
+# Classic run locks the original reduction/momentum trajectory; the Modern run
+# locks the dead-zone/response curve at the same raw full deflection, which the
+# trajectory log (--regress-stick-log) shows to be identical for an axis.  See
+# src/joystick.c and .worker-reports/analog.md.
+run_case "stick-classic-script-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=600 --regress-stick=32767,0
+pairs=$((pairs + 1))
+run_case "stick-modern-script-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=600 --regress-modern --regress-stick=32767,0
+pairs=$((pairs + 1))
+# A partial deflection locks the progressive momentum: the curve scales the
+# legacy +/-4 velocity cap by s, so 50% input tops out well below full speed.
+run_case "stick-modern-partial-script-d2" \
+	--regress-script=1:3 --regress-seed=32402394 --regress-detail=2 \
+	--regress-frames=600 --regress-modern --regress-stick=16383,0
+pairs=$((pairs + 1))
+
 # --- Modern VFX (Fase 2) ------------------------------------------------------
 #
 # VFX are pinned OFF for every other case (so no pre-VFX baseline changes); these

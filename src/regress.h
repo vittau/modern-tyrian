@@ -72,6 +72,22 @@ extern double regress_bench_seconds;  // benchmark duration (default 20)
 extern int regress_bloom_quality;     // ModernQuality pinned in regress mode; -1 = off
 extern int regress_lighting_quality;  // ModernQuality pinned in regress mode; -1 = off
 
+// --regress-stick=X,Y: install a synthetic analog stick (raw axis values) so a
+// regress-script run drives the whole JE_playerMovement path with a stick and no
+// hardware.  --regress-stick-log=FILE writes one "tick x y x_velocity y_velocity"
+// line per player-1 tick for the trajectory comparison.  --regress-reverse-y
+// forces the reverse-controls smoothie on.  All three are regress-only.
+extern int regress_stick;                 // non-zero = inject the stick
+extern int regress_stick_x, regress_stick_y;  // raw axis values (-32767..32767)
+extern const char *regress_stick_log_path;    // NULL = no per-tick log
+extern int regress_reverse_y;             // non-zero = force the reverse-controls smoothie on
+
+bool regress_stick_active(void);
+
+// Called once per player-1 tick from JE_playerMovement; writes the log line when
+// --regress-stick-log was given, otherwise does nothing.
+void regress_stick_log_tick(int player_x, int player_y, int x_velocity, int y_velocity);
+
 // --regress-menu=NAME: open an in-level presentation screen (the ESC in-game
 // menu, the P pause, or the F1 in-game help) on the run's last presented frame
 // (--regress-frames - 1), so the Modern gameplay-composition check and the

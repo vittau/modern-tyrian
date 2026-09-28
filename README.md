@@ -143,6 +143,12 @@ A Visual Studio solution is provided in `visualc/`.
     --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)
     --regress-audio              Render the audio baselines to FILE and exit
     --selftest-gamepad           Run the virtual-controller input self-test and exit
+    --deadzone=PERCENT           Modern analog stick dead zone, 0-20 (default 10)
+    --regress-stick=X,Y          Inject a synthetic analog stick at raw axis values X,Y
+                                 and run the whole stick path headless (regress only)
+    --regress-stick-log=FILE     Log the per-tick ship x/y and x/y velocity of a
+                                 --regress-stick run to FILE
+    --regress-reverse-y          Force the reverse-controls option on (regress only)
 
 The `presentation` setting is also stored in `opentyrian.cfg` (in the `video`
 section) and defaults to `classic`.  Classic is the original path: the 8-bit
@@ -322,18 +328,30 @@ and changing a single sprite moves every frame from the point where it appears.
 
 OpenTyrian uses the SDL3 Gamepad API for devices SDL recognises as gamepads
 (they are opened with `SDL_OpenGamepad`), and keeps the raw `SDL_Joystick` API
-for everything else.  Gamepads get a sensible default mapping:
+for everything else.  Gamepads get a sensible default mapping for an
+Xbox-style/Steam Deck layout:
 
 | Control | Action |
 |---|---|
-| Left stick | Movement (analog: proportional, honours the sensitivity/threshold settings) |
+| Left stick | Movement (analog: radial dead zone + progressive speed) |
 | D-pad | Movement (digital: on/off at full speed) |
 | South / A | Fire (and Enter/confirm in menus) |
 | East / B | Change rear-weapon mode (and Esc/cancel in menus) |
-| Left shoulder (L1/LB) | Left sidekick |
-| Right shoulder (R1/RB) | Right sidekick |
-| Back / Select | In-game menu (the Esc menu) |
-| Start | Pause (and Esc/back in menus) |
+| North / Y | Left sidekick (L1/LB is a second binding) |
+| West / X | Right sidekick (R1/RB is a second binding) |
+| Start / Menu | In-game menu (the Esc menu) |
+| Back / View | Pause (and Esc/back in menus) |
+
+In Modern the analog stick gets a radial dead zone and a progressive speed
+curve: from the dead zone up to 75% of the stick travel the speed rises
+linearly, and at 75% or more it is the ship's full analog speed -- never faster
+than the original.  The dead zone is configurable from 0% to 20% (default 10%)
+in the joystick setup screen, which shows it in place of the legacy threshold
+row while Modern is active, and is stored per device as `deadzone` in the
+`joystick` section.  Very slow speeds use sub-pixel accumulation, so the ship
+creeps smoothly instead of sticking.  Classic keeps the original proportional
+reduction and its sensitivity/threshold rows unchanged.  `--deadzone=PERCENT`
+overrides the dead zone for tests.
 
 Controllers can be connected and disconnected while the game runs (hot-plug);
 the game opens them as they arrive and releases them as they leave.  The
@@ -347,8 +365,9 @@ The `--no-joystick` (`-j`) option disables all controller input.
 
 Since a physical controller is not always available, `--selftest-gamepad` runs
 a headless self-test against SDL virtual controllers.  It exercises the default
-mapping, hot-plug, the configuration round-trip and the legacy non-gamepad
-path, then exits 0 on success or non-zero on failure.
+mapping, the Modern dead-zone/response curve (dead-zone edge, 50%, 75% and 100%
+input, diagonals, sub-pixel creep), hot-plug, the configuration round-trip and
+the legacy non-gamepad path, then exits 0 on success or non-zero on failure.
 
 ## Network Multiplayer
 

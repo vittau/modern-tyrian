@@ -48,6 +48,7 @@
 #include "pcxmast.h"
 #include "picload.h"
 #include "player.h"
+#include "regress.h"
 #include "shots.h"
 #include "sndmast.h"
 #include "sprite.h"
@@ -3372,6 +3373,9 @@ void JE_playerMovement(Player *this_player,
 {
 	JE_integer mouseXC, mouseYC;
 	JE_integer accelXC, accelYC;
+	JE_integer analogMoveX, analogMoveY;
+	JE_integer stickVelX, stickVelY;
+	bool stickDriveX, stickDriveY;
 
 	if (playerNum_ == 2 || !twoPlayerMode)
 	{
@@ -3400,6 +3404,12 @@ redo:
 	mouseYC = 0;
 	accelXC = 0;
 	accelYC = 0;
+	analogMoveX = 0;
+	analogMoveY = 0;
+	stickVelX = 0;
+	stickVelY = 0;
+	stickDriveX = false;
+	stickDriveY = false;
 
 	bool link_gun_analog = false;
 	float link_gun_angle = 0;
@@ -3556,8 +3566,30 @@ redo:
 
 						if (joystick[j].analog)
 						{
-							mouseXC += joystick_axis_reduce(j, joystick[j].x);
-							mouseYC += joystick_axis_reduce(j, joystick[j].y);
+							if (presentation == PRESENTATION_MODERN)
+							{
+								// Sub-pixel displacement from the response curve,
+								// plus the momentum the curve asks for (the legacy
+								// +/-4 velocity cap scaled by s, with a sub-tick
+								// carry).  The controller below turns that target
+								// into the transmitted +/-1 accel.
+								int analogDX, analogDY, velocityTarget;
+								joystick_analog_movement(j, &analogDX, &analogDY, &velocityTarget);
+								analogMoveX += analogDX;
+								analogMoveY += analogDY;
+								if (velocityTarget >= 0)
+								{
+									if (joystick[j].x > 0) { stickVelX += velocityTarget; stickDriveX = true; }
+									else if (joystick[j].x < 0) { stickVelX -= velocityTarget; stickDriveX = true; }
+									if (joystick[j].y > 0) { stickVelY += velocityTarget; stickDriveY = true; }
+									else if (joystick[j].y < 0) { stickVelY -= velocityTarget; stickDriveY = true; }
+								}
+							}
+							else
+							{
+								mouseXC += joystick_axis_reduce(j, joystick[j].x);
+								mouseYC += joystick_axis_reduce(j, joystick[j].y);
+							}
 
 							link_gun_analog = joystick_analog_angle(j, &link_gun_angle);
 						}
@@ -3622,10 +3654,19 @@ redo:
 						recordDemoKeys();
 				}
 
+				// Reverse controls: a level event may have overwritten the
+				// smoothie, so the regress harness re-asserts it per tick.
+				if (regress_reverse_y)
+					smoothies[9-1] = true;
+
 				if (smoothies[9-1])
 				{
 					*mouseY_ = this_player->y - (*mouseY_ - this_player->y);
 					mouseYC = -mouseYC;
+					// Reverse controls must flip the Modern stick too: its
+					// displacement and the momentum it asks for.
+					analogMoveY = -analogMoveY;
+					stickVelY = -stickVelY;
 				}
 
 				accelXC += this_player->x - *mouseX_;
@@ -3649,6 +3690,24 @@ redo:
 				else if (mouseYC < 0)
 					this_player->y += (mouseYC - 3) / 4;
 
+				// Modern analog stick: the same point in the pipeline as the
+				// legacy mouse step above, but with the sub-pixel curve instead
+				// of the reduction (mouseXC is mouse-only in Modern).  Clamp the
+				// combined displacement like the original mouseXC clamp did.
+				if (analogMoveX > JOYSTICK_ANALOG_MAX_STEP)
+					analogMoveX = JOYSTICK_ANALOG_MAX_STEP;
+				else if (analogMoveX < -JOYSTICK_ANALOG_MAX_STEP)
+					analogMoveX = -JOYSTICK_ANALOG_MAX_STEP;
+				if (analogMoveY > JOYSTICK_ANALOG_MAX_STEP)
+					analogMoveY = JOYSTICK_ANALOG_MAX_STEP;
+				else if (analogMoveY < -JOYSTICK_ANALOG_MAX_STEP)
+					analogMoveY = -JOYSTICK_ANALOG_MAX_STEP;
+
+				this_player->x += analogMoveX;
+				this_player->y += analogMoveY;
+
+				// Legacy mouse momentum (unchanged; mouseXC is mouse-only in
+				// Modern because the stick no longer goes through it).
 				if (mouseXC > 3)
 					accelXC++;
 				else if (mouseXC < -2)
@@ -3657,6 +3716,39 @@ redo:
 					accelYC++;
 				else if (mouseYC < -2)
 					accelYC--;
+
+				// Modern analog momentum: drive the velocity toward the
+				// curve-scaled target with the same +/-1 accel the legacy path
+				// used, keeping the legacy +/-4 cap.  A network peer applying the
+				// transmitted accel therefore reproduces the same velocity, so
+				// both peers stay in lockstep.  Predicting the friction that will
+				// run this tick lets the target be hit exactly instead of a
+				// fraction below it (the sub-tick carry in the target supplies the
+				// fractional remainder).
+				stickVelX = MIN(MAX(-JOYSTICK_MODERN_VELOCITY_MAX, stickVelX), JOYSTICK_MODERN_VELOCITY_MAX);
+				stickVelY = MIN(MAX(-JOYSTICK_MODERN_VELOCITY_MAX, stickVelY), JOYSTICK_MODERN_VELOCITY_MAX);
+				if (stickDriveX)
+				{
+					int vpred = this_player->x_velocity;
+					if (this_player->x_friction_ticks == 0)
+					{
+						if (vpred > 0) --vpred;
+						else if (vpred < 0) ++vpred;
+					}
+					if (vpred < stickVelX) accelXC += 1;
+					else if (vpred > stickVelX) accelXC -= 1;
+				}
+				if (stickDriveY)
+				{
+					int vpred = this_player->y_velocity;
+					if (this_player->y_friction_ticks == 0)
+					{
+						if (vpred > 0) --vpred;
+						else if (vpred < 0) ++vpred;
+					}
+					if (vpred < stickVelY) accelYC += 1;
+					else if (vpred > stickVelY) accelYC -= 1;
+				}
 
 			}   /*endLevel*/
 
@@ -4505,6 +4597,12 @@ redo:
 			}
 		}
 	}
+
+	// Regression harness: record the tick's ship state for the --regress-stick
+	// trajectory comparison.  No-op unless the synthetic stick is installed.
+	if (playerNum_ == 1)
+		regress_stick_log_tick(this_player->x, this_player->y,
+		                       this_player->x_velocity, this_player->y_velocity);
 }
 
 void JE_mainGamePlayerFunctions(void)

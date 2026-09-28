@@ -79,6 +79,16 @@ int regress_bloom_quality = -1;
 int regress_lighting_quality = -1;
 int regress_menu_kind = REGRESS_MENU_NONE;
 
+int regress_stick = 0;
+int regress_stick_x = 0;
+int regress_stick_y = 0;
+const char *regress_stick_log_path = NULL;
+int regress_reverse_y = 0;
+
+// Per-tick stick-trajectory log (--regress-stick-log).
+static FILE *regress_stick_log = NULL;
+static unsigned long regress_stick_tick = 0;
+
 // True once the --regress-menu request has been handed to the level loop, so it
 // fires on exactly one frame.
 static bool regress_menu_taken = false;
@@ -215,6 +225,21 @@ bool regress_script_active(void)
 bool regress_screen_active(void)
 {
 	return regress_screen != NULL;
+}
+
+bool regress_stick_active(void)
+{
+	return regress_stick != 0;
+}
+
+void regress_stick_log_tick(int player_x, int player_y, int x_velocity, int y_velocity)
+{
+	if (regress_stick_log == NULL)
+		return;
+
+	++regress_stick_tick;
+	fprintf(regress_stick_log, "%lu %d %d %d %d\n",
+	        regress_stick_tick, player_x, player_y, x_velocity, y_velocity);
 }
 
 int regress_take_menu_request(void)
@@ -874,6 +899,28 @@ void regress_init(void)
 			exit(EXIT_FAILURE);
 		}
 	}
+
+	// --regress-stick installs one synthetic analog stick so JE_playerMovement
+	// runs the whole stick path without hardware; --regress-stick-log records the
+	// per-tick ship state for the Classic/Modern trajectory comparison.
+	if (regress_stick_active())
+	{
+		joystick_inject_stick(regress_stick_x, regress_stick_y);
+
+		if (regress_stick_log_path != NULL)
+		{
+			regress_stick_log = fopen(regress_stick_log_path, "wb");
+			if (regress_stick_log == NULL)
+			{
+				logFatal("Failed to open stick log '%s'.", regress_stick_log_path);
+				exit(EXIT_FAILURE);
+			}
+		}
+	}
+
+	// --regress-reverse-y forces the reverse-controls smoothie so the stick
+	// inversion (Classic and Modern) can be exercised headless.  A level event
+	// may clear it during level setup, so JE_playerMovement re-asserts it.
 }
 
 void regress_frame_reset(void)
@@ -883,6 +930,13 @@ void regress_frame_reset(void)
 
 void regress_finish(void)
 {
+	if (regress_stick_log != NULL)
+	{
+		fclose(regress_stick_log);
+		regress_stick_log = NULL;
+		logInfo("Regression: wrote %lu stick ticks to '%s'.", regress_stick_tick, regress_stick_log_path);
+	}
+
 	if (regress_out == NULL && regress_state_out == NULL)
 		return;
 
