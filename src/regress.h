@@ -63,6 +63,7 @@ extern int regress_interp_check;      // non-zero = record and validate the inte
 extern int regress_interp_smoothness; // non-zero = per-tick monotonic motion check
 extern int regress_smooth_alphas;     // sub-frame alphas used by the smoothness check (>= 2)
 extern int regress_gameplay_check;    // non-zero = assert every in-level frame drops the classic sidebar
+extern int regress_parallax_check;    // non-zero = assert the presentation never advances starfield/background
 extern int regress_realtime;          // non-zero = real window + real clock, for the pacing benchmark
 extern double regress_bench_seconds;  // benchmark duration (default 20)
 extern int regress_bloom_quality;     // ModernQuality pinned in regress mode; -1 = off

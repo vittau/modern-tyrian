@@ -113,6 +113,7 @@ static bool dl_enabled = false;
 static bool dl_recording = false;
 static bool dl_check = false;
 static bool dl_interp_check = false;
+static bool dl_parallax_check = false;  // regress: prove the presentation is read-only
 static bool dl_have_prev = false;   // a previous tick has been recorded
 
 static SDL_Surface *dl_scratch_game = NULL;
@@ -1600,6 +1601,73 @@ static bool dl_compare_frames(void)
 	return dl_debug_total == 0;
 }
 
+// --- regress parallax guard ---------------------------------------------------
+//
+// The reported "background star parallax runs too fast" failure class is a
+// timing coupling: the presentation must never advance the starfield or the
+// background scroll, or a single logic tick would move them once per presented
+// frame.  This guard runs the interpolated renderer (the exact presentation
+// path) at both ends of every recorded tick and requires it to leave the live
+// starfield and background scroll counters untouched, and it verifies the level
+// logic advanced the starfield exactly one recorded step this tick.  Together
+// they pin the per-tick displacement to be identical whether the interpolated
+// presentation is active or not.
+static unsigned long dl_parallax_ticks = 0;
+static unsigned long dl_parallax_mutations = 0;
+static unsigned long dl_parallax_double_updates = 0;
+static unsigned long dl_parallax_advance_mismatches = 0;
+
+void drawlist_set_parallax_check(bool check)
+{
+	dl_parallax_check = check;
+}
+
+static void dl_parallax_tick(void)
+{
+	// 1) The logic must have advanced the starfield exactly once, by the speed
+	//    recorded in the tick.  A second update call leaves an extra command or
+	//    over-advances the live array.
+	int star_commands = 0;
+	const int pitch = (game_screen != NULL) ? game_screen->pitch : 320;
+
+	for (Uint32 i = 0; i < dl_count; ++i)
+	{
+		const DlCommand *c = &dl_commands[i];
+		if (c->kind != DL_STARFIELD)
+			continue;
+
+		++star_commands;
+		dl_parallax_advance_mismatches +=
+			(unsigned long)starfield_check_advance(dl_payload + c->payload_off,
+			                                       c->payload_len, c->a, pitch);
+	}
+	if (star_commands > 1)
+		dl_parallax_double_updates += (unsigned long)(star_commands - 1);
+
+	// 2) The interpolated presentation must only read.  Run it at both ends of
+	//    the tick and require the live state to be identical afterwards.
+	static Uint8 star_before[4096];
+	const size_t star_bytes = starfield_state_size();
+	const size_t compare_bytes = MIN(star_bytes, sizeof star_before);
+	memcpy(star_before, starfield_state(), compare_bytes);
+
+	const JE_word bp = backPos, bp2 = backPos2, bp3 = backPos3;
+
+	(void)drawlist_render_interpolated(65536);
+	(void)drawlist_render_interpolated(32768);
+
+	if (memcmp(star_before, starfield_state(), compare_bytes) != 0 ||
+	    bp != backPos || bp2 != backPos2 || bp3 != backPos3)
+		++dl_parallax_mutations;
+
+	++dl_parallax_ticks;
+}
+
+unsigned long drawlist_parallax_ticks(void)              { return dl_parallax_ticks; }
+unsigned long drawlist_parallax_mutations(void)          { return dl_parallax_mutations; }
+unsigned long drawlist_parallax_double_updates(void)     { return dl_parallax_double_updates; }
+unsigned long drawlist_parallax_advance_mismatches(void) { return dl_parallax_advance_mismatches; }
+
 void drawlist_frame_end(void)
 {
 	if (!dl_recording)
@@ -1620,6 +1688,11 @@ void drawlist_frame_end(void)
 	// because it only reads the two recorded lists (it does not draw).
 	if (dl_smoothness_check)
 		dl_smoothness_tick();
+
+	// Parallax guard: the interpolated presentation must not advance the
+	// starfield or the background scroll.
+	if (dl_parallax_check)
+		dl_parallax_tick();
 
 	// Stages 1-2 proof: replay this tick's list.  The destination-reading
 	// filters need the frame the tick started from, which is the persistent

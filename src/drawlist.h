@@ -299,4 +299,18 @@ unsigned long drawlist_smoothness_object_events(void);
 unsigned long drawlist_smoothness_frames(void);
 unsigned long drawlist_smoothness_events(void);
 
+// --- parallax guard (--regress-parallax-check) --------------------------------
+//
+// Per level tick, runs the interpolated presentation at both ends of the tick
+// and requires it to leave the live starfield and the background scroll
+// counters untouched, and checks the level logic advanced the starfield by
+// exactly the recorded per-tick step.  Catches a starfield/background layer
+// advanced per presented frame instead of per tick.
+void drawlist_set_parallax_check(bool check);
+
+unsigned long drawlist_parallax_ticks(void);
+unsigned long drawlist_parallax_mutations(void);
+unsigned long drawlist_parallax_double_updates(void);
+unsigned long drawlist_parallax_advance_mismatches(void);
+
 #endif // DRAW_LIST_H

@@ -559,6 +559,41 @@ void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 	}
 }
 
+// Regress-only parallax guard (see drawlist_parallax_tick()): `pre` is the star
+// state captured at the start of one tick (the recorded payload) and the live
+// array is the state after the level logic advanced it once.  Returns how many
+// stars did not advance by exactly (speed + move_speed) rows over the tick -- a
+// starfield updated twice per tick, or at the wrong speed, shows up here.
+int starfield_check_advance(const void *pre, size_t bytes, int move_speed, int pitch)
+{
+	if (bytes != sizeof starfield_stars)
+		return 0;
+
+	const StarfieldStar *before = pre;
+	int bad = 0;
+
+	for (int i = 0; i < MAX_STARS; ++i)
+	{
+		const Uint16 expected = (Uint16)(before[i].position + (before[i].speed + move_speed) * pitch);
+		if (starfield_stars[i].position != expected)
+			++bad;
+	}
+
+	return bad;
+}
+
+// Raw live star state, for the regress parallax guard to prove the interpolated
+// presentation never advances it.
+const void *starfield_state(void)
+{
+	return starfield_stars;
+}
+
+size_t starfield_state_size(void)
+{
+	return sizeof starfield_stars;
+}
+
 // Replays one recorded starfield step.  The caller captured the pre-step star
 // state; restoring it and re-running the (pure) update lands the live array on
 // exactly the post-step state the real call produced.

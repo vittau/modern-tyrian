@@ -111,6 +111,8 @@ A Visual Studio solution is provided in `visualc/`.
     --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)
     --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay
                                  composition (drops the classic sidebar)
+    --regress-parallax-check     Per level tick, assert the interpolated presentation
+                                 leaves the starfield/background scroll untouched
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log

@@ -106,6 +106,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 290, 0,   "light-tag-stats",   false },
 		{ 291, 0,   "light-threshold",   true },
 		{ 292, 0,   "regress-script",    true },
+		{ 296, 0,   "regress-parallax-check", false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -174,6 +175,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)");
 			logInfo("  --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay");
 			logInfo("                               composition (drops the classic sidebar)");
+			logInfo("  --regress-parallax-check     Per level tick, assert the interpolated presentation leaves");
+			logInfo("                               the starfield/background scroll untouched (per-tick motion)");
 			logInfo("  --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated");
 			logInfo("                               motion (default on)");
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
@@ -578,6 +581,10 @@ void JE_paramCheck(int argc, char *argv[])
 			}
 			break;
 		}
+
+		case 296: // --regress-parallax-check
+			regress_parallax_check = 1;
+			break;
 			
 		default:
 			assert(false);
@@ -625,6 +632,12 @@ void JE_paramCheck(int argc, char *argv[])
 	if (regress_gameplay_check && !regress_modern)
 	{
 		logError("%s: --regress-gameplay-check requires --regress-modern", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_parallax_check && regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-parallax-check requires --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 	

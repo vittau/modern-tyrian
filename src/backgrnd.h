@@ -60,4 +60,9 @@ void blur_filter(SDL_Surface *dst, SDL_Surface *src);
 void initialize_starfield(void);
 void update_and_draw_starfield(SDL_Surface* surface, int move_speed);
 
+// Regress parallax guard: verify one recorded tick's starfield advance.
+int starfield_check_advance(const void *pre, size_t bytes, int move_speed, int pitch);
+const void *starfield_state(void);
+size_t starfield_state_size(void);
+
 #endif /* BACKGRND_H */
