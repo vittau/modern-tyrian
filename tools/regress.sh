@@ -30,10 +30,13 @@ cd "$ROOT" || exit 1
 
 UPDATE=0
 REPLAY_CHECK=0
+INTERP_CHECK=0
 if [ "${1:-}" = "--update" ]; then
 	UPDATE=1
 elif [ "${1:-}" = "--replay-check" ]; then
 	REPLAY_CHECK=1
+elif [ "${1:-}" = "--interp-check" ]; then
+	INTERP_CHECK=1
 fi
 
 DATA_DIR="${TYRIAN_DATA:-$ROOT/data}"
@@ -368,7 +371,44 @@ run_replay_case() {
 	fi
 }
 
-if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ]; then
+# run_interp_case LABEL BASELINE_LABEL "$@" -- interpolate-check one case.
+# The stage-3 renderer must reproduce the real game_screen at alpha=1 (the run
+# exits non-zero on any mismatch) and, because recording only observes, the
+# frame-hash stream must still equal the Classic baseline.
+run_interp_case() {
+	local label=$1 baseline_label=$2
+	shift 2
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+	local baseline="$BASELINE_DIR/$baseline_label.txt"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-interp-check "$@" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ] || [ ! -f "$out" ]; then
+		echo "FAIL $label: interpolation check failed (exit $rc)"
+		grep -E "Interp check|mismatch" "$log" | tail -n 3
+		failures=$((failures + 1))
+		return
+	fi
+
+	if [ ! -f "$baseline" ]; then
+		echo "FAIL $label: missing baseline $baseline_label"
+		failures=$((failures + 1))
+		return
+	fi
+
+	if cmp -s "$baseline" "$out"; then
+		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, interp alpha=1 identical"
+	else
+		echo "FAIL $label: frame hashes differ from $baseline_label"
+		failures=$((failures + 1))
+	fi
+}
+
+if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]; then
 	run_replay_case "replay-demo1-d2"   "demo1-d2"   --regress-demo=1 --regress-detail=2
 	pairs=$((pairs + 1))
 	run_replay_case "replay-demo3-d4"   "demo3-d4"   --regress-demo=3 --regress-detail=4
@@ -379,6 +419,52 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ]; then
 	run_replay_case "replay-scenario-iced-d2" "scenario-iced-d2" \
 		--regress-level=4:8 --regress-detail=2 --regress-frames=1200
 	pairs=$((pairs + 1))
+
+	# --- interpolation identity check (Fase 2, stage 3) -------------------------
+	#
+	# Render every level tick's interpolated frame at alpha=1 with the persistent
+	# stage-3 renderer and compare it byte for byte with the real game_screen.
+	run_interp_case "interp-demo1-d2"   "demo1-d2"   --regress-demo=1 --regress-detail=2
+	pairs=$((pairs + 1))
+	run_interp_case "interp-demo3-d4"   "demo3-d4"   --regress-demo=3 --regress-detail=4
+	pairs=$((pairs + 1))
+	run_interp_case "interp-scenario-flip-d3" "scenario-flip-d3" \
+		--regress-level=4:12 --regress-detail=3 --regress-frames=3600
+	pairs=$((pairs + 1))
+	run_interp_case "interp-scenario-iced-d2" "scenario-iced-d2" \
+		--regress-level=4:8 --regress-detail=2 --regress-frames=1200
+	pairs=$((pairs + 1))
+fi
+
+# Full interpolation identity sweep: every demo and scenario at every detail
+# level, comparing the alpha=1 interpolated frame with the real one.
+# (tools/regress.sh --interp-check)
+if [ "$INTERP_CHECK" -eq 1 ]; then
+	for d in $DEMOS; do
+		for m in $LEVELS; do
+			run_interp_case "interp-demo$d-d$m" "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		done
+	done
+
+	for spec in "${SCENARIOS[@]}"; do
+		set -- $spec
+		sname=$1
+		slvl=$2
+		sframes=$3
+		shift 3
+		for m in "$@"; do
+			run_interp_case "interp-scenario-$sname-d$m" "scenario-$sname-d$m" \
+				--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
+		done
+	done
+
+	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
+	if [ "$failures" -eq 0 ]; then
+		echo "All interpolation-check cases passed in ${total}s."
+		exit 0
+	fi
+	echo "$failures interpolation-check cases failed in ${total}s."
+	exit 1
 fi
 
 # Full replay sweep: every demo and scenario at every detail level.  This is the

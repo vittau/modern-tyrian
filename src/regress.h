@@ -57,9 +57,17 @@ extern int regress_players;           // players to start a scenario with (1 or 
 extern int regress_arcade;            // non-zero = start a scenario in 1-player arcade mode
 extern const char *regress_screen;    // non-NULL = render one non-gameplay screen and exit
 extern int regress_replay_check;      // non-zero = record and replay-check every level frame
+extern int regress_interp_check;      // non-zero = record and validate the interpolated renderer
+extern int regress_realtime;          // non-zero = real window + real clock, for the pacing benchmark
+extern double regress_bench_seconds;  // benchmark duration (default 20)
 
 // True when regress mode was requested.
 bool regress_active(void);
+
+// True when the real-time pacing benchmark was requested (--regress-realtime):
+// regress still pins the demo and settings, but the clock is the wall clock and
+// a real window is opened.
+bool regress_realtime_active(void);
 
 // True when a synthetic level scenario was requested.
 bool regress_scenario_active(void);

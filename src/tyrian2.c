@@ -27,6 +27,7 @@
 #include "font.h"
 #include "fonthand.h"
 #include "game_menu.h"
+#include "interp.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "lds_play.h"
@@ -80,86 +81,13 @@ JE_byte itemAvailMax[9]; /* [1..9] */
 
 void JE_starShowVGA(void)
 {
-	JE_byte *src;
-	Uint8 *s = NULL; /* screen pointer, 8-bit specific */
-
-	int x, y, lightx, lighty, lightdist;
-
 	if (!playerEndLevel && !skipStarShowVGA)
 	{
-
-		s = VGAScreenSeg->pixels;
-
-		src = game_screen->pixels;
-		src += 24;
-
-		if (smoothScroll != 0 /*&& thisPlayerNum != 2*/)
-		{
-			delayUntilElapsed();
-
-			setFrameCount(frameCountMax);
-		}
-
-		if (starShowVGASpecialCode == 1)
-		{
-			src += game_screen->pitch * 183;
-			for (y = 0; y < 184; y++)
-			{
-				memmove(s, src, 264);
-				s += VGAScreenSeg->pitch;
-				src -= game_screen->pitch;
-			}
-		}
-		else if (starShowVGASpecialCode == 2 && processorType >= 2)
-		{
-			lighty = 172 - player[0].y;
-			lightx = 281 - player[0].x;
-
-			for (y = 184; y; y--)
-			{
-				if (lighty > y)
-				{
-					for (x = 320 - 56; x; x--)
-					{
-						*s = (*src & 0xf0) | ((*src >> 2) & 0x03);
-						s++;
-						src++;
-					}
-				}
-				else
-				{
-					for (x = 320 - 56; x; x--)
-					{
-						lightdist = abs(lightx - x) + lighty;
-						if (lightdist < y)
-							*s = *src;
-						else if (lightdist - y <= 5)
-							*s = (*src & 0xf0) | (((*src & 0x0f) + (3 * (5 - (lightdist - y)))) / 4);
-						else
-							*s = (*src & 0xf0) | ((*src & 0x0f) >> 2);
-						s++;
-						src++;
-					}
-				}
-				s += 56 + VGAScreenSeg->pitch - 320;
-				src += 56 + VGAScreenSeg->pitch - 320;
-			}
-		}
-		else
-		{
-			for (y = 0; y < 184; y++)
-			{
-				memmove(s, src, 264);
-				s += VGAScreenSeg->pitch;
-				src += game_screen->pitch;
-			}
-		}
-		// Modern presentation: tell the side-panel code this is a gameplay
-		// frame, so it samples the playfield edge (column 263) instead of the
-		// HUD sidebar that fills the frame's right edge.  Display-only, one-shot;
-		// consumed by modern_build_frame().  No gameplay effect.
-		modern_mark_gameplay_frame();
-		JE_showVGA();
+		// Presentation, including the decoupled high-refresh loop when Modern
+		// smooth motion is active.  The playfield copy (with the vertical-flip
+		// and player-spotlight special codes) and JE_showVGA() live in
+		// interp_present_gameplay().
+		interp_present_gameplay();
 	}
 
 	handleSdlEvents();
@@ -732,6 +660,10 @@ start_level_first:
 	doNotSaveBackup = false;
 	JE_loadMap();
 
+	// A new level must not interpolate against, or blend filters with, the
+	// previous level's recorded frame.  Draw-list-only; no gameplay effect.
+	drawlist_level_reset();
+
 	if (mainLevel == 0)  // if quit itemscreen
 		return;          // back to titlescreen
 
@@ -1206,6 +1138,11 @@ level_loop:
 
 	/* use game_screen for all the generic drawing functions */
 	VGAScreen = game_screen;
+
+	// The smooth presentation loop needs the current and previous tick's draw
+	// lists.  This only records; with smooth motion off (or outside Modern) it
+	// is a no-op.
+	drawlist_set_smooth_enabled(interp_active());
 	drawlist_frame_begin();
 
 	/*---------------------------EVENTS-------------------------*/

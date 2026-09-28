@@ -20,6 +20,7 @@
 
 #include "episodes.h"
 #include "file.h"
+#include "interp.h"
 #include "logging.h"
 #include "loudness.h"
 #include "memreader.h"
@@ -254,6 +255,7 @@ static void loadOpenTyrianConfig(void)
 	presentation = PRESENTATION_CLASSIC;
 	modern_aspect = MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
+	interp_smooth_motion = true;
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
 	Config *config = &opentyrian_config;
@@ -305,6 +307,10 @@ static void loadOpenTyrianConfig(void)
 		const char *pixel_aspect_name;
 		if (config_get_string_option(section, "pixel_aspect", &pixel_aspect_name))
 			set_modern_pixel_aspect_by_name(pixel_aspect_name);
+
+		const char *smooth_motion_name;
+		if (config_get_string_option(section, "smooth_motion", &smooth_motion_name))
+			set_smooth_motion_by_name(smooth_motion_name);
 	}
 
 	section = config_find_section(config, "keyboard", NULL);
@@ -344,6 +350,7 @@ static void saveOpenTyrianConfig(void)
 	config_set_string_option(section, "aspect", modern_aspect_names[modern_aspect]);
 
 	config_set_string_option(section, "pixel_aspect", modern_pixel_aspect_names[modern_pixel_aspect]);
+	config_set_string_option(section, "smooth_motion", interp_smooth_motion ? "on" : "off");
 
 	section = config_find_or_add_section(config, "keyboard", NULL);
 	if (section == NULL)

@@ -21,6 +21,7 @@
 #include "config.h"
 #include "drawlist.h"
 #include "episodes.h"
+#include "interp.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "logging.h"
@@ -60,6 +61,9 @@ int regress_players = 1;
 int regress_arcade = 0;
 const char *regress_screen = NULL;
 int regress_replay_check = 0;
+int regress_interp_check = 0;
+int regress_realtime = 0;
+double regress_bench_seconds = 20.0;
 
 // Snapshot requests (--regress-snapshot=FRAME:FILE), repeatable.  Fixed size:
 // a run needs only a handful and parsing must not allocate per frame.
@@ -88,6 +92,11 @@ static unsigned long regress_frame = 0;
 bool regress_active(void)
 {
 	return regress_demo != 0 || regress_scenario_active() || regress_screen_active();
+}
+
+bool regress_realtime_active(void)
+{
+	return regress_realtime != 0;
 }
 
 bool regress_scenario_active(void)
@@ -132,7 +141,7 @@ bool regress_scan_args(int argc, char *argv[])
 
 Uint32 regress_clock_ticks10bit(void)
 {
-	if (!regress_active())
+	if (!regress_active() || regress_realtime_active())
 		return (Uint32)SDL_GetTicks() << 10;
 
 	return regress_clock;
@@ -510,8 +519,9 @@ void regress_begin_scenario(void)
 
 void regress_init(void)
 {
-	// Headless by default.  Respect a driver the caller set explicitly.
-	if (SDL_getenv("SDL_VIDEO_DRIVER") == NULL)
+	// Headless by default.  Respect a driver the caller set explicitly.  The
+	// real-time pacing benchmark opens a real window on purpose.
+	if (!regress_realtime_active() && SDL_getenv("SDL_VIDEO_DRIVER") == NULL)
 		SDL_setenv_unsafe("SDL_VIDEO_DRIVER", "dummy", 1);
 	if (SDL_getenv("SDL_AUDIO_DRIVER") == NULL)
 		SDL_setenv_unsafe("SDL_AUDIO_DRIVER", "dummy", 1);
@@ -554,8 +564,11 @@ void regress_init(void)
 	// the user's config leaking in (loadConfiguration() is skipped in regress
 	// mode).  The Modern geometry is pinned too: the historic modern-* baselines
 	// are 4:3 + original, and --regress-aspect opts into a wider canvas.
-	presentation = regress_modern ? PRESENTATION_MODERN : PRESENTATION_CLASSIC;
-	modern_aspect = regress_aspect >= 0 ? (ModernAspect)regress_aspect : MODERN_ASPECT_4_3;
+	presentation = (regress_modern || regress_realtime) ? PRESENTATION_MODERN : PRESENTATION_CLASSIC;
+	if (regress_realtime_active())
+		modern_aspect = regress_aspect >= 0 ? (ModernAspect)regress_aspect : MODERN_ASPECT_16_9;
+	else
+		modern_aspect = regress_aspect >= 0 ? (ModernAspect)regress_aspect : MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 
 	// Record and replay-check every level tick.  This only observes: the draw
@@ -566,6 +579,20 @@ void regress_init(void)
 		drawlist_set_enabled(true);
 		drawlist_set_check(true);
 	}
+
+	// Stage-3 proof: render each level tick's interpolated frame at alpha = 1
+	// with the persistent renderer and compare it with the real frame.  Also
+	// enable recording when a mid-tick snapshot is requested so there are two
+	// lists to interpolate between.
+	if (regress_interp_check || interp_regress_alpha_active())
+		drawlist_set_enabled(true);
+	if (regress_interp_check)
+		drawlist_set_interp_check(true);
+
+	// Real-time pacing benchmark: log presented-fps statistics and exit after
+	// the requested duration.
+	if (regress_realtime_active())
+		interp_bench_start(regress_bench_seconds);
 
 	JE_initProcessorType();
 
@@ -579,7 +606,8 @@ void regress_init(void)
 	if (regress_screen_active() && regress_frames == 0)
 		regress_frames = REGRESS_SCREEN_FRAMES;
 
-	if (regress_out_path == NULL && regress_state_out_path == NULL && !regress_has_snapshots())
+	if (regress_out_path == NULL && regress_state_out_path == NULL && !regress_has_snapshots() &&
+	    !regress_realtime_active())
 	{
 		logFatal("--regress-demo/--regress-level/--regress-audio/--regress-screen require --regress-out=FILE, --regress-state-out=FILE or --regress-snapshot=FRAME:FILE.");
 		exit(EXIT_FAILURE);
@@ -659,7 +687,20 @@ void regress_finish(void)
 			logInfo("Regression: wrote %lu state records to '%s'.", regress_frame, regress_state_out_path);
 	}
 
-	if (regress_replay_check)
+	if (regress_interp_check)
+	{
+		logInfo("Interp check: %lu level frames interpolated at alpha=1, %lu mismatched.",
+		        drawlist_checked_frames(), drawlist_mismatched_frames());
+		logInfo("Interp stats: %lu matched; snaps new=%lu jump=%lu sheet=%lu; overshoots=%lu.",
+		        drawlist_interp_matched(), drawlist_interp_snap_new(), drawlist_interp_snap_jump(),
+		        drawlist_interp_snap_sheet(), drawlist_interp_overshoots());
+		if (drawlist_mismatched_frames() != 0)
+		{
+			logError("Interp check FAILED: %s", drawlist_first_mismatch());
+			exit(EXIT_FAILURE);
+		}
+	}
+	else if (regress_replay_check)
 	{
 		logInfo("Replay check: %lu level frames replayed, %lu mismatched.",
 		        drawlist_checked_frames(), drawlist_mismatched_frames());

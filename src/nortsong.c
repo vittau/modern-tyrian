@@ -104,6 +104,16 @@ Uint32 getFrameCount2Ticks(void)
 	return diff >= 0 ? ((Uint32)diff + half) >> 10 : 0;
 }
 
+Uint32 getFramePeriodTicks10(void)
+{
+	return framePeriod;
+}
+
+Uint32 getFrameDeadlineTicks10(void)
+{
+	return frameCountEnd;
+}
+
 void delayUntilElapsed(void)
 {
 	const Uint32 half = 1 << 9;
@@ -113,7 +123,8 @@ void delayUntilElapsed(void)
 		return;
 
 	// In regress mode, fast-forward the virtual clock instead of sleeping.
-	if (regress_active())
+	// The real-time pacing benchmark keeps the wall clock and really waits.
+	if (regress_active() && !regress_realtime_active())
 	{
 		regress_clock_advance_to(frameCountEnd);
 		return;
