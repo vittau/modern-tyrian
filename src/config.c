@@ -26,6 +26,7 @@
 #include "memreader.h"
 #include "memwriter.h"
 #include "modern.h"
+#include "modern_bloom.h"
 #include "mtrand.h"
 #include "nortsong.h"
 #include "opentyr.h"
@@ -257,6 +258,8 @@ static void loadOpenTyrianConfig(void)
 	modern_aspect = MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 	interp_smooth_motion = true;
+	modern_bloom_quality = MODERN_QUALITY_MEDIUM;
+	modern_lighting_quality = MODERN_QUALITY_MEDIUM;
 	vfx_level = VFX_MEDIUM;
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
@@ -294,9 +297,33 @@ static void loadOpenTyrianConfig(void)
 		if (config_get_string_option(section, "scaler", &scaler))
 			set_scaler_by_name(scaler);
 		
-		const char *scaling_mode;
-		if (config_get_string_option(section, "scaling_mode", &scaling_mode))
-			set_scaling_mode_by_name(scaling_mode);
+		const char *pixel_aspect_name;
+		const bool have_pixel_aspect = config_get_string_option(section, "pixel_aspect", &pixel_aspect_name);
+		if (have_pixel_aspect)
+			set_modern_pixel_aspect_by_name(pixel_aspect_name);
+
+		const char *scaling_mode_name;
+		if (config_get_string_option(section, "scaling_mode", &scaling_mode_name))
+		{
+			if (!set_scaling_mode_by_name(scaling_mode_name))
+			{
+				// The pre-merge "Fit 8:5" and "Fit 4:3" modes became Fit.  They also
+				// implied a pixel aspect; fill it in only when the cfg does not set
+				// one explicitly (an explicit pixel_aspect wins).
+				if (strcmp(scaling_mode_name, "Fit 8:5") == 0)
+				{
+					scaling_mode = SCALE_FIT;
+					if (!have_pixel_aspect)
+						modern_pixel_aspect = PIXEL_ASPECT_SQUARE;
+				}
+				else if (strcmp(scaling_mode_name, "Fit 4:3") == 0)
+				{
+					scaling_mode = SCALE_FIT;
+					if (!have_pixel_aspect)
+						modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
+				}
+			}
+		}
 
 		const char *presentation_name;
 		if (config_get_string_option(section, "presentation", &presentation_name))
@@ -306,13 +333,17 @@ static void loadOpenTyrianConfig(void)
 		if (config_get_string_option(section, "aspect", &aspect_name))
 			set_modern_aspect_by_name(aspect_name);
 
-		const char *pixel_aspect_name;
-		if (config_get_string_option(section, "pixel_aspect", &pixel_aspect_name))
-			set_modern_pixel_aspect_by_name(pixel_aspect_name);
-
 		const char *smooth_motion_name;
 		if (config_get_string_option(section, "smooth_motion", &smooth_motion_name))
 			set_smooth_motion_by_name(smooth_motion_name);
+		
+		const char *bloom_name;
+		if (config_get_string_option(section, "bloom", &bloom_name))
+			set_modern_quality_by_name(bloom_name, &modern_bloom_quality);
+		
+		const char *lighting_name;
+		if (config_get_string_option(section, "lighting", &lighting_name))
+			set_modern_quality_by_name(lighting_name, &modern_lighting_quality);
 
 		const char *vfx_name;
 		if (config_get_string_option(section, "vfx", &vfx_name))
@@ -358,6 +389,10 @@ static void saveOpenTyrianConfig(void)
 	config_set_string_option(section, "pixel_aspect", modern_pixel_aspect_names[modern_pixel_aspect]);
 	config_set_string_option(section, "smooth_motion", interp_smooth_motion ? "on" : "off");
 	config_set_string_option(section, "vfx", vfx_level_names[vfx_level]);
+
+	config_set_string_option(section, "bloom", modern_quality_names[modern_bloom_quality]);
+
+	config_set_string_option(section, "lighting", modern_quality_names[modern_lighting_quality]);
 
 	section = config_find_or_add_section(config, "keyboard", NULL);
 	if (section == NULL)

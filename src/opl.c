@@ -27,8 +27,27 @@
 
 #include <math.h>
 #include <stdbool.h>
-#include <stdlib.h> // rand()
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h> // memset()
+
+/*
+ * The OPL percussion/noise channel only needs a stream of random bits, but
+ * libc rand() is not portable: Apple's libc implements the Park-Miller LCG
+ * (x = 16807*x mod 2^31-1) while glibc and the Windows C runtimes use other
+ * generators, which made the offline audio baseline differ across platforms.
+ * Use that same Park-Miller generator here so the emulation (and its baseline)
+ * matches everywhere.  It reproduces Apple's rand() sequence exactly, so the
+ * macOS output does not change.  Gameplay RNG (mt_rand) is untouched.
+ */
+#define OPL_NOISE_MODULUS 2147483647u
+static Bit32u opl_noise_state = 1u;
+
+static Bit32u opl_noise_rand(void)
+{
+	opl_noise_state = (Bit32u)(((uint64_t)opl_noise_state * 16807u) % OPL_NOISE_MODULUS);
+	return opl_noise_state;
+}
 
 #define fltype double
 
@@ -314,7 +333,7 @@ void operator_advance_drums(op_type* op_pt1, Bit32s vib1, op_type* op_pt2, Bit32
 	Bit32u c3 = op_pt3->tcount/FIXEDPT;
 	Bit32u phasebit = (((c1 & 0x88) ^ ((c1<<5) & 0x80)) | ((c3 ^ (c3<<2)) & 0x20)) ? 0x02 : 0x00;
 
-	Bit32u noisebit = rand()&1;
+	Bit32u noisebit = opl_noise_rand()&1;
 
 	Bit32u snare_phase_bit = (((Bitu)((op_pt1->tcount/FIXEDPT) / 0x100))&1);
 
@@ -632,6 +651,9 @@ void adlib_init(Bit32u samplerate) {
 	Bits i, j, oct;
 
 	int_samplerate = samplerate;
+
+	// Start every OPL setup from the same noise sequence (Apple rand()'s seed).
+	opl_noise_state = 1u;
 
 	generator_add = (Bit32u)(INTFREQU*FIXEDPT/int_samplerate);
 

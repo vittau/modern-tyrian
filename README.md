@@ -81,7 +81,9 @@ A Visual Studio solution is provided in `visualc/`.
     -d, --net-delay=FRAMES       Set lag-compensation delay (default is 1)
     --presentation=MODE          Set presentation mode: classic or modern
     --aspect=RATIO               Modern aspect: 4:3, 16:10, 16:9, 21:9, 32:9, auto
-    --pixel-aspect=SHAPE         Modern pixel aspect: original (1.2) or square
+    --pixel-aspect=SHAPE         Pixel aspect: original (1.2) or square
+    --bloom=LEVEL                Modern bloom: off, low, medium or high
+    --lighting=LEVEL             Modern dynamic lighting: off, low, medium or high
     --regress-demo=N             Replay recorded demo N (1-5) headless and exit
     --regress-level=E:L          Start level L of episode E headless and exit
     --regress-frames=N           Cap a --regress-level run at N frames
@@ -108,6 +110,8 @@ A Visual Studio solution is provided in `visualc/`.
     --bench-seconds=N            Duration of --regress-realtime (default 20)
     --regress-detail=M           Pin processor detail level M (1-6, default 2)
     --regress-modern             Hash the Modern canvas in regress modes
+    --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)
+    --regress-lighting=LEVEL     Pin Modern lighting in regress modes (default off)
     --regress-audio              Render the audio baselines to FILE and exit
     --selftest-gamepad           Run the virtual-controller input self-test and exit
 
@@ -118,18 +122,34 @@ Modern composes an XRGB8888 canvas on the CPU at the logical resolution, runs
 its effect passes there, and scales it to the window with nearest-neighbour;
 the software scalers are ignored in Modern.  The Graphics submenu of the
 in-game Setup screen exposes Presentation, Aspect, Pixel Aspect and Smooth
-Motion; the Modern-only ones are greyed out and ignored while Classic is
-active, and all of them are saved through the existing configuration.
+Motion.  Presentation, Aspect and Smooth Motion are Modern-only: they are
+greyed out and ignored while Classic is active.  Pixel Aspect applies to both
+presentations.  All of them are saved through the existing configuration.
+
+The `scaling_mode` key picks how the frame is fitted to the window: `Center`
+draws it 1:1, `Integer` scales it by whole multiples, and `Fit` scales it
+proportionally to fill the window.  `Integer` is the default.
+
+The `pixel_aspect` key reproduces the non-square pixels of the original DOS
+output: `original` draws each pixel 1.2x taller than wide (the 4:3 frame),
+`square` draws them 1:1 (the 8:5 frame).  It applies to both presentations: in
+Modern it also sets the canvas width, and in Classic it selects the frame that
+`Fit` uses, so `Fit` + `original` reproduces the old "Fit 4:3" mode and `Fit` +
+`square` the old "Fit 8:5".  Classic `Integer` and `Center` ignore the pixel
+aspect, as before.
 
 The Modern presentation is widescreen.  The original 320x200 frame keeps its
 size and is centered horizontally in a wider canvas (height stays 200 rows), so
 the playfield is never enlarged.  The `aspect` setting picks the on-screen
 aspect (or `auto` follows the window); the canvas width is
-`round(200 * pixel_aspect * aspect)`, never below 320.  The `pixel_aspect`
-setting reproduces the non-square pixels of the original DOS output: `original`
-draws each pixel 1.2x taller than wide, `square` draws them 1:1.  Both settings
-are stored in the `video` section as `aspect` and `pixel_aspect`, and default
-to `4:3` and `original`.
+`round(200 * pixel_aspect * aspect)`, never below 320.  The `aspect` and
+`pixel_aspect` settings are stored in the `video` section and default to `4:3`
+and `original`.
+
+For compatibility, an existing config whose `scaling_mode` is the old
+`Fit 8:5` or `Fit 4:3` loads as `Fit` with `pixel_aspect` `square` or
+`original` respectively.  An explicit `pixel_aspect` in the same file wins over
+the legacy name.
 
 The `smooth_motion` key in the same section (`--smooth-motion=on|off`) makes
 Modern gameplay present at the display refresh with interpolated motion while
@@ -167,6 +187,31 @@ outer edge.  Everything is drawn on the original 320x200 logical grid with the
 game's own fonts and sprites and procedural frames; the panels widen at 21:9
 and 32:9 without changing the layout tiers.  The power reserve bar is shown in
 every layout, including the compact ones.  Classic is always unchanged.
+
+Modern gameplay also has two lighting effects, computed on the logical grid and
+controlled by the `bloom` and `lighting` settings (CLI above, `video` section in
+`opentyrian.cfg`, both defaulting to `medium`):
+
+* **Bloom** is a tight additive glow around the brightest pixels -- shots,
+  lasers, explosions and engine flames.  The emissive strength comes from the
+  largest RGB channel of the active palette entry (so it follows palette fades
+  and ignores dark saturated colours), thresholded and blurred with two
+  separable box passes, then added back with a clamped add.
+* **Dynamic lighting** is the wide illumination: the same emissive pixels cast
+  their colour over the surrounding playfield, so nearby terrain, enemies and
+  the ship are lit in the hue of the fire.  It is built at half the logical
+  resolution, blurred with a large box radius and upsampled with a fixed 2x2
+  box; the unlit base is scaled by a slight ambient factor (~0.92 at medium) so
+  the light reads without making the game noticeably darker.
+
+Both effects run only on gameplay frames, only on the 264x184 playfield (never
+on the HUD panels, menus or title screen), are deterministic integer math, and
+allocate nothing per frame.  `bloom off` is byte-for-byte the previous Modern
+output, Classic never has either effect, and regression mode pins both off
+unless `--regress-bloom`/`--regress-lighting` opt in.  Combined cost is under
+0.4 ms/frame at 16:9 medium on the reference machine (under 0.6 ms at high).
+A later phase will feed exact per-object lights (from the per-tick draw list)
+through `modern_lighting_add_source()`, sharing this same light map.
 
 The regression harness can save a presented frame to a BMP for headless visual
 review: `--regress-snapshot=FRAME:FILE` (repeatable; the Modern canvas with

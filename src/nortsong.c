@@ -23,6 +23,7 @@
 #include "loudness.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "resampler.h"
 #include "sndmast.h"
 
 #include <SDL3/SDL.h>
@@ -172,10 +173,8 @@ static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *file
 	}
 
 	// Source data is signed 8-bit mono at 11025 Hz; convert it to the mixer's
-	// output format (signed 16-bit mono at audioSampleRate).
-	const SDL_AudioSpec src_spec = { SDL_AUDIO_S8, 1, 11025 };
-	const SDL_AudioSpec dst_spec = { SDL_AUDIO_S16, 1, audioSampleRate };
-
+	// output format (signed 16-bit mono at audioSampleRate).  See
+	// src/resampler.c for why this is done in-tree instead of via SDL.
 	Uint8 *src = malloc(maxSize);
 
 	for (size_t i = 0; i < count; ++i)
@@ -194,19 +193,11 @@ static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *file
 
 		fileReadExactly(&file, src, size);
 
-		Uint8 *dst = NULL;
-		int dst_len = 0;
-		if (!SDL_ConvertAudioSamples(&src_spec, src, (int)size, &dst_spec, &dst, &dst_len))
-		{
-			logError("Failed to convert audio: %s", SDL_GetError());
-			continue;
-		}
+		size_t dst_len = 0;
+		Sint16 *dst = resampler_convert(src, size, 11025, audioSampleRate, &dst_len);
 
-		soundSamples[soundsOffset + i] = malloc(dst_len);
-		memcpy(soundSamples[soundsOffset + i], dst, dst_len);
+		soundSamples[soundsOffset + i] = dst;
 		soundSampleCount[soundsOffset + i] = dst_len / sizeof (Sint16);
-
-		SDL_free(dst);
 	}
 
 	free(src);

@@ -142,6 +142,7 @@
     <ClCompile Include="..\src\memwriter.c" />
     <ClCompile Include="..\src\menus.c" />
     <ClCompile Include="..\src\modern.c" />
+    <ClCompile Include="..\src\modern_bloom.c" />
     <ClCompile Include="..\src\modern_hud.c" />
     <ClCompile Include="..\src\mouse.c" />
     <ClCompile Include="..\src\mtrand.c" />
@@ -160,6 +161,7 @@
     <ClCompile Include="..\src\regress.c" />
     <ClCompile Include="..\src\regress_audio.c" />
     <ClCompile Include="..\src\regress_screen.c" />
+    <ClCompile Include="..\src\resampler.c" />
     <ClCompile Include="..\src\shots.c" />
     <ClCompile Include="..\src\sndmast.c" />
     <ClCompile Include="..\src\sprite.c" />
@@ -204,6 +206,7 @@
     <ClInclude Include="..\src\memwriter.h" />
     <ClInclude Include="..\src\menus.h" />
     <ClInclude Include="..\src\modern.h" />
+    <ClInclude Include="..\src\modern_bloom.h" />
     <ClInclude Include="..\src\modern_hud.h" />
     <ClInclude Include="..\src\mouse.h" />
     <ClInclude Include="..\src\mtrand.h" />
@@ -221,6 +224,8 @@
     <ClInclude Include="..\src\picload.h" />
     <ClInclude Include="..\src\player.h" />
     <ClInclude Include="..\src\regress.h" />
+    <ClInclude Include="..\src\resampler.h" />
+    <ClInclude Include="..\src\resampler_table.h" />
     <ClInclude Include="..\src\shots.h" />
     <ClInclude Include="..\src\sndmast.h" />
     <ClInclude Include="..\src\sprite.h" />

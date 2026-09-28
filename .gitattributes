@@ -1,0 +1,11 @@
+# The regression harness compares the committed baselines byte for byte and
+# parses test/regress/data-manifest.txt line by line.  On Windows (MSYS2) git's
+# core.autocrlf would otherwise check these files out with CRLF: every baseline
+# comparison would then fail, and the manifest file names would carry a trailing
+# carriage return.  Force LF in the working tree on every platform for the files
+# the harness reads or compares, and for the shell scripts and Makefile that
+# drive it.
+test/regress/**  text eol=lf
+tools/*.sh       text eol=lf
+*.sh             text eol=lf
+Makefile         text eol=lf

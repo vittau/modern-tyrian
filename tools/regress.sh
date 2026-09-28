@@ -125,6 +125,11 @@ if [ "$UPDATE_MANIFEST" -eq 1 ]; then
 	tmp="$MANIFEST.tmp"
 	print_manifest_header > "$tmp"
 	while read -r size crc name; do
+		# A checkout with CRLF (e.g. Windows git autocrlf) leaves a stray \r
+		# on the name; .gitattributes forces LF, but stay robust anyway.
+		size=${size%$'\r'}
+		crc=${crc%$'\r'}
+		name=${name%$'\r'}
 		case "$size" in ''|'#'*) continue ;; esac
 		if [ ! -f "$DATA_DIR/$name" ]; then
 			echo "missing: $name" >&2
@@ -145,6 +150,11 @@ fi
 
 bad_data=0
 while read -r size crc name; do
+	# See the note in the --update-manifest loop: strip a stray \r so the lock
+	# still works if a CRLF checkout slips through on Windows.
+	size=${size%$'\r'}
+	crc=${crc%$'\r'}
+	name=${name%$'\r'}
 	case "$size" in ''|'#'*) continue ;; esac
 
 	if [ ! -f "$DATA_DIR/$name" ]; then
@@ -379,6 +389,22 @@ run_case "modern-screen-nav-map-21x9" \
 pairs=$((pairs + 1))
 run_case "modern-screen-jukebox-21x9" \
 	--regress-screen=jukebox --regress-modern --regress-aspect=21:9
+
+# --- modern bloom + dynamic lighting -----------------------------------------
+#
+# The bloom/dynamic-light pass is pinned OFF unless --regress-bloom/--regress-lighting
+# opt in, so every case above is unaffected.  These two cases cover the effects
+# on the 16:9 playfield: a demo with shots and explosions, and a smoothie
+# scenario (lava + the player spotlight).  Medium is the proposed default.
+
+run_case "modern-light-demo1-d2" \
+	--regress-demo=1 --regress-detail=2 --regress-modern --regress-aspect=16:9 \
+	--regress-bloom=medium --regress-lighting=medium
+pairs=$((pairs + 1))
+run_case "modern-light-scenario-spotlight-d3" \
+	--regress-level=1:16 --regress-detail=3 --regress-frames=1200 --regress-modern --regress-aspect=16:9 \
+	--regress-bloom=medium --regress-lighting=medium
+pairs=$((pairs + 1))
 
 # --- game-state hashes --------------------------------------------------------
 #

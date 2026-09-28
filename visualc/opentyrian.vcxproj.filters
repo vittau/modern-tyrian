@@ -105,6 +105,9 @@
     <ClCompile Include="..\src\modern.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\modern_bloom.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\modern_hud.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -157,6 +160,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\regress_screen.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\resampler.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\shots.c">
@@ -287,6 +293,9 @@
     <ClInclude Include="..\src\modern.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\modern_bloom.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\modern_hud.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -336,6 +345,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\regress.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\resampler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\resampler_table.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\shots.h">

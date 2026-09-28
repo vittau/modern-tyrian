@@ -36,6 +36,7 @@
 #include "loudness.h"
 #include "mainint.h"
 #include "modern.h"
+#include "modern_bloom.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "network.h"
@@ -251,7 +252,7 @@ void setupMenu(void)
 				{ MENU_ITEM_SCALING_MODE, "Scaling Mode:", "Change the scaling mode.", getScalingModePickerItemsCount, getScalingModePickerItem },
 				{ MENU_ITEM_PRESENTATION, "Presentation:", "Change the presentation mode.", getPresentationPickerItemsCount, getPresentationPickerItem, true },
 				{ MENU_ITEM_ASPECT, "Aspect:", "Change the Modern aspect ratio.", getAspectPickerItemsCount, getAspectPickerItem, true },
-				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the Modern pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem, true },
+				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
 				{ MENU_ITEM_VFX, "Effects:", "Change the Modern VFX level.", getVfxPickerItemsCount, getVfxPickerItem, true },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
@@ -1029,7 +1030,10 @@ int main(int argc, char *argv[])
 	logInfo("Presentation mode: %s.", presentation_names[presentation]);
 
 	if (presentation == PRESENTATION_MODERN)
+	{
 		logInfo("Modern geometry: aspect %s, pixel aspect %s.", modern_aspect_names[modern_aspect], modern_pixel_aspect_names[modern_pixel_aspect]);
+		logInfo("Modern lighting: bloom %s, lighting %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality]);
+	}
 
 	if (!findDataFiles())
 	{

@@ -375,3 +375,23 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - O simulador de armas continua como no S1: alargar a janela exigiria refazer o layout da loja.
   - São 5 telas novas no `--regress-screen` e 12 casos; a regressão ficou com 121.
 - **Primeira CI com regressão (`bdfc0e0`):** macOS verde. No Linux (x86_64 e arm64), só o caso `audio` falha, e todos os quadros e estados batem com os baselines gerados no Mac. No Windows, a trava de dados recusou tudo, provavelmente por CRLF no checkout. As correções estão com o agente da `regress-ci`: `.gitattributes` com LF e o áudio independente do `rand()` da libc.
+
+### 2026-09-28 — Áudio: só o emulador Nuked OPL3
+- Diagnóstico do áudio: saída mono; emulador OPL2 derivado do DOSBox de 2010; mixer com corte duro; efeitos de 8 bits a 11 kHz.
+- Na CI, o agente tinha trocado o conversor sinc do SDL por interpolação linear só para o teste de áudio ficar portátil. Recusado na revisão, porque piora o som do jogador. Pedido um conversor polifásico sinc próprio, em ponto fixo e idêntico em todas as plataformas, com qualidade igual ou melhor que a do SDL e resposta de frequência medida.
+- **Decisão do usuário:** das melhorias propostas (estéreo posicional, Nuked OPL3, limitador suave e trilha OGG fornecida pelo usuário), só o **Nuked OPL3** (emulação de referência do chip, LGPL-2.1+, compatível com a GPL-2+). As outras três não serão feitas.
+- Ordem: o Nuked começa depois que o conversor sinc estiver no branch. Ele gera o som em 49716 Hz e precisa desse conversor, em modo contínuo, para chegar a 44,1 kHz.
+
+### 2026-09-28 — Testes do usuário: bugs e decisões de escala
+- O usuário testou o binário. Três bugs viraram tarefas, e duas decisões foram tomadas:
+  - **Bug: o cenário e as nuvens "pulam" quando a nave se move.** Causa provável: o pan horizontal segue a nave. O x da linha de fundo dá a volta (`mapXOfs % 24`) enquanto o ponteiro do mapa avança um tile, e a interpolação desliza ~23 px para o lado errado a cada tile. Tarefa `interp-fix`, com uma checagem de suavidade na regressão.
+  - **Bug: o HUD clássico pisca no início da fase.** Os primeiros quadros saem como quadro de menu. Mesma tarefa.
+  - **Bug: "Fit 4:3" e "Fit 8:5" são iguais no Modern.** Unificados em "Fit"; a diferença passa para o Pixel Aspect, que agora vale também no Clássico. Tarefa `scaling`.
+- **Decisão:** o pixel aspect correto para a arte é o Original (1,2, desenhada para CRT 4:3). No Modern, o usuário não deve conseguir escolher a pior opção. Pixel Aspect e Scaling Mode saem do menu Modern, e a escala passa a ser sempre "sharp bilinear": pré-escala inteira com nearest, e depois o ajuste fracionário final com linear. Isso deixa os pixels uniformes, sem linhas de 4 e 5 px misturadas que tremem no scroll, com aspecto exato. O Fit do Clássico usa o mesmo caminho.
+- **Decisão:** os scalers de software (hq2x etc.) são removidos do jogo: "só queremos pixels perfeitos". A janela do Clássico passa a usar o dimensionamento por múltiplo inteiro.
+
+### 2026-09-28 — Iluminação no branch; níveis redefinidos pelo usuário
+- **Iluminação (`ceadcf3`, merge `6b3d7cc`).** Bloom + mapa de luz dinâmico em `src/modern_bloom.c`, só no playfield dos quadros de jogo do Modern. Na revisão foram corrigidos os halos quadrados (três passes de box, isofotas a ~9% do redondo), a ampliação em blocos (agora bilinear), os núcleos estourados (blend estilo screen) e a força excessiva. Custo < 0,5 ms. As opções viraram 281–284 no merge.
+- **Decisão do usuário:** mesmo o "baixo" ficou forte demais. Serão três níveis, **Desligado / Baixo / Alto**: Alto = o "baixo" de hoje, Baixo = metade dele. Um só seletor "Lighting" no Setup → Graphics controla bloom e luz juntos. Padrão: Baixo. Tarefa encaixada na rodada 2 do `scaling`, que já mexe no menu.
+- **Conversor de áudio (`1c16c81`, merge `34093b2`).** Sinc polifásico com janela Kaiser em inteiros, igual em qualquer plataforma. Plano até 4,98 kHz e rejeição > 90 dB (o do SDL deixava passar a primeira imagem a −6 dB). Só os hashes de sfx/mix mudaram. Na mesma resolução de conflito, o `.vcxproj` voltou a ter CRLF (o merge da iluminação tinha convertido para LF).
+- CI no Windows: os quadros batem; os 4 casos `state-*` falham desde a primeira linha, provavelmente por largura de tipo no hash de estado (LLP64). Rodada 3 da `regress-ci`.
