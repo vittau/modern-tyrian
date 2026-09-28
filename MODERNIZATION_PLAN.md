@@ -375,3 +375,9 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - O simulador de armas continua como no S1: alargar a janela exigiria refazer o layout da loja.
   - São 5 telas novas no `--regress-screen` e 12 casos; a regressão ficou com 121.
 - **Primeira CI com regressão (`bdfc0e0`):** macOS verde. No Linux (x86_64 e arm64), só o caso `audio` falha, e todos os quadros e estados batem com os baselines gerados no Mac. No Windows, a trava de dados recusou tudo, provavelmente por CRLF no checkout. As correções estão com o agente da `regress-ci`: `.gitattributes` com LF e o áudio independente do `rand()` da libc.
+
+### 2026-09-28 — Áudio: só o emulador Nuked OPL3
+- Diagnóstico do áudio: saída mono; emulador OPL2 derivado do DOSBox de 2010; mixer com corte duro; efeitos de 8 bits a 11 kHz.
+- Na CI, o agente tinha trocado o conversor sinc do SDL por interpolação linear só para o teste de áudio ficar portátil. Recusado na revisão, porque piora o som do jogador. Pedido um conversor polifásico sinc próprio, em ponto fixo e idêntico em todas as plataformas, com qualidade igual ou melhor que a do SDL e resposta de frequência medida.
+- **Decisão do usuário:** das melhorias propostas (estéreo posicional, Nuked OPL3, limitador suave e trilha OGG fornecida pelo usuário), só o **Nuked OPL3** (emulação de referência do chip, LGPL-2.1+, compatível com a GPL-2+). As outras três não serão feitas.
+- Ordem: o Nuked começa depois que o conversor sinc estiver no branch. Ele gera o som em 49716 Hz e precisa desse conversor, em modo contínuo, para chegar a 44,1 kHz.
