@@ -150,6 +150,7 @@
     <ClCompile Include="..\src\network.c" />
     <ClCompile Include="..\src\nortsong.c" />
     <ClCompile Include="..\src\nortvars.c" />
+    <ClCompile Include="..\src\nuked_opl3.c" />
     <ClCompile Include="..\src\opentyr.c" />
     <ClCompile Include="..\src\opl.c" />
     <ClCompile Include="..\src\palette.c" />
@@ -214,6 +215,7 @@
     <ClInclude Include="..\src\network.h" />
     <ClInclude Include="..\src\nortsong.h" />
     <ClInclude Include="..\src\nortvars.h" />
+    <ClInclude Include="..\src\nuked_opl3.h" />
     <ClInclude Include="..\src\opentyr.h" />
     <ClInclude Include="..\src\opentyrian_version.h" />
     <ClInclude Include="..\src\opl.h" />

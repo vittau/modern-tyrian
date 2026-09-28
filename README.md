@@ -287,6 +287,13 @@ depending on which ship you intend to pilot, and `NAME` is your alias.
 OpenTyrian uses UDP port 1333 for multiplayer, but in most cases players will
 not need to open any ports because OpenTyrian makes use of UDP hole punching.
 
+## Credits
+
+The AdLib/OPL2 FM music is emulated by [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3)
+by Nuke.YKT (commit `765ec962e473aeb767e4cba74ffdc8f588ffbfe8`), vendored under
+`src/nuked_opl3.c` / `src/nuked_opl3.h` and used under the GNU Lesser General
+Public License v2.1 or later; see `LICENSE-Nuked-OPL3` for the full text.
+
 ## Links
 
 - project: <https://github.com/opentyrian/opentyrian>

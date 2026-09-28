@@ -35,9 +35,9 @@
 // The harness renders the game's own audio pipeline to a fixed output format
 // without ever opening an SDL audio device:
 //
-//   * loadSndFile() converts tyrian.snd/voices.snd through the same
-//     SDL_AudioCVT path the game uses (AUDIO_S8, 11025 Hz, mono ->
-//     AUDIO_S16SYS, REGRESS_AUDIO_SAMPLE_RATE, mono) and each converted sample
+//   * loadSndFile() converts tyrian.snd/voices.snd through the same in-tree
+//     band-limited resampler the game uses (S8, 11025 Hz, mono ->
+//     S16, REGRESS_AUDIO_SAMPLE_RATE, mono) and each converted sample
 //     is hashed:              sfx <index> <length_bytes> <fnv1a64>
 //   * every song in music.mus is started with load_song() and rendered for
 //     REGRESS_AUDIO_MUSIC_SECONDS seconds by the same mixer the SDL callback
@@ -47,8 +47,8 @@
 //
 // init_audio() asks the device for 11025 * OUTPUT_QUALITY (OUTPUT_QUALITY = 4
 // in loudness.c) = 44100 Hz, AUDIO_S16SYS, mono.  The harness pins that exact
-// request instead of the rate a device might grant.  The OPL percussion noise
-// uses rand(), so it is seeded to keep rendering reproducible.
+// request instead of the rate a device might grant.  The OPL music is rendered
+// by the integer-only Nuked-OPL3 emulator, so no RNG seeding is needed.
 
 #define REGRESS_AUDIO_SAMPLE_RATE 44100  // 11025 * OUTPUT_QUALITY
 #define REGRESS_AUDIO_MUSIC_SECONDS 10
@@ -174,10 +174,6 @@ void regress_audio_run(void)
 {
 	assert(regress_audio_active());
 	assert(regress_output_file() != NULL);
-
-	// The OPL percussion generator uses rand(); seed it so the rendered noise
-	// is reproducible regardless of anything rand() was used for beforehand.
-	srand(1);
 
 	audio_regress_init(REGRESS_AUDIO_SAMPLE_RATE);
 

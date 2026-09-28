@@ -129,6 +129,9 @@
     <ClCompile Include="..\src\nortvars.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\nuked_opl3.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\opentyr.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -315,6 +318,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\nortvars.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\nuked_opl3.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\opentyr.h">
