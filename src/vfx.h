@@ -38,8 +38,9 @@
 // tick; at presentation time vfx_render_playfield() draws them into the 8-bit
 // playfield of the presentation surface, interpolated by the same 16.16 alpha
 // the draw-list interpolator uses.  Writing the VFX as palette indices before
-// the Modern conversion means the (future) bloom/lighting pass, which reads the
-// emissive palette luminance of the source frame, sees the bright particles.
+// the Modern conversion means the bloom/lighting pass (src/modern_bloom.c),
+// which reads the emissive palette luminance of the source frame, sees the
+// bright particles and lights the terrain with them.
 //
 // Colours use the game's own nibble convention: palette index = hue * 16 +
 // value, where the high nibble selects one of the 16 palette blocks and the low
@@ -53,7 +54,6 @@ typedef enum
 {
 	VFX_OFF = 0,
 	VFX_LOW,
-	VFX_MEDIUM,
 	VFX_HIGH,
 	VFX_LEVEL_MAX
 } VfxLevel;
@@ -61,7 +61,8 @@ typedef enum
 extern const char *const vfx_level_names[VFX_LEVEL_MAX];
 extern VfxLevel vfx_level;
 
-// Parses "off"/"low"/"medium"/"high" (case-insensitive).  Returns false for
+// Parses "off"/"low"/"high" (case-insensitive).  The legacy "medium" is
+// accepted and maps to high, so old cfg files keep working.  Returns false for
 // anything else, leaving the setting unchanged.
 bool set_vfx_by_name(const char *name);
 

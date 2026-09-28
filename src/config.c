@@ -260,7 +260,7 @@ static void loadOpenTyrianConfig(void)
 	interp_smooth_motion = true;
 	modern_bloom_quality = MODERN_QUALITY_MEDIUM;
 	modern_lighting_quality = MODERN_QUALITY_MEDIUM;
-	vfx_level = VFX_MEDIUM;
+	vfx_level = VFX_LOW;
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
 	Config *config = &opentyrian_config;

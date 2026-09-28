@@ -327,15 +327,16 @@ pairs=$((pairs + 1))
 # --- Modern VFX (Fase 2) ------------------------------------------------------
 #
 # VFX are pinned OFF for every other case (so no pre-VFX baseline changes); these
-# two opt into medium with the Modern 16:9 canvas and hash the composited
+# two opt into a level with the Modern 16:9 canvas and hash the composited
 # particles.  One is a busy demo (the demo2 boss fight, many explosions and
-# shots) and one a ground/scroll synthetic scenario (E4:L12).  Both must be
-# reproducible run to run.  See src/vfx.c.
+# shots) at high, one a ground/scroll synthetic scenario (E4:L12) at low, so both
+# new levels have a baseline.  Both must be reproducible run to run.  See
+# src/vfx.c.
 
-run_case "vfx-demo2-d2" --regress-demo=2 --regress-detail=2 --regress-modern --regress-aspect=16:9 --regress-vfx=medium
+run_case "vfx-demo2-d2" --regress-demo=2 --regress-detail=2 --regress-modern --regress-aspect=16:9 --regress-vfx=high
 pairs=$((pairs + 1))
 run_case "vfx-scenario-flip-d3" \
-	--regress-level=4:12 --regress-detail=3 --regress-frames=3600 --regress-modern --regress-aspect=16:9 --regress-vfx=medium
+	--regress-level=4:12 --regress-detail=3 --regress-frames=3600 --regress-modern --regress-aspect=16:9 --regress-vfx=low
 pairs=$((pairs + 1))
 
 # --- non-gameplay screens -----------------------------------------------------

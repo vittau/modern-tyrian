@@ -33,11 +33,10 @@ const char *const vfx_level_names[VFX_LEVEL_MAX] =
 {
 	"off",
 	"low",
-	"medium",
 	"high",
 };
 
-VfxLevel vfx_level = VFX_MEDIUM;
+VfxLevel vfx_level = VFX_LOW;
 int vfx_intensity = 256;         // 256 = normal; lower spawns fewer/smaller
 bool vfx_reduce_flashes = false; // scale the flash-type effects down
 
@@ -159,7 +158,7 @@ typedef struct
 	Uint8 flags;
 } VfxParticle;
 
-#define VFX_MAX_PARTICLES 1400
+#define VFX_MAX_PARTICLES 512
 static VfxParticle vfx_particles[VFX_MAX_PARTICLES];
 static int vfx_particle_count = 0;
 
@@ -311,17 +310,16 @@ void vfx_reset(void)
 }
 
 // Number of particles a base count maps to at the current level/intensity.
+// High is roughly the old "low"; Low is about half of that.
 static int vfx_count(int base)
 {
-	int scale;
-	switch (vfx_level)
-	{
-	case VFX_LOW:  scale = 1; break;  // half
-	case VFX_HIGH: scale = 3; break;  // one and a half
-	default:       scale = 2; break;  // normal
-	}
+	if (base <= 0)
+		return 0;
 
-	int n = (base * scale) / 2;
+	int n = (vfx_level == VFX_HIGH) ? base / 2 : base / 4;
+	if (n < 1)
+		n = 1;
+
 	n = (n * vfx_intensity) / 256;
 	return n < 0 ? 0 : n;
 }
@@ -330,20 +328,18 @@ static int vfx_max_particles(void)
 {
 	switch (vfx_level)
 	{
-	case VFX_LOW:  return 256;
-	case VFX_HIGH: return VFX_MAX_PARTICLES;
-	default:       return 700;
+	case VFX_HIGH: return 320;
+	default:       return 160;
 	}
 }
 
-// Scaled lifetime (shorter at low).
+// Scaled lifetime.
 static int vfx_life(int base)
 {
 	switch (vfx_level)
 	{
-	case VFX_LOW:  return (base * 2) / 3 + 1;
-	case VFX_HIGH: return (base * 5) / 4;
-	default:       return base;
+	case VFX_HIGH: return (base * 2) / 3 + 1;
+	default:       return base / 2 + 1;
 	}
 }
 
@@ -415,7 +411,7 @@ static void vfx_burst(Sint32 cx, Sint32 cy, int sparks, int debris, int smoke, i
 
 	for (int i = 0; i < flash; ++i)
 	{
-		const int rad = vfx_reduce_flashes ? 1 : 2;
+		const int rad = (vfx_reduce_flashes || vfx_level == VFX_LOW) ? 1 : 2;
 		vfx_spawn(VFX_KIND_FLASH, cx, cy, 0, 0, 3, VFX_HUE_FIRE, 15, VFX_FP(rad), 0);
 	}
 }
@@ -441,14 +437,15 @@ static void vfx_ev_explosion_large(const VfxEvent *e)
 	// explosion sprites (explodeMove is the per-tick ground displacement).
 	const int scroll = ground ? (int)explodeMove : 0;
 
-	// Shockwave ring.
-	const int rings = boss ? 3 : 1 + (vfx_level == VFX_HIGH ? 1 : 0);
+	// Shockwave ring: a thin blended ring, smaller and dimmer at Low.
+	const int radius = (vfx_level == VFX_HIGH) ? 24 : 14;
+	const int value = boss ? 15 : ((vfx_level == VFX_HIGH) ? 13 : 11);
+	const int rings = boss ? 2 : 1;
 	for (int i = 0; i < rings; ++i)
 	{
-		const int rad = vfx_reduce_flashes ? 18 : 28;
 		vfx_spawn(VFX_KIND_RING, x, y, 0, 0,
-		          vfx_life(10 + vfx_rand_range(6)), VFX_HUE_FIRE, boss ? 15 : 13,
-		          VFX_FP(2), VFX_FP(rad) / 14);
+		          vfx_life(8 + vfx_rand_range(5)), VFX_HUE_FIRE, value,
+		          VFX_FP(2), VFX_FP(radius) / 12);
 	}
 
 	vfx_burst(x, y, vfx_count(boss ? 20 : 10), vfx_count(6), vfx_count(boss ? 6 : 3),
@@ -479,7 +476,7 @@ static void vfx_ev_shot(const VfxEvent *e)
 
 	// Muzzle flash at the spawn point plus a couple of sparks along the shot.
 	vfx_spawn(VFX_KIND_FLASH, x, y, 0, 0, 2, VFX_HUE_FIRE, 15,
-	          VFX_FP(vfx_reduce_flashes ? 0 : 1), 0);
+	          VFX_FP((vfx_reduce_flashes || vfx_level == VFX_LOW) ? 0 : 1), 0);
 
 	int dirx = e->vx, diry = e->vy;
 	const int mag = (dirx < 0 ? -dirx : dirx) + (diry < 0 ? -diry : diry);
@@ -510,7 +507,7 @@ static void vfx_ev_enemy_shot(const VfxEvent *e)
 	const Sint32 y = VFX_FP(e->y);
 
 	vfx_spawn(VFX_KIND_FLASH, x, y, 0, 0, 2, VFX_HUE_HIT,
-	          vfx_reduce_flashes ? 10 : 13, VFX_FP(vfx_reduce_flashes ? 0 : 1), 0);
+	          vfx_reduce_flashes ? 10 : 13, VFX_FP((vfx_reduce_flashes || vfx_level == VFX_LOW) ? 0 : 1), 0);
 
 	if (vfx_count(1) > 0)
 		vfx_spawn(VFX_KIND_SPARK, x, y, (Sint32)e->vx << 12, (Sint32)e->vy << 12,
@@ -540,7 +537,7 @@ static void vfx_ev_player_hit(const VfxEvent *e)
 	const Sint32 y = VFX_FP(e->y);
 
 	vfx_spawn(VFX_KIND_FLASH, x, y, 0, 0, 3, VFX_HUE_FIRE,
-	          vfx_reduce_flashes ? 11 : 14, VFX_FP(vfx_reduce_flashes ? 1 : 2), 0);
+	          vfx_reduce_flashes ? 11 : 14, VFX_FP((vfx_reduce_flashes || vfx_level == VFX_LOW) ? 1 : 2), 0);
 	vfx_burst(x, y, vfx_count(3), vfx_count(2), 0, 0, 0, true);
 }
 
@@ -550,7 +547,7 @@ static void vfx_ev_impact(const VfxEvent *e)
 	const Sint32 y = VFX_FP(e->y);
 
 	vfx_spawn(VFX_KIND_FLASH, x, y, 0, 0, 3, e->hue,
-	          vfx_reduce_flashes ? 11 : 15, VFX_FP(vfx_reduce_flashes ? 1 : 2), 0);
+	          vfx_reduce_flashes ? 11 : 15, VFX_FP((vfx_reduce_flashes || vfx_level == VFX_LOW) ? 1 : 2), 0);
 
 	const int n = vfx_count(2);
 	for (int i = 0; i < n; ++i)
@@ -633,9 +630,21 @@ static Uint8 vfx_index(int hue, int value)
 	return (Uint8)(((hue & 15) << 4) | value);
 }
 
-// Ordered 4x4 Bayer matrix, 0..15.
-static const Uint8 vfx_bayer[16] =
-	{ 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+// The engine's own translucency, copied from blit_sprite2_blend: the source's
+// high nibble is the hue block and the low nibbles are averaged, so the pixel
+// reads as a tinted translucent overlay.  No ordered dither: softness comes
+// from applying the blend more than once towards the centre.
+static void vfx_blend(Uint8 *s, int hue, int value)
+{
+	*s = (Uint8)((((*s & 0x0f) + (value & 0x0f)) / 2) | ((hue & 15) << 4));
+}
+
+// The darken variant (blit_sprite2_darken): keeps the destination hue and
+// halves its brightness.  Used for the faint rim of a smoke puff.
+static void vfx_darken(Uint8 *s)
+{
+	*s = (Uint8)(((*s & 0x0f) / 2) + (*s & 0xf0));
+}
 
 static void vfx_put(Uint8 *base, int pitch, int x, int y, Uint8 index)
 {
@@ -720,16 +729,25 @@ static void vfx_draw_smoke(const VfxParticle *p, Uint8 *base, int pitch, Uint32 
 			if ((unsigned)x >= (unsigned)VFX_PLAYFIELD_W || (unsigned)y >= (unsigned)VFX_PLAYFIELD_H)
 				continue;
 
-			// Coverage: opaque at the centre, fading to the rim and with life.
+			// Softness without dithering: the centre is blended twice, the mid
+			// radius once, and the rim is only darkened (a smoke shadow).
 			int cov = 255 - (d2 * 255) / (r * r + 1);
 			cov = cov * life / max_life;
 
-			const int threshold = (int)vfx_bayer[((y & 3) << 2) | (x & 3)] * 16;
-			if (threshold >= cov)
-				continue;
-
 			Uint8 *s = base + (size_t)y * (size_t)pitch + (size_t)x;
-			*s = (Uint8)((p->hue << 4) | (((*s & 0x0f) + p->value) >> 1));
+			if (cov >= 150)
+			{
+				vfx_blend(s, p->hue, p->value);
+				vfx_blend(s, p->hue, p->value);
+			}
+			else if (cov >= 70)
+			{
+				vfx_blend(s, p->hue, p->value);
+			}
+			else
+			{
+				vfx_darken(s);
+			}
 		}
 	}
 }
@@ -744,27 +762,22 @@ static void vfx_draw_ring(const VfxParticle *p, Uint8 *base, int pitch, Uint32 a
 	if (r > 80) r = 80;
 
 	const int value = p->value * (int)p->life / (int)p->max_life;
-	const int life = (int)p->life, max_life = (int)p->max_life;
 
 	for (int dy = -r; dy <= r; ++dy)
 	{
 		for (int dx = -r; dx <= r; ++dx)
 		{
 			const int d2 = dx * dx + dy * dy;
-			const int d = d2;
 			const int lo = (r - 1) * (r - 1), hi = (r + 1) * (r + 1);
-			if (d < lo || d > hi)
+			if (d2 < lo || d2 > hi)
 				continue;
 
 			const int x = cx + dx, y = cy + dy;
 			if ((unsigned)x >= (unsigned)VFX_PLAYFIELD_W || (unsigned)y >= (unsigned)VFX_PLAYFIELD_H)
 				continue;
 
-			const int threshold = (int)vfx_bayer[((y & 3) << 2) | (x & 3)] * 16;
-			if (threshold >= 255 * life / max_life)
-				continue;
-
-			vfx_put(base, pitch, x, y, vfx_index(p->hue, value));
+			Uint8 *s = base + (size_t)y * (size_t)pitch + (size_t)x;
+			vfx_blend(s, p->hue, value);
 		}
 	}
 }
@@ -830,5 +843,14 @@ bool set_vfx_by_name(const char *name)
 			return true;
 		}
 	}
+
+	// The old levels had a "medium"; map it to high so existing cfg files and
+	// command lines keep working.
+	if (SDL_strcasecmp(name, "medium") == 0)
+	{
+		vfx_level = VFX_HIGH;
+		return true;
+	}
+
 	return false;
 }
