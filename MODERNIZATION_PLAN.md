@@ -557,3 +557,4 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   4. `make && tools/regress.sh --update`, conferir que só baselines Modern mudaram e rodar `make regress`;
   5. atualizar o README com o texto proposto em `.worker-reports/pentium.md` §7.
 - **Pendências:** validar no Deck o analógico corrigido (`467d25a`); o README com o detalhe Pentium fixo; as partículas de ambiente continuam sem posição na fila.
+- **Retomada: detalhe Pentium no branch principal (`420984d`).** No Modern o detalhe fica fixo em Pentium (ou SuperWild com a trapaça) e a linha some do menu. O Classic guarda a escolha do jogador em `tyrian.cfg`, e uma instalação nova começa em Pentium. As flags de detalhe são só visuais: o hash de estado é igual nos seis níveis e nas duas apresentações. Os casos Modern da regressão agora rodam em `-d4` (mais um `-d6`), e a suíte ficou com 151 casos. README atualizado (`c24a846`).
