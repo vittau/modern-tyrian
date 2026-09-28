@@ -144,7 +144,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-screen=NAME        Render one non-gameplay screen headless and exit");
 			logInfo("                               (title, episode-select, high-scores, game-menu, upgrade,");
 			logInfo("                               purchase, options, cube-list, cube-reader, keyboard,");
-			logInfo("                               joystick, load-save, solid, setup)");
+			logInfo("                               joystick, load-save, solid, setup, nav-map, ship-specs,");
+			logInfo("                               jukebox, weapon-sim, credits)");
 			logInfo("  --regress-replay-check       Record each level frame's draw list and replay it (proof)");
 			logInfo("  --regress-interp-check       Render each level frame interpolated at alpha=1 and");
 			logInfo("                               compare it byte for byte with the real frame (proof)");

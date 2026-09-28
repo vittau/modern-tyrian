@@ -133,6 +133,16 @@ static Uint32 *modern_blur_xmap = NULL;
 // modern_set_canvas_size(), never in the per-frame path.
 static int *modern_remap_x = NULL;
 
+// --- Canvas-wide procedural screens (Phase 1, step S2) ----------------------
+//
+// A canvas-width 8-bit scratch some non-gameplay screens draw their whole frame
+// into (see modern_screen_begin).  Allocated by modern_set_canvas_size(), never
+// in the per-frame path.
+static SDL_Surface *modern_screen_scratch = NULL;
+// True while the last modern_screen_begin() scratch is waiting to be presented.
+// Consumed (and cleared) by modern_build_frame().
+static bool modern_screen_pending = false;
+
 // --- Non-gameplay backdrop (Phase 1, step S1) -------------------------------
 
 // Pristine 8-bit copy of the picture JE_loadPic last decoded (the current
@@ -181,7 +191,8 @@ typedef enum
 	MODERN_FRAME_BLUR = 0,
 	MODERN_FRAME_SOLID,
 	MODERN_FRAME_VERT,
-	MODERN_FRAME_WIDEN
+	MODERN_FRAME_WIDEN,
+	MODERN_FRAME_SCREEN
 } ModernFrameKind;
 
 static ModernFrameKind modern_last_kind = MODERN_FRAME_BLUR;
@@ -196,7 +207,7 @@ static void modern_compose_vert(ModernFrame *frame);
 static void modern_compose_widen(ModernFrame *frame, int split, int extra);
 static bool modern_backdrop_active(const ModernFrame *frame, int *pic_out);
 static bool modern_pixel_is_element(const ModernFrame *frame, int x, int y);
-static int modern_max_element_x(const ModernFrame *frame, int y_limit);
+static int modern_max_element_x(const ModernFrame *frame, int x_limit, int y_limit);
 static bool modern_pic1_widens(const ModernFrame *frame, int *split_out);
 static bool modern_frame_edge_flat(const ModernFrame *frame);
 static bool modern_edge_column_flat(const ModernFrame *frame, int x0, int x1);
@@ -339,6 +350,21 @@ void modern_set_canvas_size(int w, int h)
 	if (modern_remap_x == NULL)
 	{
 		logFatal("Failed to allocate the modern remap column map (%dx%d).", w, h);
+		exit(EXIT_FAILURE);
+	}
+
+	// Canvas-wide 8-bit scratch for the procedural non-gameplay screens.  Kept
+	// at the canvas size so a screen can draw its whole frame into it.
+	if (modern_screen_scratch != NULL)
+	{
+		SDL_DestroySurface(modern_screen_scratch);
+		modern_screen_scratch = NULL;
+	}
+
+	modern_screen_scratch = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_INDEX8);
+	if (modern_screen_scratch == NULL)
+	{
+		logFatal("Failed to allocate the modern screen scratch (%dx%d): %s", w, h, SDL_GetError());
 		exit(EXIT_FAILURE);
 	}
 
@@ -605,6 +631,13 @@ void modern_deinit(void)
 	free(modern_remap_x);
 	modern_remap_x = NULL;
 
+	if (modern_screen_scratch != NULL)
+	{
+		SDL_DestroySurface(modern_screen_scratch);
+		modern_screen_scratch = NULL;
+	}
+	modern_screen_pending = false;
+
 	if (modern_message_surface != NULL)
 	{
 		SDL_DestroySurface(modern_message_surface);
@@ -633,10 +666,51 @@ void modern_deinit(void)
 	modern_frame_state.palette = NULL;
 }
 
+bool modern_screen_wide(void)
+{
+	return presentation == PRESENTATION_MODERN &&
+	       modern_screen_scratch != NULL &&
+	       modern_frame_state.w > vga_width;
+}
+
+SDL_Surface *modern_screen_begin(void)
+{
+	if (!modern_screen_wide())
+		return NULL;
+
+	memset(modern_screen_scratch->pixels, 0,
+	       (size_t)modern_screen_scratch->pitch * (size_t)modern_screen_scratch->h);
+
+	modern_screen_pending = true;
+
+	return modern_screen_scratch;
+}
+
+// Converts the canvas-wide screen scratch 1:1 into the canvas.  Used by
+// modern_build_frame when a screen has begun its scratch.
+static void modern_convert_screen(ModernFrame *frame)
+{
+	const SDL_Surface *scratch = modern_screen_scratch;
+	const int cols = MIN((int)scratch->w, frame->w);
+	const int rows = MIN((int)scratch->h, frame->h);
+
+	for (int y = 0; y < rows; ++y)
+	{
+		const Uint8 *s = (const Uint8 *)scratch->pixels + (size_t)y * scratch->pitch;
+		Uint32 *dst = frame->pixels + (size_t)y * frame->w;
+
+		for (int x = 0; x < cols; ++x)
+			dst[x] = rgb_palette[s[x]];
+	}
+
+	// The scratch is already the whole canvas, so the mouse maps 1:1.
+	modern_frame_offset_x = 0;
+	modern_frame_offset_y = 0;
+}
+
 void modern_build_frame(SDL_Surface *src_surface)
 {
 	assert(SDL_BITSPERPIXEL(src_surface->format) == 8);
-
 	ModernFrame *frame = &modern_frame_state;
 	assert(frame->pixels != NULL);
 
@@ -651,7 +725,17 @@ void modern_build_frame(SDL_Surface *src_surface)
 	modern_last_split_l = modern_last_split_r = 0;
 	modern_last_insert_l = modern_last_insert_r = 0;
 
-	if (gameplay && modern_hud_in_panels())
+	if (modern_screen_pending)
+	{
+		// A procedural screen drew its whole frame into the canvas-wide scratch;
+		// convert it 1:1 instead of the 320x200 composite.
+		modern_screen_pending = false;
+
+		modern_convert_screen(frame);
+
+		modern_last_kind = MODERN_FRAME_SCREEN;
+	}
+	else if (gameplay && modern_hud_in_panels())
 	{
 		// Panel mode: copy only the playfield rectangle (the original sidebar and
 		// bottom strip are dropped) and lay the HUD out in the freed columns and
@@ -901,13 +985,13 @@ static bool modern_backdrop_active(const ModernFrame *frame, int *pic_out)
 	return true;
 }
 
-// x of the rightmost code-drawn element pixel in rows [0, y_limit) (or -1 when
-// those rows are the bare picture), ignoring the mouse cursor.  Scanning from
-// the right keeps this cheap: the right panel is flat, so the first column
-// checked is already element-free.
-static int modern_max_element_x(const ModernFrame *frame, int y_limit)
+// x of the rightmost code-drawn element pixel in rows [0, y_limit) within
+// columns [0, x_limit] (or -1 when those rows are only the bare picture),
+// ignoring the mouse cursor.  Scanning from the right keeps this cheap: the
+// right panel is flat, so the first column checked is already element-free.
+static int modern_max_element_x(const ModernFrame *frame, int x_limit, int y_limit)
 {
-	for (int x = MODERN_BACKDROP_W - 1; x >= 0; --x)
+	for (int x = x_limit; x >= 0; --x)
 		for (int y = 0; y < y_limit; ++y)
 			if (modern_pixel_is_element(frame, x, y))
 				return x;
@@ -923,8 +1007,13 @@ static int modern_max_element_x(const ModernFrame *frame, int y_limit)
 static bool modern_pic1_widens(const ModernFrame *frame, int *split_out)
 {
 	// Only the panel rows decide the split; the bottom help band is kept
-	// unshifted by modern_compose_widen().
-	const int element_max = modern_max_element_x(frame, MODERN_PIC1_HELP_Y);
+	// unshifted by modern_compose_widen().  The scan is capped at the last
+	// column the split can use: an element in the outer frame border / right
+	// margin (x > MODERN_PIC1_SPLIT_MAX) is to the right of any possible split
+	// and is replaced by the repeated panel column when the panel is widened,
+	// so it must not block the widening (the navigation map's right margin fill
+	// lives there).
+	const int element_max = modern_max_element_x(frame, MODERN_PIC1_SPLIT_MAX, MODERN_PIC1_HELP_Y);
 	const int split = MAX(MODERN_PIC1_SPLIT_MIN, element_max + 1);
 
 	if (split > MODERN_PIC1_SPLIT_MAX)
@@ -1054,6 +1143,22 @@ static void modern_compose_vert(ModernFrame *frame)
 	}
 }
 
+// True when value `v` fills (almost) the whole of column x in the panel rows
+// (y < MODERN_PIC1_HELP_Y).  A code-drawn solid fill that spans the whole frame
+// height (e.g. the navigation screen's right-margin fill) does; the pic-1 frame
+// border and the bottom help line do not.  This tells a border/fill element
+// apart from the help line when deciding whether a bottom-band element should
+// shift with the panel.
+static bool modern_column_is_solid(const ModernFrame *frame, int x, Uint8 v)
+{
+	int n = 0;
+	for (int y = 0; y < MODERN_PIC1_HELP_Y; ++y)
+		if (frame->src[(size_t)y * frame->src_pitch + x] == v)
+			++n;
+
+	return n >= MODERN_PIC1_HELP_Y - 2;
+}
+
 // Widened pic-1 layout: the extra canvas width is inserted at the chosen split
 // column of the flat right panel (a repeated pristine column), so the mechanical
 // frame with the ship stays at the left edge and the panel reaches the right
@@ -1090,10 +1195,16 @@ static void modern_compose_widen(ModernFrame *frame, int split, int extra)
 			// panel, but its code-drawn pixels (the help line) stay at their
 			// original x so the line is never split.  Columns past the 320-wide
 			// source exist only because of the widening, so they are backdrop.
+			// An element in the outer border / right margin (a value that also
+			// fills its panel column, e.g. the navigation screen's right-margin
+			// fill) is not the help line and shifts with the border instead, so
+			// no divider is left behind.
 			for (int x = 0; x < w; ++x)
 			{
 				const bool element = x < MODERN_BACKDROP_W && s[x] != p[x];
-				row[x] = rgb_palette[element ? s[x] : p[modern_remap_x[x]]];
+				const bool stationary = element &&
+					(x <= MODERN_PIC1_SPLIT_MAX || !modern_column_is_solid(frame, x, s[x]));
+				row[x] = rgb_palette[stationary ? s[x] : p[modern_remap_x[x]]];
 			}
 		}
 		else

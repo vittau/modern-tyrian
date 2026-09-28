@@ -94,7 +94,8 @@ A Visual Studio solution is provided in `visualc/`.
     --regress-screen=NAME        Render one non-gameplay screen headless and exit
                                  (title, episode-select, high-scores, game-menu, upgrade,
                                  purchase, options, cube-list, cube-reader, keyboard,
-                                 joystick, load-save, solid, setup)
+                                 joystick, load-save, solid, setup, nav-map, ship-specs,
+                                 jukebox, weapon-sim, credits)
     --regress-replay-check       Record each level frame's draw list and replay it (proof)
     --regress-interp-check       Render each level frame interpolated at alpha=1 and
                                  compare it byte for byte with the real frame (proof)
@@ -177,7 +178,8 @@ state, presents `--regress-frames` frames (default 90) and exits, so the
 widescreen menu compositions can be hashed and snapshotted without a window.
 `NAME` is one of `title`, `episode-select`, `high-scores`, `game-menu`,
 `upgrade`, `purchase`, `options`, `cube-list`, `cube-reader`, `keyboard`,
-`joystick`, `load-save`, `solid` or `setup`; combine it with `--regress-modern`,
+`joystick`, `load-save`, `solid`, `setup`, `nav-map`, `ship-specs`,
+`jukebox`, `weapon-sim` or `credits`; combine it with `--regress-modern`,
 `--regress-aspect` and `--regress-out` as usual.
 
 ## Regression Testing

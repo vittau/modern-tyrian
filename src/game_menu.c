@@ -28,6 +28,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "mainint.h"
+#include "modern.h"
 #include "mouse.h"
 #include "musmast.h"
 #include "network.h"
@@ -155,6 +156,52 @@ void JE_itemScreenStartAt(int menu, int cube)
 	regress_start_cube = cube;
 }
 
+// Regression harness helper (--regress-screen=nav-map): seeds a short route and
+// positions the nav map so one frame can be rendered headlessly.  Mirrors
+// JE_menuFunction()'s "next level" handler.  Called from the regress-start
+// switch in JE_itemScreen() (after the menu-choice/palette reset) and never in
+// normal runs.
+static void nav_regress_prepare(void)
+{
+	static const JE_byte route[3] = { 1, 12, 14 };
+	const int pnum = 3;
+
+	mapOrigin = route[0];
+	mapPNum = pnum;
+
+	for (int i = 0; i < pnum; ++i)
+	{
+		mapPlanet[i] = route[i];
+		mapSection[i] = i + 1;
+	}
+
+	// The real nav menu is entered with newPal = 18 (see JE_menuFunction);
+	// applying it here matches the palette the real screen is drawn with.
+	newPal = 18;
+
+	menuChoices[MENU_PLAY_NEXT_LEVEL] = mapPNum + 2;
+	curSel[MENU_PLAY_NEXT_LEVEL] = 2;
+
+	strcpy(menuInt[4][0], "Next Level");
+	for (int x = 0; x < mapPNum; x++)
+	{
+		temp = mapPlanet[x];
+		strcpy(menuInt[4][x + 1], pName[temp - 1]);
+	}
+	strcpy(menuInt[4][mapPNum + 1], miscText[5]);
+
+	JE_computeDots();
+
+	navX = planetX[mapOrigin - 1];
+	navY = planetY[mapOrigin - 1];
+	newNavX = navX;
+	newNavY = navY;
+	planetAni = 0;
+	currentDotNum = 0;
+	currentDotWait = 8;
+	planetAniWait = 3;
+}
+
 void JE_itemScreen(void)
 {
 	bool quit = false;
@@ -233,6 +280,10 @@ void JE_itemScreen(void)
 			JE_genItemMenu(curSel[MENU_UPGRADES]);
 			JE_initWeaponView();
 			lastCurSel = curSel[MENU_UPGRADE_SUB];
+			break;
+		case MENU_PLAY_NEXT_LEVEL:
+			// Mirrors JE_menuFunction()'s "next level" handler.
+			nav_regress_prepare();
 			break;
 		default:
 			break;
@@ -2085,6 +2136,15 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark)
 	JE_integer tempX2, tempY2;
 	JE_word tempW, tempW2;
 
+	// The 15 px "graph paper" grid.  On the original 320-wide screen the
+	// vertical lines only cover the left window (x in 19..134) and the
+	// horizontal lines span the frame.  Ship specs in Modern mode draws into a
+	// canvas-wide scratch (surface->w > 320), where the grid spans the whole
+	// canvas.  Classic (and any 320-wide target) is byte-identical.
+	const bool wide = surface->w > 320;
+	const int gx0 = wide ? 1 : 18;
+	const int gx1 = wide ? surface->w - 1 : 135;
+
 	tempX2 = -10;
 	tempY2 = 0;
 
@@ -2094,7 +2154,7 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark)
 		tempW += 15;
 		tempX = tempW - tempX2;
 
-		if (tempX > 18 && tempX < 135)
+		if (tempX > gx0 && tempX < gx1)
 		{
 			if (dark)
 				JE_rectangle(surface, tempX + 1, 0, tempX + 1, 199, 32+3);
@@ -2112,9 +2172,9 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark)
 		if (tempY > 15 && tempY < 169)
 		{
 			if (dark)
-				JE_rectangle(surface, 0, tempY + 1, 319, tempY + 1, 32+3);
+				JE_rectangle(surface, 0, tempY + 1, surface->w - 1, tempY + 1, 32+3);
 			else
-				JE_rectangle(surface, 0, tempY, 319, tempY, 32+5);
+				JE_rectangle(surface, 0, tempY, surface->w - 1, tempY, 32+5);
 
 			tempW2 = 0;
 
@@ -2122,7 +2182,7 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark)
 			{
 				tempW2 += 15;
 				tempX = tempW2 - tempX2;
-				if (tempX > 18 && tempX < 135)
+				if (tempX > gx0 && tempX < gx1)
 				{
 					JE_pix3(surface, tempX, tempY, 32+6);
 				}
@@ -2338,6 +2398,27 @@ void JE_doShipSpecs(void)
 	 * Currently drawFunkyScreen creates the image, scaleInPicture draws it,
 	 * and doFunkyScreen ties everything together.  Before it was more like
 	 * an oddly designed, unreusable, global sharing hierarchy. */
+
+	// Modern mode: draw the specs straight into the canvas-wide scratch (grid
+	// and border across the whole canvas, text and ship centred) and present it.
+	// Classic and Modern 4:3 keep the original 320x200 frame and the zoom-in.
+	SDL_Surface *wide = modern_screen_begin();
+
+	if (wide != NULL)
+	{
+		//create the image we want
+		JE_drawShipSpecs(wide, VGAScreen2);
+
+		//reset VGAScreen2, which we clobbered
+		JE_loadPic(VGAScreen2, 1, false);
+
+		//draw it
+		JE_playSampleNum(S_SPRING);
+		JE_showVGA();
+
+		waitUntilGetInput();
+		return;
+	}
 
 	//create the image we want
 	JE_drawShipSpecs(game_screen, VGAScreen2);
@@ -3029,20 +3110,24 @@ void JE_drawShipSpecs(SDL_Surface * screen, SDL_Surface * temp_screen)
 	 * but it'll be okay (and the alternative is malloc/a large stack) */
 
 	int temp_x = 0, temp_y = 0, temp_index;
-	Uint8 *src, *dst;
+	Uint8 *dst;
+
+	// Centre the 320-wide content (text, ship) on the target; 0 on the 320
+	// frame.  The grid and border span the whole target width.
+	const int off = (screen->w - 320) / 2;
 
 	//first, draw the text and other assorted flavoring.
 	JE_clr256(screen);
 	JE_drawLines(screen, true);
 	JE_drawLines(screen, false);
-	JE_rectangle(screen, 0, 0, 319, 199, 37);
-	JE_rectangle(screen, 1, 1, 318, 198, 35);
+	JE_rectangle(screen, 0, 0, screen->w - 1, 199, 37);
+	JE_rectangle(screen, 1, 1, screen->w - 2, 198, 35);
 
-	JE_outText(screen, 10, 2, ships[player[0].items.ship].name, 12, 3);
-	JE_helpBox(screen, 100, 20, shipInfo[player[0].items.ship-1][0], 40, 9, 12, 1, FULL_SHADE);
-	JE_helpBox(screen, 100, 100, shipInfo[player[0].items.ship-1][1], 40, 9, 12, 1, FULL_SHADE);
+	JE_outText(screen, 10 + off, 2, ships[player[0].items.ship].name, 12, 3);
+	JE_helpBox(screen, 100 + off, 20, shipInfo[player[0].items.ship-1][0], 40, 9, 12, 1, FULL_SHADE);
+	JE_helpBox(screen, 100 + off, 100, shipInfo[player[0].items.ship-1][1], 40, 9, 12, 1, FULL_SHADE);
 
-	JE_outText(screen, JE_fontCenter(miscText[4], TINY_FONT), 190, miscText[4], 12, 2);
+	JE_outText(screen, JE_fontCenter(miscText[4], TINY_FONT) + off, 190, miscText[4], 12, 2);
 
 	//now draw the green ship over that.
 	//This hardcoded stuff is for positioning our little ship graphic
@@ -3078,7 +3163,9 @@ void JE_drawShipSpecs(SDL_Surface * screen, SDL_Surface * temp_screen)
 	}
 	temp_x -= 30;
 
-	//draw the ship into our temp buffer.
+	//draw the ship into our temp buffer.  temp_screen is always the 320-wide
+	//buffer; the greenify pass below maps it to the target at the centred
+	//offset, so the sprite is blitted at its original x here (no offset).
 	JE_clr256(temp_screen);
 	blit_sprite(temp_screen, temp_x, temp_y, OPTION_SHAPES, temp_index - 1);  // ship illustration
 
@@ -3089,32 +3176,37 @@ void JE_drawShipSpecs(SDL_Surface * screen, SDL_Surface * temp_screen)
 
 	 * We can't work in place.  In fact we'll need to overlay the result
 	 * To avoid our temp screen dependence this has been rewritten to
-	 * only write one line at a time.*/
+	 * only write one line at a time.  On a canvas-wide target the ship lives
+	 * at the centred offset in the 320-wide temp_screen. */
 	dst = screen->pixels;
-	src = temp_screen->pixels;
+	const Uint8 *ship_row = temp_screen->pixels;
 	for (int y = 0; y < screen->h; y++)
 	{
-		for (int x = 0; x < screen->pitch; x++)
+		for (int x = 0; x < screen->w; x++)
 		{
-			int avg = 0;
-			if (y > 0)
-				avg += *(src - screen->pitch) & 0x0f;
-			if (y < screen->h - 1)
-				avg += *(src + screen->pitch) & 0x0f;
-			if (x > 0)
-				avg += *(src - 1) & 0x0f;
-			if (x < screen->pitch - 1)
-				avg += *(src + 1) & 0x0f;
-			avg /= 4;
+			const int sx = x - off;
 
-			if ((*src & 0x0f) > avg)
-				*dst = (*src & 0x0f) | 0xc0;
-			//else
-			//	*dst = 0;
+			if (sx >= 0 && sx < temp_screen->w)
+			{
+				const Uint8 *p = ship_row + (size_t)sx;
+				int avg = 0;
+				if (y > 0)
+					avg += *(p - temp_screen->pitch) & 0x0f;
+				if (y < screen->h - 1)
+					avg += *(p + temp_screen->pitch) & 0x0f;
+				if (sx > 0)
+					avg += *(p - 1) & 0x0f;
+				if (sx < temp_screen->w - 1)
+					avg += *(p + 1) & 0x0f;
+				avg /= 4;
 
-			src++;
-			dst++;
+				if ((*p & 0x0f) > avg)
+					dst[x] = (*p & 0x0f) | 0xc0;
+			}
 		}
+
+		dst += screen->pitch;
+		ship_row += temp_screen->pitch;
 	}
 }
 
