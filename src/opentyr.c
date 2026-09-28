@@ -1011,6 +1011,13 @@ int main(int argc, char *argv[])
 		loadConfiguration();
 		loadSaves();
 	}
+	else
+	{
+		// Never write the player's files either: a --regress-script run reaches
+		// the level-start autosave, which would store the blank save table over
+		// the player's saved games.
+		userFilesDisable();
+	}
 
 	xmas = xmas_time();  // arg handler may override
 

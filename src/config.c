@@ -808,6 +808,9 @@ void loadConfiguration(void)
 
 void saveConfiguration(void)
 {
+	if (!userFilesEnabled())
+		return;
+
 	Uint8 data[28];
 
 	MemWriter writer = { data, sizeof data, false };
@@ -957,6 +960,9 @@ static void encryptSaveData(Uint8 *data);
 
 void saveSaves(void)
 {
+	if (!userFilesEnabled())
+		return;
+
 	Uint8 data[SAVE_FILE_SIZE + 4];
 
 	MemWriter writer = { data, sizeof data, false };

@@ -234,8 +234,26 @@ static void determineUserDirPath(void)
 	userDirPathLen = 0;
 }
 
+static bool userFilesDisabled = false;
+
+void userFilesDisable(void)
+{
+	userFilesDisabled = true;
+}
+
+bool userFilesEnabled(void)
+{
+	return !userFilesDisabled;
+}
+
 File userFileOpen(const char *filename, const char *mode)
 {
+	if (userFilesDisabled)
+	{
+		File file = { NULL, EACCES, true };
+		return file;
+	}
+
 	if (userDirPath == NULL)
 		determineUserDirPath();
 

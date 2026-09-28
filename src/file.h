@@ -41,6 +41,12 @@ bool userFileExists(const char *filename);
 File dataFileOpen(const char *filename, const char *mode);
 File userFileOpen(const char *filename, const char *mode);
 
+// Cuts the process off from the user's directory: every later userFileOpen()
+// fails and userFilesEnabled() returns false.  Regress and selftest runs call
+// it so they can never overwrite the player's config or saved games.
+void userFilesDisable(void);
+bool userFilesEnabled(void);
+
 void fileSetPosition(File *file, long position);
 long fileGetPosition(File *file);
 long fileGetLength(File *file);
