@@ -172,7 +172,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - desempenho a 60/90 Hz na tela do Deck.
 - [ ] **Filtro CRT (futuro, pedido do usuário, 2026-09-28).** NTSC/Composite baseado no Blargg (`snes_ntsc`) mais scanlines. Referências do próprio usuário:
   - `/Users/vitor/git/deadly-dave`. Tem uma porta escalar em C99 do `snes_ntsc` (`ntsc.c`, `include/ntsc.h`) e `filter.c`, com os modos OFF/SCANLINES/NTSC/BOTH. Nas scanlines, a faixa escura é meia linha do jogo, ou seja, 320×200 filtrado como numa tela de 640×400, e a atenuação é ponderada pela luminância. O NTSC alarga a imagem 7/3. A tabela de ~16 MB é montada sob demanda na primeira ativação. A teoria está em `docs/CRT.md`, e os testes em `tests/test_filter.c`.
-  - `/Users/vitor/git/antivirus-95`. `src/crt-filter.ts` é uma passada estilo crt-geom: curvatura, separação RGB, scanlines, máscara aperture-grille e vinheta.
+  - `/Users/vitor/git/antivirus-95`. `src/crt-filter.ts` é uma passada estilo crt-geom. **Decisão do usuário:** sem curvatura (geom) e sem máscara; a vinheta pode entrar.
 
   Pontos a resolver aqui:
   - **Onde entra no pipeline:** depois da composição Modern (ou do quadro Classic) e antes da escala. É preciso casar com o sharp bilinear e com o HiDPI: as scanlines devem cair em pixels físicos inteiros.
