@@ -538,3 +538,12 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - botões no padrão Xbox/Deck, todos remapeáveis e persistidos.
 
   Na diagonal o stick é radial: o máximo fica em 9,7 px/tick, contra 11,3 do analógico antigo, que era mais rápido na diagonal. A regressão ganhou um stick virtual (`--regress-stick`) e ficou com 148 casos.
+
+### 2026-09-28 — Teste no Steam Deck; detalhe Pentium fixo no Modern
+- **Bugs do analógico achados pelo usuário num Deck LCD real:**
+  - a nave só andava em ângulo, com o stick e com o D-pad: o alvo de momento radial era aplicado inteiro a qualquer eixo não nulo, e o ruído de repouso do stick contaminava o eixo cruzado, inclusive no D-pad, que soma no mesmo slot;
+  - o movimento mínimo saía aos trancos.
+
+  Um agente novo (`analog2`) divide o alvo por eixo e faz o movimento lento só com o passo sub-pixel, sem embalo; os testes passam a usar ruído no eixo cruzado. Até lá, o Classic joga com o caminho original.
+- **Decisão do usuário:** no Modern, o nível de detalhe fica fixo em Pentium, e a opção some do menu, para não oferecer uma versão pior; o Classic mantém a opção e a escolha do jogador. Despachado ao agente `pentium`, que também vai provar que o detalhe é só visual.
+- O README (`readme`) voltou para uma rodada de ajustes: capturas sem "INSERT COIN" e duas afirmações corrigidas (Classic idêntico só com `--starfield-speed=100`; o analógico do Modern muda o movimento).
