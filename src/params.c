@@ -111,6 +111,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
+		{ 301, 0,   "regress-smooth-effects-check", false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -182,6 +183,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               composition (drops the classic sidebar)");
 			logInfo("  --regress-parallax-check     Per level tick, assert the interpolated presentation leaves");
 			logInfo("                               the starfield/background scroll untouched (per-tick motion)");
+			logInfo("  --regress-smooth-effects-check  Per level tick, assert the interpolated palette fade and");
+			logInfo("                               HUD bars stay between the two ticks (needs --regress-modern)");
 			logInfo("  --regress-menu=NAME          Open an in-level menu on the last presented frame:");
 			logInfo("                               ingame (ESC), pause (P) or help (F1)");
 			logInfo("                               (requires --regress-script and --regress-frames)");
@@ -613,6 +616,10 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_seed_set = 1;
 			break;
 
+		case 301: // --regress-smooth-effects-check
+			regress_smooth_effects_check = 1;
+			break;
+
 		case 299: // --regress-menu=ingame|pause|help
 			if (strcmp(option.arg, "ingame") == 0)
 				regress_menu_kind = REGRESS_MENU_INGAME;
@@ -679,6 +686,12 @@ void JE_paramCheck(int argc, char *argv[])
 	if (regress_parallax_check && regress_demo == 0 && regress_scenario_episode == 0)
 	{
 		logError("%s: --regress-parallax-check requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_smooth_effects_check && (!regress_modern || (regress_demo == 0 && regress_scenario_episode == 0)))
+	{
+		logError("%s: --regress-smooth-effects-check requires --regress-modern and --regress-demo/--regress-level", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 

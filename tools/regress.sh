@@ -819,6 +819,33 @@ run_parallax_level() {
 	echo "PASS $label: $(grep -oE 'Parallax check: .*' "$log" | tail -n 1)"
 }
 
+# run_smooth_effects_case LABEL "$@" -- per level tick, present the palette fade
+# and HUD bars interpolated at a genuine mid-tick alpha and require every value
+# to stay between the two ticks (the run exits non-zero otherwise).  Check-only:
+# the interpolated canvas is not compared against a baseline.
+run_smooth_effects_case() {
+	local label=$1
+	shift 1
+	local out="$ACTUAL_DIR/$label.txt"
+	local log="$ACTUAL_DIR/$label.log"
+
+	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-smooth-effects-check \
+		--regress-modern --regress-aspect=16:9 "$@" \
+		>"$log" 2>&1
+	rc=$?
+
+	if [ "$rc" -ne 0 ]; then
+		echo "FAIL $label: smooth-effects check failed (exit $rc)"
+		grep -E "Smooth effects|FAILED" "$log" | tail -n 3
+		dump_failure_log "$log"
+		failures=$((failures + 1))
+		return
+	fi
+
+	echo "PASS $label: $(grep -oE 'Smooth effects check: .*' "$log" | tail -n 1)"
+}
+
 if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ] && [ "$PARALLAX_CHECK" -eq 0 ]; then
 	run_replay_case "replay-demo1-d2"   "demo1-d2"   --regress-demo=1 --regress-detail=2
 	pairs=$((pairs + 1))
@@ -869,6 +896,18 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	run_parallax_level "parallax-scenario-asteroid" 1200 "1:1"
 	pairs=$((pairs + 1))
 	run_parallax_level "parallax-scenario-asteroid2" 1200 "1:2"
+	pairs=$((pairs + 1))
+
+	# --- dynamic fade/HUD interpolation (Fase 2, stage 4) -----------------------
+	#
+	# Present the palette fades and the dynamic HUD bars at a genuine mid-tick
+	# alpha and require every interpolated value to stay between the two ticks
+	# (the level run covers the intro palette fade; both cover the HUD bars).
+	run_smooth_effects_case "smooth-effects-scenario-level1" \
+		--regress-level=1:1 --regress-detail=2 --regress-frames=1200
+	pairs=$((pairs + 1))
+	run_smooth_effects_case "smooth-effects-demo2-d2" \
+		--regress-demo=2 --regress-detail=2
 	pairs=$((pairs + 1))
 
 	# --- gameplay composition check (Fase 2, bug B) -----------------------------

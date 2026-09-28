@@ -5330,6 +5330,12 @@ void draw_boss_bar(void)
 		JE_barX(surface, x - half_width, y1, x + half_width, y2, 115);
 		JE_barX(surface, x - (boss_bar[b].armor / 10), y1, x + (boss_bar[b].armor + 5) / 10, y2, 118 + boss_bar[b].color);
 
+		// Record the bar so the smooth presentation can redraw it with an
+		// interpolated length (display-only; ignored outside panel mode).
+		if (in_panels)
+			modern_hud_record_boss_bar(surface, x - half_width, y1, x + half_width, y2,
+			                           (Uint8)(118 + boss_bar[b].color), boss_bar[b].armor);
+
 		if (boss_bar[b].color > 0)
 			boss_bar[b].color--;
 	}

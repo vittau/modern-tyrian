@@ -288,6 +288,45 @@ SDL_Surface *modern_hud_surface(int player);
 // relocated HUD is drawn.  A no-op outside panel mode.  No allocation.
 void modern_hud_begin_frame(void);
 
+// --- dynamic HUD bar interpolation (stage 4) --------------------------------
+//
+// The bars whose length changes every tick -- the three vertical vitals (shield,
+// armor, power reserve) and the boss bars -- are drawn once per tick with the
+// tick's value, so at the display refresh they would step at ~35 Hz.  The
+// presentation can redraw just those bars with a value interpolated toward the
+// current tick (16.16 fixed point), which is purely display-only: the recorded
+// value is never read back into game state, and alpha = 1 redraws the tick frame
+// byte for byte.
+//
+// modern_hud_begin_bars() rolls the recorded bars from the previous tick; the
+// caller (modern_hud_begin_frame) must call it once per gameplay tick, before
+// draw_boss_bar()/modern_hud_draw() record this tick's bars.
+void modern_hud_begin_bars(void);
+
+// Redraws the recorded bars on the HUD surfaces, interpolated at `alpha_fx16`
+// (65536 = current tick).  Returns the number of bars redrawn.  Call between
+// drawing the tick HUD and compositing it.  No-op outside panel mode.
+unsigned modern_hud_draw_interpolated_bars(Uint32 alpha_fx16);
+
+// Records one boss bar so it can be redrawn interpolated.  `color` is the
+// JE_barX colour (118 + the bar's flash colour); `value` is boss_bar[].armor.
+// Called from draw_boss_bar() in panel mode, at the point the bar is drawn.
+void modern_hud_record_boss_bar(SDL_Surface *surface, int x1, int y1, int x2, int y2,
+                                Uint8 color, Uint32 value);
+
+// Presentation request consumed by modern_build_frame(): redraw the recorded
+// bars at `alpha_fx16` before compositing the HUD.  `enabled` false is the
+// single-frame path (no overlay).  Display-only.
+void modern_set_bar_interp(bool enabled, Uint32 alpha_fx16);
+
+// Diagnostic (--regress-smooth-effects-check): over the recorded bars, count
+// those whose alpha = 0.5 value moved strictly between the two ticks (`moved`),
+// those that did not change (`unchanged`) and those whose interpolated value
+// left the two endpoints (`out_of_range`, an interpolation bug).  A bar whose
+// endpoints differ by at least two must land strictly between them.
+void modern_hud_bar_interp_probe(unsigned long *moved, unsigned long *unchanged,
+                                 unsigned long *out_of_range);
+
 // The off-screen 8-bit surface for the message strip under the playfield (the
 // 16 rows freed below the 264x184 playfield), index 0 transparent, or NULL
 // outside panel mode.  The strip is MODERN_PLAYFIELD_W wide by 16 rows; it
