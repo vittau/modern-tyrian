@@ -93,6 +93,20 @@ if [ ! -x "$BIN" ]; then
 	exit 1
 fi
 
+# --- source guard ------------------------------------------------------------
+#
+# C does not sequence two side-effecting calls in one expression (function
+# arguments, the operands of +, ...).  Two RNG draws in the same expression
+# therefore come out in a compiler-dependent order, which would silently break
+# the baselines on another toolchain.  Refuse to run the suite if any such site
+# is present.  See tools/check_rng_order.sh and .worker-reports/rng-order.md.
+if ! "$ROOT/tools/check_rng_order.sh"; then
+	echo ""
+	echo "ERROR: an expression draws from the RNG more than once; the order of"
+	echo "evaluation is unspecified by C.  Hoist each call into its own statement."
+	exit 1
+fi
+
 # --- game data ---------------------------------------------------------------
 
 if [ ! -f "$DATA_DIR/tyrian1.lvl" ]; then
