@@ -44,9 +44,10 @@ executable, the configuration and saved game files will be stored there instead.
 If you download a release build of OpenTyrian, the freeware Tyrian 2.1 data
 files are included and do not need to be downloaded separately.
 
-Otherwise, download [Tyrian v2.1](https://camanis.net/tyrian/tyrian21.zip) and
-extract the archive so that the files (with lowercase filenames) are in one of
-the following locations, searched in order:
+Otherwise, run `./get_data.sh` (or download
+[Tyrian v2.1](https://camanis.net/tyrian/tyrian21.zip) yourself) and extract
+the archive so that the files (with lowercase filenames) are in one of the
+following locations, searched in order:
 
 1. the directory given with `--data=DIR`
 2. a `data` directory next to the executable (inside `Contents/Resources`
@@ -183,7 +184,16 @@ widescreen menu compositions can be hashed and snapshotted without a window.
 
 The regression harness replays the recorded demos and the synthetic level
 scenarios without a window and compares a hash per frame against the baselines
-in `test/regress/`:
+in `test/regress/`.  The default flow downloads the reference data and runs the
+suite:
+
+    ./get_data.sh
+    make regress
+
+`./get_data.sh` fetches the official freeware Tyrian 2.1 release into `./data`,
+which is the default data directory, and `make regress` verifies that copy
+against the committed baselines.  To run against another copy of the data,
+point `TYRIAN_DATA` at it:
 
     make regress TYRIAN_DATA=/path/to/Tyrian
 
