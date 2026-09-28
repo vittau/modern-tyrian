@@ -435,3 +435,20 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - 128/128 na regressão.
 - **A investigar:** a janela não pede `SDL_WINDOW_HIGH_PIXEL_DENSITY`. Numa tela Retina, o macOS amplia 2x um backbuffer em pontos, então o sharp bilinear roda na resolução lógica. Vale medir se a densidade alta deixa a imagem mais nítida.
 - **Próximo:** teste do usuário com o lote todo (escala, luz, VFX). Depois: luz por objeto a partir dos eventos de VFX e partículas de ambiente.
+
+### 2026-09-28 — Lote de correções do teste do usuário; prioridades seguintes
+- Integrados em `modernization`:
+  - telas Load/Save, Quit e Ship Specs (`b55bcde`);
+  - luz só de tiros, explosões, itens e VFX, com retune sutil (`76af276`);
+  - WARNING legível, flash em estrela, muzzle alinhado e ordem fixa do RNG dos VFX, que era a causa da CI vermelha (`c4d3b7f`);
+  - música parada ao voltar para os logos (`eb8c9b0`);
+  - HUD Modern acompanha o fade da fase e intro limpa (`397b5db`).
+- A CI de `c4d3b7f` falhou só no Windows arm64, com dois casos terminando sem saída ("first differing line 0"). O commit seguinte passou nas três plataformas. Pode ser um crash raro: investigar.
+- Em andamento, em worktrees próprias: estrelas rápidas em ASTEROID/ASTEROID2 (`starfield`), GAME OVER descentralizado no Modern (`gameover`), HUD com vitais à direita e barras verticais (`hud-layout`).
+- **Prioridades definidas pelo usuário para depois do lote:**
+  1. Arrumação do plano e a falha rara da CI no Windows arm64.
+  2. Nitidez em Retina (`SDL_WINDOW_HIGH_PIXEL_DENSITY`).
+  3. Fechar o movimento suave (etapa 4: efeitos, paleta e HUD sobre o quadro interpolado).
+  4. Em seguida, luz com a cor do objeto.
+  5. Acessibilidade fica para o futuro.
+  6. A posição das partículas de ambiente na fila ficou por confirmar com o usuário.
