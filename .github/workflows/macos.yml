@@ -39,6 +39,9 @@ jobs:
           make clean
           make -j"$(sysctl -n hw.ncpu)"
       - name: Regression suite
+        # Release builds only package: the same commit already passed the suite
+        # on its push, and the suite is the slowest step.
+        if: github.event_name != 'release'
         # Normal pass; the full --replay-check/--interp-check sweeps live in the
         # manually triggered "Regression (full sweeps)" workflow.
         env:
