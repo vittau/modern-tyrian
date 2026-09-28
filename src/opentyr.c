@@ -52,7 +52,6 @@
 #include "varz.h"
 #include "vga256d.h"
 #include "video.h"
-#include "video_scale.h"
 #include "xmas.h"
 
 #include <SDL3/SDL.h>
@@ -84,18 +83,6 @@ static const char *getDisplayPickerItem(size_t i, char *buffer, size_t bufferSiz
 
 	snprintf(buffer, bufferSize, "Display %d", (int)i);
 	return buffer;
-}
-
-static size_t getScalerPickerItemsCount(void)
-{
-	return (size_t)scalers_count;
-}
-
-static const char *getScalerPickerItem(size_t i, char *buffer, size_t bufferSize)
-{
-	(void)buffer, (void)bufferSize;
-
-	return scalers[i].name;
 }
 
 static size_t getScalingModePickerItemsCount(void)
@@ -167,6 +154,16 @@ static const char *getSmoothMotionPickerItem(size_t i, char *buffer, size_t buff
 	return i == 0 ? "On" : "Off";
 }
 
+static size_t getLightingPickerItemsCount(void)
+{
+	return (size_t)MODERN_QUALITY_MAX;
+}
+
+static const char *getLightingPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	return capitalized_name(modern_quality_names[i], buffer, bufferSize);
+}
+
 // Set by setupMenuStartAt() so the regress harness can open a submenu directly.
 static int setup_menu_start = -1;
 
@@ -186,12 +183,12 @@ void setupMenu(void)
 		MENU_ITEM_JUKEBOX,
 		MENU_ITEM_DESTRUCT,
 		MENU_ITEM_DISPLAY,
-		MENU_ITEM_SCALER,
 		MENU_ITEM_SCALING_MODE,
 		MENU_ITEM_PRESENTATION,
 		MENU_ITEM_ASPECT,
 		MENU_ITEM_PIXEL_ASPECT,
 		MENU_ITEM_SMOOTH_MOTION,
+		MENU_ITEM_LIGHTING,
 		MENU_ITEM_MUSIC_VOLUME,
 		MENU_ITEM_SOUND_VOLUME,
 	} MenuItemId;
@@ -236,12 +233,12 @@ void setupMenu(void)
 			.header = "Graphics",
 			.items = {
 				{ MENU_ITEM_DISPLAY, "Display:", "Change the display mode.", getDisplayPickerItemsCount, getDisplayPickerItem },
-				{ MENU_ITEM_SCALER, "Scaler:", "Change the pixel art scaling algorithm.", getScalerPickerItemsCount, getScalerPickerItem },
 				{ MENU_ITEM_SCALING_MODE, "Scaling Mode:", "Change the scaling mode.", getScalingModePickerItemsCount, getScalingModePickerItem },
 				{ MENU_ITEM_PRESENTATION, "Presentation:", "Change the presentation mode.", getPresentationPickerItemsCount, getPresentationPickerItem, true },
 				{ MENU_ITEM_ASPECT, "Aspect:", "Change the Modern aspect ratio.", getAspectPickerItemsCount, getAspectPickerItem, true },
 				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
+				{ MENU_ITEM_LIGHTING, "Lighting:", "Change the Modern bloom and lighting level.", getLightingPickerItemsCount, getLightingPickerItem, true },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
 				{ -1 }
 			},
@@ -315,13 +312,25 @@ void setupMenu(void)
 		const int hPickerItem = dyPickerItem - dyPickerItemPadding;
 
 		size_t *const selectedMenuItemIndex = &selectedMenuItemIndexes[currentMenu];
-		const MenuItem *const menuItems = menu->items;
 
-		// Count the items first so a menu with many entries (Graphics now has
-		// eight) can tighten its row spacing and still fit above the status line.
+		// Build the visible item list for this presentation.  Scaling Mode and
+		// Pixel Aspect are Classic-only and are hidden (not greyed) in Modern,
+		// where the user cannot pick a worse scaling.
+		MenuItem visibleItems[COUNTOF(menu->items)];
 		size_t menuItemsCount = 0;
-		while (menuItems[menuItemsCount].id != (MenuItemId)-1)
-			menuItemsCount += 1;
+		for (const MenuItem *item = menu->items; item->id != (MenuItemId)-1; ++item)
+		{
+			const bool classicOnly = item->id == MENU_ITEM_SCALING_MODE || item->id == MENU_ITEM_PIXEL_ASPECT;
+			if (classicOnly && presentation == PRESENTATION_MODERN)
+				continue;
+
+			visibleItems[menuItemsCount++] = *item;
+		}
+		const MenuItem *const menuItems = visibleItems;
+
+		// A presentation change can hide the selected row; clamp the selection.
+		if (*selectedMenuItemIndex >= menuItemsCount)
+			*selectedMenuItemIndex = menuItemsCount - 1;
 
 		if (menuItemsCount > 1)
 		{
@@ -362,10 +371,6 @@ void setupMenu(void)
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, value, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
-			case MENU_ITEM_SCALER:
-				drawFontHvShadow(VGAScreen, xMenuItemValue, y, scalers[scaler].name, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
-				break;
-
 			case MENU_ITEM_SCALING_MODE:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, scaling_mode_names[scaling_mode], FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
@@ -384,6 +389,10 @@ void setupMenu(void)
 
 			case MENU_ITEM_SMOOTH_MOTION:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, interp_smooth_motion ? "On" : "Off", FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
+			case MENU_ITEM_LIGHTING:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_quality_names[modern_lighting_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_MUSIC_VOLUME:
@@ -501,12 +510,12 @@ void setupMenu(void)
 									switch (menuItems[*selectedMenuItemIndex].id)
 									{
 									case MENU_ITEM_DISPLAY:
-									case MENU_ITEM_SCALER:
 									case MENU_ITEM_SCALING_MODE:
 									case MENU_ITEM_PRESENTATION:
 									case MENU_ITEM_ASPECT:
 									case MENU_ITEM_PIXEL_ASPECT:
 									case MENU_ITEM_SMOOTH_MOTION:
+									case MENU_ITEM_LIGHTING:
 									{
 										action = true;
 										break;
@@ -699,14 +708,6 @@ void setupMenu(void)
 					pickerSelectedIndex = (size_t)(fullscreen_display + 1);
 					break;
 				}
-				case MENU_ITEM_SCALER:
-				{
-					JE_playSampleNum(S_CLICK);
-
-					currentPicker = selectedMenuItemId;
-					pickerSelectedIndex = scaler;
-					break;
-				}
 				case MENU_ITEM_SCALING_MODE:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -745,6 +746,14 @@ void setupMenu(void)
 
 					currentPicker = selectedMenuItemId;
 					pickerSelectedIndex = interp_smooth_motion ? 0 : 1;
+					break;
+				}
+				case MENU_ITEM_LIGHTING:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = (size_t)modern_lighting_quality;
 					break;
 				}
 				case MENU_ITEM_MUSIC_VOLUME:
@@ -880,19 +889,6 @@ void setupMenu(void)
 						reinit_fullscreen((int)pickerSelectedIndex - 1);
 					break;
 				}
-				case MENU_ITEM_SCALER:
-				{
-					if (pickerSelectedIndex != scaler)
-					{
-						const int oldScaler = scaler;
-						if (!init_scaler(pickerSelectedIndex) &&  // try new scaler
-							!init_scaler(oldScaler))              // revert on fail
-						{
-							exit(EXIT_FAILURE);
-						}
-					}
-					break;
-				}
 				case MENU_ITEM_SCALING_MODE:
 				{
 					scaling_mode = pickerSelectedIndex;
@@ -919,6 +915,13 @@ void setupMenu(void)
 				case MENU_ITEM_SMOOTH_MOTION:
 				{
 					interp_smooth_motion = pickerSelectedIndex == 0;
+					break;
+				}
+				case MENU_ITEM_LIGHTING:
+				{
+					// One picker drives both effects.
+					modern_bloom_quality = (ModernQuality)pickerSelectedIndex;
+					modern_lighting_quality = (ModernQuality)pickerSelectedIndex;
 					break;
 				}
 				default:

@@ -598,11 +598,21 @@ void regress_init(void)
 		interp_bench_start(regress_bench_seconds);
 
 	// Bloom and dynamic lighting are pinned OFF for every existing case so the
-	// baselines stay byte-for-byte unchanged; --regress-bloom/--regress-lighting
-	// opt a run into the new look.  The user's config cannot leak in because
-	// loadConfiguration() is skipped in regress mode.
-	modern_bloom_quality = regress_bloom_quality >= 0 ? (ModernQuality)regress_bloom_quality : MODERN_QUALITY_OFF;
-	modern_lighting_quality = regress_lighting_quality >= 0 ? (ModernQuality)regress_lighting_quality : MODERN_QUALITY_OFF;
+	// baselines stay byte-for-byte unchanged; --regress-lighting opts a run into
+	// the new look (it sets both effects, the way the "Lighting" picker does),
+	// and --regress-bloom is an advanced override of bloom only.  The user's
+	// config cannot leak in because loadConfiguration() is skipped in regress
+	// mode.
+	if (regress_lighting_quality >= 0)
+	{
+		modern_bloom_quality = (ModernQuality)regress_lighting_quality;
+		modern_lighting_quality = (ModernQuality)regress_lighting_quality;
+	}
+	else
+	{
+		modern_bloom_quality = regress_bloom_quality >= 0 ? (ModernQuality)regress_bloom_quality : MODERN_QUALITY_OFF;
+		modern_lighting_quality = MODERN_QUALITY_OFF;
+	}
 
 	JE_initProcessorType();
 

@@ -63,7 +63,11 @@ static SDL_Renderer *main_window_renderer = NULL;
 const SDL_PixelFormatDetails *main_window_tex_format = NULL;
 static SDL_Texture *main_window_texture = NULL;
 
-static ScalerFunction scaler_function;
+// Intermediate render target for the sharp-bilinear path (see
+// present_sharp_bilinear).  Recreated only when its size changes, never per
+// frame.
+static SDL_Texture *scaled_target = NULL;
+static int scaled_target_w = 0, scaled_target_h = 0;
 
 static void init_renderer(void);
 static void deinit_renderer(void);
@@ -72,7 +76,6 @@ static void deinit_texture(void);
 
 static SDL_DisplayID window_get_display(void);
 static void window_center_in_display(SDL_DisplayID display_id);
-static void calc_dst_render_rect(SDL_Surface *src_surface, SDL_Rect *dst_rect);
 static void scale_and_flip(SDL_Surface *);
 
 void init_video(void)
@@ -114,7 +117,6 @@ void init_video(void)
 	reinit_fullscreen(fullscreen_display);
 	init_renderer();
 	init_texture();
-	init_scaler(scaler);
 	modern_init();
 
 	SDL_ShowWindow(main_window);
@@ -128,8 +130,16 @@ void deinit_video(void)
 {
 	modern_deinit();
 	deinit_texture();
-	deinit_renderer();
 
+	if (scaled_target != NULL)
+	{
+		SDL_DestroyTexture(scaled_target);
+		scaled_target = NULL;
+	}
+	scaled_target_w = 0;
+	scaled_target_h = 0;
+
+	deinit_renderer();
 	SDL_DestroyWindow(main_window);
 
 	SDL_DestroySurface(VGAScreenSeg);
@@ -164,21 +174,21 @@ static void init_texture(void)
 	assert(main_window_renderer != NULL);
 
 	SDL_PixelFormat format = SDL_PIXELFORMAT_XRGB8888;
-	int scaler_w = scalers[scaler].width;
-	int scaler_h = scalers[scaler].height;
 
 	main_window_tex_format = SDL_GetPixelFormatDetails(format);
 
-	main_window_texture = SDL_CreateTexture(main_window_renderer, format, SDL_TEXTUREACCESS_STREAMING, scaler_w, scaler_h);
+	// The Classic frame is converted to this 320x200 texture; the GPU scales it
+	// to the window (see video_present_texture).
+	main_window_texture = SDL_CreateTexture(main_window_renderer, format, SDL_TEXTUREACCESS_STREAMING, vga_width, vga_height);
 
 	if (main_window_texture == NULL)
 	{
-		logFatal("Failed to create scaler texture (%dx%dx%s): %s", scaler_w, scaler_h, SDL_GetPixelFormatName(format), SDL_GetError());
+		logFatal("Failed to create the frame texture (%dx%dx%s): %s", vga_width, vga_height, SDL_GetPixelFormatName(format), SDL_GetError());
 		exit(EXIT_FAILURE);
 	}
 
-	// SDL2 defaulted to nearest-neighbour sampling; SDL3 defaults to linear.
-	// The pixel-art presentation must stay nearest-neighbour.
+	// The 1x frame must stay crisp when it is drawn; the sharp-bilinear path
+	// flips this to LINEAR only for its final fractional pass.
 	SDL_SetTextureScaleMode(main_window_texture, SDL_SCALEMODE_NEAREST);
 }
 
@@ -209,43 +219,54 @@ static void window_center_in_display(SDL_DisplayID display_id)
 	SDL_SetWindowPosition(main_window, bounds.x + (bounds.w - win_w) / 2, bounds.y + (bounds.h - win_h) / 2);
 }
 
-// The windowed size for the current mode.  Classic uses the configured
-// software scaler's output size.  Modern ignores the scalers and instead opens
-// a window shaped like the chosen on-screen aspect at the largest integer
-// multiple of the 200 logical rows that fits in ~80% of the usable desktop;
-// the repo stores no window size, so this is also Modern's startup default.
-static void windowed_size_for_mode(int *out_w, int *out_h)
+// The on-screen width/height of the presented content for the current mode,
+// used to shape the window.  Modern uses its target aspect (or the window's own
+// for "auto"); Classic uses the 320x200 frame's display aspect, selected by the
+// pixel aspect (4:3 for original, 8:5 for square).
+static float content_aspect_for_mode(void)
 {
 	if (presentation == PRESENTATION_MODERN)
 	{
-		SDL_Rect usable;
-		if (SDL_GetDisplayUsableBounds(window_get_display(), &usable) && usable.w > 0 && usable.h > 0)
+		if (modern_aspect == MODERN_ASPECT_AUTO)
 		{
-			// "auto" follows the display's own aspect; a fixed setting uses its
-			// ratio.  The content aspect is independent of the pixel aspect.
-			const float aspect = modern_aspect == MODERN_ASPECT_AUTO
-				? (float)usable.w / (float)usable.h
-				: modern_aspect_ratio();
-
-			const float fill = 0.8f;
-			const float max_w = (float)usable.w * fill;
-			const float max_h = (float)usable.h * fill;
-
-			int scale = (int)floorf(max_h / (float)vga_height);
-			const int width_scale = (int)floorf(max_w / (aspect * (float)vga_height));
-			if (width_scale < scale)
-				scale = width_scale;
-			if (scale < 1)
-				scale = 1;
-
-			*out_w = (int)lroundf(aspect * (float)vga_height * (float)scale);
-			*out_h = vga_height * scale;
-			return;
+			int w = 0, h = 0;
+			SDL_GetWindowSize(main_window, &w, &h);
+			if (w > 0 && h > 0)
+				return (float)w / (float)h;
 		}
+		return modern_aspect_ratio();
 	}
 
-	*out_w = scalers[scaler].width;
-	*out_h = scalers[scaler].height;
+	return modern_pixel_aspect == PIXEL_ASPECT_SQUARE ? (8.f / 5.f) : (4.f / 3.f);
+}
+
+// The windowed size for the current mode: the largest integer multiple of the
+// 200 logical rows that fits in ~80% of the usable desktop, shaped like the
+// content aspect.  The repo stores no window size, so this is also the startup
+// default.  Without the old software scalers the Classic window no longer
+// shrinks to 320x200.
+static void windowed_size_for_mode(int *out_w, int *out_h)
+{
+	const float aspect = content_aspect_for_mode();
+	int scale = 2;
+
+	SDL_Rect usable;
+	if (SDL_GetDisplayUsableBounds(window_get_display(), &usable) && usable.w > 0 && usable.h > 0)
+	{
+		const float fill = 0.8f;
+		const float max_w = (float)usable.w * fill;
+		const float max_h = (float)usable.h * fill;
+
+		scale = (int)floorf(max_h / (float)vga_height);
+		const int width_scale = (int)floorf(max_w / (aspect * (float)vga_height));
+		if (width_scale < scale)
+			scale = width_scale;
+		if (scale < 1)
+			scale = 1;
+	}
+
+	*out_w = (int)lroundf(aspect * (float)vga_height * (float)scale);
+	*out_h = vga_height * scale;
 }
 
 static void set_windowed_size_for_mode(void)
@@ -318,19 +339,16 @@ void reinit_fullscreen(int new_display)
 void video_on_win_resize(void)
 {
 	int w, h;
-	int scaler_w, scaler_h;
 
 	// Tell video to reinit if the window was manually resized by the user.
-	// Also enforce a minimum size on the window.
+	// Also enforce a minimum size on the window (the logical frame).
 
 	SDL_GetWindowSize(main_window, &w, &h);
-	scaler_w = scalers[scaler].width;
-	scaler_h = scalers[scaler].height;
 
-	if (w < scaler_w || h < scaler_h)
+	if (w < vga_width || h < vga_height)
 	{
-		w = w < scaler_w ? scaler_w : w;
-		h = h < scaler_h ? scaler_h : h;
+		w = w < vga_width ? vga_width : w;
+		h = h < vga_height ? vga_height : h;
 
 		SDL_SetWindowSize(main_window, w, h);
 	}
@@ -368,55 +386,6 @@ void toggle_fullscreen(void)
 
 		reinit_fullscreen(index);
 	}
-}
-
-bool init_scaler(unsigned int new_scaler)
-{
-	int w = scalers[new_scaler].width,
-	    h = scalers[new_scaler].height;
-	int bpp = main_window_tex_format->bits_per_pixel;
-
-	scaler = new_scaler;
-
-	deinit_texture();
-	init_texture();
-
-	if (fullscreen_display == -1)
-	{
-		// Changing scalers, when not in fullscreen mode, forces the window
-		// to resize to exactly match the scaler's output dimensions.  Modern
-		// ignores the software scalers, so its window keeps the Modern size.
-		if (presentation != PRESENTATION_MODERN)
-		{
-			SDL_SetWindowSize(main_window, w, h);
-			window_center_in_display(window_get_display());
-		}
-	}
-
-	switch (bpp)
-	{
-	case 32:
-		scaler_function = scalers[scaler].scaler32;
-		break;
-	case 16:
-		scaler_function = scalers[scaler].scaler16;
-		break;
-	default:
-		scaler_function = NULL;
-		break;
-	}
-
-	if (scaler_function == NULL)
-	{
-		assert(false);
-		return false;
-	}
-
-	// Changing the scaler windowed resizes the window; the Modern canvas width
-	// follows the window size.
-	modern_update_canvas_size();
-
-	return true;
 }
 
 bool set_scaling_mode_by_name(const char *name)
@@ -525,74 +494,161 @@ static Sint32 split_game_to_canvas_x(Sint32 gx)
 	return gx + last_output_insert_l + last_output_insert_r;
 }
 
-static void calc_dst_render_rect(SDL_Surface *const src_surface, SDL_Rect *const dst_rect)
+// Fits a `content_aspect`-shaped image inside win_w x win_h, centered.
+static SDL_Rect fit_rect(int win_w, int win_h, float content_aspect)
 {
-	video_calc_dst_render_rect(src_surface->w, src_surface->h, main_window_texture, dst_rect);
+	SDL_Rect r;
+	const float maxh_width = win_h * content_aspect;
+	const float maxw_height = win_w / content_aspect;
+
+	if (maxh_width > win_w)
+	{
+		r.w = win_w;
+		r.h = (int)maxw_height;
+	}
+	else
+	{
+		r.w = (int)maxh_width;
+		r.h = win_h;
+	}
+
+	r.x = (win_w - r.w) / 2;
+	r.y = (win_h - r.h) / 2;
+	return r;
 }
 
-void video_calc_dst_render_rect(int src_w, int src_h, SDL_Texture *texture, SDL_Rect *const dst_rect)
+// Largest whole multiple of src_w x src_h that fits the window, centered.
+static SDL_Rect integer_rect(int win_w, int win_h, int src_w, int src_h)
 {
-	// Decides how the logical output texture (after software scaling applied) will fit
-	// in the window.  `src_w` x `src_h` is the logical surface size that integer
-	// scaling counts in multiples of (the 320x200 game frame, or the modern canvas).
+	SDL_Rect r = { 0, 0, src_w, src_h };
 
+	while (r.w + src_w <= win_w && r.h + src_h <= win_h)
+	{
+		r.w += src_w;
+		r.h += src_h;
+	}
+
+	r.x = (win_w - r.w) / 2;
+	r.y = (win_h - r.h) / 2;
+	return r;
+}
+
+// (Re)creates the intermediate render target only when its size changed.
+static bool ensure_scaled_target(int w, int h)
+{
+	if (scaled_target != NULL && scaled_target_w == w && scaled_target_h == h)
+		return true;
+
+	if (scaled_target != NULL)
+	{
+		SDL_DestroyTexture(scaled_target);
+		scaled_target = NULL;
+	}
+
+	scaled_target = SDL_CreateTexture(main_window_renderer, SDL_PIXELFORMAT_XRGB8888,
+	                                  SDL_TEXTUREACCESS_TARGET, w, h);
+	if (scaled_target == NULL)
+	{
+		logError("Failed to create the sharp-bilinear target (%dx%d): %s", w, h, SDL_GetError());
+		scaled_target_w = 0;
+		scaled_target_h = 0;
+		return false;
+	}
+
+	scaled_target_w = w;
+	scaled_target_h = h;
+	return true;
+}
+
+// Sharp bilinear: a nearest-neighbour integer prescale into an intermediate
+// render target, then one linear pass to the final rect.  The integer prescale
+// is the largest that does not exceed the output, chosen per axis, so the
+// intermediate keeps the source pixel grid and the linear pass only resolves
+// the fractional remainder.  Every source pixel then lands on screen with the
+// same width and height, instead of the uneven 4/5 px rows and columns a direct
+// nearest-neighbour fractional fit produces (which shimmer while scrolling).
+static void present_sharp_bilinear(SDL_Texture *texture, int src_w, int src_h, const SDL_Rect *dst)
+{
+	int kx = dst->w / src_w;
+	int ky = dst->h / src_h;
+	if (kx < 1)
+		kx = 1;
+	if (ky < 1)
+		ky = 1;
+
+	if (!ensure_scaled_target(src_w * kx, src_h * ky))
+	{
+		// Out of memory: fall back to a direct nearest blit, never drop the
+		// frame.
+		SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+		SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+		SDL_RenderClear(main_window_renderer);
+		const SDL_FRect dst_frect = { (float)dst->x, (float)dst->y, (float)dst->w, (float)dst->h };
+		SDL_RenderTexture(main_window_renderer, texture, NULL, &dst_frect);
+		return;
+	}
+
+	// Integer nearest prescale into the target.
+	SDL_SetRenderTarget(main_window_renderer, scaled_target);
+	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+	SDL_RenderClear(main_window_renderer);
+	SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+	SDL_RenderTexture(main_window_renderer, texture, NULL, NULL);
+
+	// Fractional linear pass to the window.
+	SDL_SetRenderTarget(main_window_renderer, NULL);
+	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+	SDL_RenderClear(main_window_renderer);
+	SDL_SetTextureScaleMode(scaled_target, SDL_SCALEMODE_LINEAR);
+	const SDL_FRect dst_frect = { (float)dst->x, (float)dst->y, (float)dst->w, (float)dst->h };
+	SDL_RenderTexture(main_window_renderer, scaled_target, NULL, &dst_frect);
+}
+
+SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float content_aspect, ScalingMode mode)
+{
 	int win_w, win_h;
 	SDL_GetWindowSize(main_window, &win_w, &win_h);
 
-	int maxh_width, maxw_height;
+	SDL_Rect dst;
 
-	switch (scaling_mode)
+	switch (mode)
 	{
 	case SCALE_CENTER:
-	{
-		float tex_w, tex_h;
-		SDL_GetTextureSize(texture, &tex_w, &tex_h);
-		dst_rect->w = (int)tex_w;
-		dst_rect->h = (int)tex_h;
+		dst.w = src_w;
+		dst.h = src_h;
+		dst.x = (win_w - dst.w) / 2;
+		dst.y = (win_h - dst.h) / 2;
+
+		SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+		SDL_RenderClear(main_window_renderer);
+		SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+		{
+			const SDL_FRect dst_frect = { (float)dst.x, (float)dst.y, (float)dst.w, (float)dst.h };
+			SDL_RenderTexture(main_window_renderer, texture, NULL, &dst_frect);
+		}
 		break;
-	}
+
 	case SCALE_INTEGER:
-		dst_rect->w = src_w;
-		dst_rect->h = src_h;
-		while (dst_rect->w + src_w <= win_w && dst_rect->h + src_h <= win_h)
+		dst = integer_rect(win_w, win_h, src_w, src_h);
+
+		SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+		SDL_RenderClear(main_window_renderer);
+		SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
 		{
-			dst_rect->w += src_w;
-			dst_rect->h += src_h;
+			const SDL_FRect dst_frect = { (float)dst.x, (float)dst.y, (float)dst.w, (float)dst.h };
+			SDL_RenderTexture(main_window_renderer, texture, NULL, &dst_frect);
 		}
 		break;
+
 	case SCALE_FIT:
-	{
-		// Classic's logical surface is the 320x200 frame (the software scaler
-		// only changes its resolution, not its shape), so the pixel aspect picks
-		// the frame directly: the original 1.2 PAR gives the 4:3 frame and square
-		// gives the 8:5 frame.  These are exactly the aspects the pre-merge
-		// "Fit 4:3" and "Fit 8:5" modes used.
-		const float frame_aspect = modern_pixel_aspect == PIXEL_ASPECT_SQUARE
-			? (8.f / 5.f)
-			: (4.f / 3.f);
-
-		maxh_width = win_h * frame_aspect;
-		maxw_height = win_w / frame_aspect;
-
-		if (maxh_width > win_w)
-		{
-			dst_rect->w = win_w;
-			dst_rect->h = maxw_height;
-		}
-		else
-		{
-			dst_rect->w = maxh_width;
-			dst_rect->h = win_h;
-		}
-		break;
-	}
-	case ScalingMode_MAX:
-		assert(false);
+	default:
+		dst = fit_rect(win_w, win_h, content_aspect);
+		present_sharp_bilinear(texture, src_w, src_h, &dst);
 		break;
 	}
 
-	dst_rect->x = (win_w - dst_rect->w) / 2;
-	dst_rect->y = (win_h - dst_rect->h) / 2;
+	SDL_RenderPresent(main_window_renderer);
+	return dst;
 }
 
 static void scale_and_flip(SDL_Surface *src_surface)
@@ -602,8 +658,7 @@ static void scale_and_flip(SDL_Surface *src_surface)
 	if (presentation == PRESENTATION_MODERN)
 	{
 		// CPU-composited canvas at the logical resolution: convert, run the
-		// effect passes, then upload and present.  The software scalers are
-		// Classic-only and are ignored here.
+		// effect passes, then upload and present.  The GPU does the scaling.
 		modern_build_frame(src_surface);
 
 		if (regress_active())
@@ -616,19 +671,19 @@ static void scale_and_flip(SDL_Surface *src_surface)
 	if (regress_active())
 		regress_capture_frame(src_surface);
 
-	// Do software scaling
-	assert(scaler_function != NULL);
-	scaler_function(src_surface, main_window_texture);
+	// Convert the 8-bit frame through the palette, 1x; the presentation path
+	// scales it to the window.
+	video_convert_frame(src_surface, main_window_texture);
 
-	SDL_Rect dst_rect;
-	calc_dst_render_rect(src_surface, &dst_rect);
+	// Classic's 320x200 frame: the pixel aspect selects the display aspect used
+	// by Fit (the original 1.2 gives 4:3, square gives 8:5; exactly the old
+	// "Fit 4:3" and "Fit 8:5" rects).  Center and Integer ignore it.
+	const float content_aspect = modern_pixel_aspect == PIXEL_ASPECT_SQUARE
+		? (8.f / 5.f)
+		: (4.f / 3.f);
 
-	// Clear the window and blit the output texture to it
-	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
-	SDL_RenderClear(main_window_renderer);
-	const SDL_FRect dst_frect = { (float)dst_rect.x, (float)dst_rect.y, (float)dst_rect.w, (float)dst_rect.h };
-	SDL_RenderTexture(main_window_renderer, main_window_texture, NULL, &dst_frect);
-	SDL_RenderPresent(main_window_renderer);
+	SDL_Rect dst_rect = video_present_texture(main_window_texture, src_surface->w, src_surface->h,
+	                                          content_aspect, scaling_mode);
 
 	// Save output rect to be used by mouse functions
 	last_output_rect = dst_rect;

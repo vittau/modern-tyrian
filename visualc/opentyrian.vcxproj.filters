@@ -195,7 +195,6 @@
     <ClCompile Include="..\src\video_scale.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\video_scale_hqNx.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\xmas.c">

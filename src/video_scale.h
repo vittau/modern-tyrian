@@ -1,4 +1,4 @@
-/* 
+/*
  * OpenTyrian: A modern cross-platform port of Tyrian
  * Copyright (C) The OpenTyrian Development Team
  *
@@ -19,23 +19,12 @@
 #ifndef VIDEO_SCALE_H
 #define VIDEO_SCALE_H
 
-#include "opentyr.h"
-
 #include <SDL3/SDL.h>
 
-typedef void (*ScalerFunction)(SDL_Surface *src, SDL_Texture *dst);
-
-struct Scalers
-{
-	int width, height;
-	ScalerFunction scaler16, scaler32;
-	const char *name;
-};
-
-extern uint scaler;
-extern const struct Scalers scalers[];
-extern const uint scalers_count;
-
-void set_scaler_by_name(const char *name);
+// Converts the 8-bit 320x200 frame through the active palette into an
+// XRGB8888 texture of the same size: a plain 1x conversion.  This is all that
+// remains of the old software scalers (hq2x, Scale2x, ...); the GPU does every
+// scaling and filtering step (see video_present_texture in video.h).
+void video_convert_frame(SDL_Surface *src_surface, SDL_Texture *dst_texture);
 
 #endif /* VIDEO_SCALE_H */

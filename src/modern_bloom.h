@@ -32,14 +32,14 @@
 //     enemies and the ship read as lit by nearby fire (Phase 2 "Luzes
 //     dinâmicas", first version).
 //
-// OFF is the default outside Modern and is pinned in regression mode; a
-// Modern user gets MEDIUM and can pick any level from the in-game settings,
-// the config file or the command line.
+// Three levels: OFF, LOW and HIGH.  HIGH is the pre-merge LOW; LOW is half of
+// it.  The default outside Modern is OFF (pinned in regression mode); a Modern
+// user gets LOW and can pick a level from the in-game settings, the config file
+// or the command line.
 typedef enum
 {
 	MODERN_QUALITY_OFF = 0,
 	MODERN_QUALITY_LOW,
-	MODERN_QUALITY_MEDIUM,
 	MODERN_QUALITY_HIGH,
 	MODERN_QUALITY_MAX
 } ModernQuality;
@@ -49,8 +49,9 @@ extern const char *const modern_quality_names[MODERN_QUALITY_MAX];
 extern ModernQuality modern_bloom_quality;
 extern ModernQuality modern_lighting_quality;
 
-// Parses "off", "low", "medium" or "high" into `*quality`; returns false
-// (leaving it unchanged) for any other value.
+// Parses "off", "low" or "high" into `*quality`; "medium" is accepted as the
+// pre-merge name of HIGH.  Returns false (leaving it unchanged) for any other
+// value.
 bool set_modern_quality_by_name(const char *name, ModernQuality *quality);
 
 // The effect pass.  Registered by modern_init() and run on every Modern

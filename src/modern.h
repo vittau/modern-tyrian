@@ -28,16 +28,16 @@
 
 // Presentation modes.
 //
-// Classic is today's path: the 8-bit 320x200 frame is run through a software
-// scaler (src/video_scale.c) into an XRGB8888 streaming texture and presented.
-// The scalers (2x, Scale2x, hq2x, ...) are Classic-only.
+// Classic is the original path: the 8-bit 320x200 frame is converted through
+// the active palette into an XRGB8888 texture at 1x and presented.  The old
+// software scalers (2x, Scale2x, hq2x, ...) were removed.
 //
-// Modern replaces the software scalers with a CPU-composited XRGB8888 canvas
-// at the logical resolution.  The 8-bit frame is converted through the active
-// palette, an ordered list of effect passes runs on the canvas, and the canvas
-// is uploaded to its own streaming texture and scaled with nearest-neighbour
-// using the same fit logic as Classic.  All modern effects stay on the logical
-// pixel grid; none is drawn at screen resolution.
+// Modern replaces them with a CPU-composited XRGB8888 canvas at the logical
+// resolution.  The 8-bit frame is converted through the active palette, an
+// ordered list of effect passes runs on the canvas, and the canvas is uploaded
+// to its own streaming texture.  Both paths are then scaled by the GPU (see
+// video_present_texture); all modern effects stay on the logical pixel grid,
+// none is drawn at screen resolution.
 typedef enum
 {
 	PRESENTATION_CLASSIC = 0,
@@ -92,6 +92,10 @@ bool set_modern_pixel_aspect_by_name(const char *name);
 
 // The pixel aspect as a scale factor (1.2 for original, 1.0 for square).
 float modern_pixel_aspect_factor(void);
+
+// The pixel aspect Modern always presents at, regardless of the pixel_aspect
+// setting (which is Classic-only).  The art was drawn for a 4:3 CRT.
+#define MODERN_ORIGINAL_PIXEL_ASPECT 1.2f
 
 // The configured on-screen aspect as a ratio.  For MODERN_ASPECT_AUTO this
 // returns the 4:3 placeholder, since only the window knows the auto aspect;

@@ -601,7 +601,9 @@ void modern_update_canvas_size(void)
 
 	// width = round(200 * pixel_aspect * target_aspect), never below 320 so the
 	// frame always fits.  "auto" follows the window aspect.
-	const float pixel_aspect = modern_pixel_aspect_factor();
+	// Modern always uses the original 1.2 pixel aspect (the art was drawn for a
+	// 4:3 CRT); the pixel_aspect setting is Classic-only.
+	const float pixel_aspect = MODERN_ORIGINAL_PIXEL_ASPECT;
 	const float target_aspect = modern_aspect == MODERN_ASPECT_AUTO
 		? (float)win_w / (float)win_h
 		: modern_aspect_ratios[modern_aspect];
@@ -1441,96 +1443,6 @@ static void modern_fill_blurred_background(ModernFrame *frame, int frame_x)
 	}
 }
 
-// Chooses where the canvas lands in the window, honoring the pixel aspect.
-//
-// The canvas' natural aspect already contains the pixel-aspect factor
-// (width = 200 * pixel_aspect * target_aspect), so the on-screen aspect of the
-// content is canvas_aspect / pixel_aspect; fitting the window at that aspect
-// gives every canvas pixel the requested shape (sy/sx == pixel_aspect).
-//  * Integer uses independent integer factors per axis: sy is the largest that
-//    fits the window height, sx is the integer closest to sy / pixel_aspect
-//    (at least 1).  Square keeps sx == sy.
-//  * The Fit modes scale proportionally to fill the window at the content
-//    aspect.
-//  * Center stays the raw 1:1 canvas, as it was before this task.
-static void modern_calc_dst_rect(const ModernFrame *frame, SDL_Rect *dst_rect)
-{
-	int win_w = 0, win_h = 0;
-	SDL_GetWindowSize(main_window, &win_w, &win_h);
-	if (win_w <= 0 || win_h <= 0)
-	{
-		win_w = vga_width;
-		win_h = vga_height;
-	}
-
-	const float pixel_aspect = modern_pixel_aspect_factor();
-	const float content_aspect = ((float)frame->w / (float)frame->h) / pixel_aspect;
-
-	switch (scaling_mode)
-	{
-	case SCALE_CENTER:
-		dst_rect->w = frame->w;
-		dst_rect->h = frame->h;
-		break;
-	case SCALE_INTEGER:
-	{
-		int sx, sy;
-
-		if (pixel_aspect == 1.0f)
-		{
-			sy = win_h / frame->h;
-			sx = win_w / frame->w;
-			if (sx < sy)
-				sy = sx;
-		}
-		else
-		{
-			sy = win_h / frame->h;
-			sx = (int)floorf((float)sy / pixel_aspect + 0.5f);
-			if (sx < 1)
-				sx = 1;
-
-			// Keep the output inside the window when the window is narrower
-			// than the content aspect (this only ever lowers sy).
-			while (sy > 1 && frame->w * sx > win_w)
-			{
-				--sy;
-				sx = (int)floorf((float)sy / pixel_aspect + 0.5f);
-				if (sx < 1)
-					sx = 1;
-			}
-		}
-
-		if (sy < 1)
-			sy = 1;
-
-		dst_rect->w = frame->w * sx;
-		dst_rect->h = frame->h * sy;
-		break;
-	}
-	default:  // SCALE_FIT (the Fit mode)
-	{
-		const float maxh_width = win_h * content_aspect;
-		const float maxw_height = win_w / content_aspect;
-
-		if (maxh_width > win_w)
-		{
-			dst_rect->w = win_w;
-			dst_rect->h = (int)maxw_height;
-		}
-		else
-		{
-			dst_rect->w = (int)maxh_width;
-			dst_rect->h = win_h;
-		}
-		break;
-	}
-	}
-
-	dst_rect->x = (win_w - dst_rect->w) / 2;
-	dst_rect->y = (win_h - dst_rect->h) / 2;
-}
-
 void modern_present_frame(void)
 {
 	ModernFrame *frame = &modern_frame_state;
@@ -1556,15 +1468,12 @@ void modern_present_frame(void)
 		logError("Failed to lock the modern canvas texture: %s", SDL_GetError());
 	}
 
-	SDL_Rect dst_rect;
-	modern_calc_dst_rect(frame, &dst_rect);
-
-	SDL_Renderer *renderer = video_renderer();
-	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-	SDL_RenderClear(renderer);
-	const SDL_FRect dst_frect = { (float)dst_rect.x, (float)dst_rect.y, (float)dst_rect.w, (float)dst_rect.h };
-	SDL_RenderTexture(renderer, modern_texture, NULL, &dst_frect);
-	SDL_RenderPresent(renderer);
+	// Modern always presents the canvas with the sharp-bilinear Fit path at the
+	// original 1.2 pixel aspect; the pixel_aspect and scaling_mode settings are
+	// Classic-only.  The canvas width already contains the pixel aspect, so the
+	// on-screen content aspect is canvas_aspect / 1.2.
+	const float content_aspect = ((float)frame->w / (float)frame->h) / MODERN_ORIGINAL_PIXEL_ASPECT;
+	SDL_Rect dst_rect = video_present_texture(modern_texture, frame->w, frame->h, content_aspect, SCALE_FIT);
 
 	// Mouse mapping needs the canvas size and the offset of the game content
 	// inside it (the playfield offset on gameplay frames in panel mode, the

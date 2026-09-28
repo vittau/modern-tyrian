@@ -33,7 +33,6 @@
 #include "player.h"
 #include "varz.h"
 #include "video.h"
-#include "video_scale.h"
 
 #define SAVE_FILES_SIZE (109 * SAVE_FILES_NUM)
 #define SAVE_FILE_SIZE (SAVE_FILES_SIZE + 100)
@@ -252,13 +251,12 @@ static void loadOpenTyrianConfig(void)
 {
 	// defaults
 	fullscreen_display = -1;
-	set_scaler_by_name("Scale2x");
 	presentation = PRESENTATION_CLASSIC;
 	modern_aspect = MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 	interp_smooth_motion = true;
-	modern_bloom_quality = MODERN_QUALITY_MEDIUM;
-	modern_lighting_quality = MODERN_QUALITY_MEDIUM;
+	modern_bloom_quality = MODERN_QUALITY_LOW;
+	modern_lighting_quality = MODERN_QUALITY_LOW;
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
 	
 	Config *config = &opentyrian_config;
@@ -290,11 +288,10 @@ static void loadOpenTyrianConfig(void)
 	if (section != NULL)
 	{
 		config_get_int_option(section, "fullscreen", &fullscreen_display);
-		
-		const char *scaler;
-		if (config_get_string_option(section, "scaler", &scaler))
-			set_scaler_by_name(scaler);
-		
+
+		// An old "scaler" key is accepted and ignored: the software scalers were
+		// removed and the GPU does the scaling now.
+
 		const char *pixel_aspect_name;
 		const bool have_pixel_aspect = config_get_string_option(section, "pixel_aspect", &pixel_aspect_name);
 		if (have_pixel_aspect)
@@ -335,13 +332,27 @@ static void loadOpenTyrianConfig(void)
 		if (config_get_string_option(section, "smooth_motion", &smooth_motion_name))
 			set_smooth_motion_by_name(smooth_motion_name);
 		
-		const char *bloom_name;
-		if (config_get_string_option(section, "bloom", &bloom_name))
-			set_modern_quality_by_name(bloom_name, &modern_bloom_quality);
-		
+		// One "lighting" key drives both bloom and dynamic lighting.  An old
+		// "bloom" key is read only as a fallback and, for compatibility, sets
+		// both effects too.
+		ModernQuality quality = MODERN_QUALITY_LOW;
 		const char *lighting_name;
-		if (config_get_string_option(section, "lighting", &lighting_name))
-			set_modern_quality_by_name(lighting_name, &modern_lighting_quality);
+		if (config_get_string_option(section, "lighting", &lighting_name) &&
+		    set_modern_quality_by_name(lighting_name, &quality))
+		{
+			modern_bloom_quality = quality;
+			modern_lighting_quality = quality;
+		}
+		else
+		{
+			const char *bloom_name;
+			if (config_get_string_option(section, "bloom", &bloom_name) &&
+			    set_modern_quality_by_name(bloom_name, &quality))
+			{
+				modern_bloom_quality = quality;
+				modern_lighting_quality = quality;
+			}
+		}
 	}
 
 	section = config_find_section(config, "keyboard", NULL);
@@ -372,8 +383,6 @@ static void saveOpenTyrianConfig(void)
 	
 	config_set_int_option(section, "fullscreen", fullscreen_display);
 	
-	config_set_string_option(section, "scaler", scalers[scaler].name);
-	
 	config_set_string_option(section, "scaling_mode", scaling_mode_names[scaling_mode]);
 
 	config_set_string_option(section, "presentation", presentation_names[presentation]);
@@ -382,8 +391,6 @@ static void saveOpenTyrianConfig(void)
 
 	config_set_string_option(section, "pixel_aspect", modern_pixel_aspect_names[modern_pixel_aspect]);
 	config_set_string_option(section, "smooth_motion", interp_smooth_motion ? "on" : "off");
-
-	config_set_string_option(section, "bloom", modern_quality_names[modern_bloom_quality]);
 
 	config_set_string_option(section, "lighting", modern_quality_names[modern_lighting_quality]);
 
