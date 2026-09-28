@@ -157,7 +157,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - Preenchimento sólido onde a borda da imagem é lisa (pic 5, pic 11/Destruct, telas pretas); overlays sobre o jogo com a sombra na largura toda
   - Continua com o desfoque: logos de abertura (pics 10 e 12), imagens da história (7, 8, 9, 13, tshp2) e animação final
   - Loja, armamentos, dados e demais telas da moldura mecânica (pic 1): alargar o painel liso da direita repetindo uma faixa de colunas internas dele até preencher o canvas (arte original em 1×, sem desfoque). A moldura com a nave fica à esquerda. É só composição: o jogo segue desenhando 320 px, o compositor corta numa coluna livre do painel e insere a faixa. Ajustes: recentralizar o título da caixa, mapear o mouse através da faixa inserida e checar tela por tela se a coluna de corte fica livre. Pedido do usuário, que prefere isso ao desfoque (Vert- não serve aqui: abre a moldura e desalinha as janelas)
-- [x] Trava de dados na regressão (`7909049`); referência passando para o zip oficial, com regressão na CI (em andamento)
+- [x] Trava de dados na regressão (`7909049`); referência no zip oficial e regressão na CI, verde em Linux, macOS e Windows (`b4f42b6`)
 - [ ] (ref.) HUD expandido original do plano: nomes e nível das armas, munição e carga dos sidekicks, escudo e armadura numéricos, layouts 1P, 2P, arcade e rede. Protótipo com capturas para aprovação do usuário
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
 
@@ -395,3 +395,12 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - **Decisão do usuário:** mesmo o "baixo" ficou forte demais. Serão três níveis, **Desligado / Baixo / Alto**: Alto = o "baixo" de hoje, Baixo = metade dele. Um só seletor "Lighting" no Setup → Graphics controla bloom e luz juntos. Padrão: Baixo. Tarefa encaixada na rodada 2 do `scaling`, que já mexe no menu.
 - **Conversor de áudio (`1c16c81`, merge `34093b2`).** Sinc polifásico com janela Kaiser em inteiros, igual em qualquer plataforma. Plano até 4,98 kHz e rejeição > 90 dB (o do SDL deixava passar a primeira imagem a −6 dB). Só os hashes de sfx/mix mudaram. Na mesma resolução de conflito, o `.vcxproj` voltou a ter CRLF (o merge da iluminação tinha convertido para LF).
 - CI no Windows: os quadros batem; os 4 casos `state-*` falham desde a primeira linha, provavelmente por largura de tipo no hash de estado (LLP64). Rodada 3 da `regress-ci`.
+
+### 2026-09-28 — Regressão verde na CI nos três sistemas
+- **`b4f42b6`: 123/123 em Linux (x86_64, arm64), macOS e Windows (x86_64, arm64).**
+- Três causas de não-portabilidade corrigidas:
+  1. CRLF no checkout do Windows: `.gitattributes` com `eol=lf` para `test/regress/**` e os scripts.
+  2. Áudio: o resampler do SDL usa float/libm, e o ruído do OPL usava o `rand()` da libc. Agora há um sinc polifásico em inteiros e um Park–Miller local.
+  3. Hash de estado: `Player.cash` é `unsigned long` e era hasheado com `sizeof`, que dá 8 bytes no LP64 e 4 no LLP64. Agora todos os escalares vão como little-endian de largura fixa, sem mudar os baselines.
+- Todos os hashes de quadro bateram entre plataformas desde a primeira rodada: o desenho do jogo é portátil.
+- As varreduras completas (`--replay-check`, `--interp-check`) ficam no workflow manual `regress-full.yml`.
