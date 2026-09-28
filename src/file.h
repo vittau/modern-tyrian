@@ -35,6 +35,19 @@ typedef struct File
 
 bool findDataFiles(void);
 
+// True on a Steam Deck: the SteamDeck=1 environment variable, or the DMI
+// board/product name "Jupiter" (LCD) / "Galileo" (OLED).  Always false on
+// non-Linux platforms.
+bool steamDeck(void);
+
+// The directory user files (opentyrian.cfg, saves, logs) go in, resolving it
+// on first use.  Empty string when there is nowhere to write.
+const char *userDirGet(void);
+
+// Resolve the user directory and create it if needed.  Returns false when
+// there is no user directory (userFileOpen() then falls back to the cwd).
+bool userDirPrepare(void);
+
 bool dataFileExists(const char *filename);
 bool userFileExists(const char *filename);
 

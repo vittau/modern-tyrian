@@ -14,7 +14,7 @@ multiplayer.
 ## Downloads
 
 Download the appropriate build for your platform from the
-[latest release](https://github.com/opentyrian/opentyrian/releases/latest),
+[latest release](https://github.com/vittau/modern-tyrian/releases/latest),
 extract it, and run it:
 
 | Platform | File | Run |
@@ -38,6 +38,11 @@ Configuration and saved game files are kept in one of the following locations:
 
 On Windows and Linux, if `opentyrian.cfg` exists in the same directory as the
 executable, the configuration and saved game files will be stored there instead.
+
+On a Steam Deck the game starts fullscreen with the Modern 16:10 canvas and also
+writes `opentyrian.log` next to the config file.  See
+[docs/STEAM_DECK.md](docs/STEAM_DECK.md) for the step-by-step install and
+controller notes.
 
 ## Game Data
 
@@ -121,6 +126,8 @@ A Visual Studio solution is provided in `visualc/`.
                                  (requires --regress-script and --regress-frames)
     --starfield-speed=PERCENT    Background starfield speed as a percentage of the
                                  original rate (10-100, default 25), with sub-pixel motion
+    --log-file=FILE              Mirror the log into FILE as well as stderr
+                                 (default on Steam Deck: the user config directory)
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log

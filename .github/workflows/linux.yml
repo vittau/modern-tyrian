@@ -55,6 +55,10 @@ jobs:
         # XSCRNSAVER (libxss-dev) and XTEST (libxtst-dev).  This mirrors the
         # docs/README-linux.md build-dependency list, which also ships
         # libxtst-dev.
+        #
+        # libudev-dev and libusb-1.0-0-dev enable the controller backends the
+        # Steam Deck needs: udev/hidraw for the built-in controller and the
+        # HIDAPI/libusb path for USB controllers (both dlopen()ed at run time).
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -63,7 +67,8 @@ jobs:
             libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libwayland-dev libxkbcommon-dev libdecor-0-dev libegl1-mesa-dev \
             libgl1-mesa-dev libgles2-mesa-dev libgbm-dev libdrm-dev \
-            libdbus-1-dev libudev-dev wayland-protocols libpipewire-0.3-dev
+            libdbus-1-dev libudev-dev libusb-1.0-0-dev wayland-protocols \
+            libpipewire-0.3-dev
       - name: Cache static SDL3 build
         uses: actions/cache@v6
         with:
@@ -110,12 +115,13 @@ jobs:
           name: regression-actual-linux-${{ matrix.arch }}
           path: test/regress/actual
           if-no-files-found: ignore
-      - name: Package (binary + game data)
+      - name: Package (binary + game data + Steam Deck readme)
         run: |
           mkdir -p dist/opentyrian/licenses
           cp opentyrian dist/opentyrian/
           cp -r data dist/opentyrian/data
           cp COPYING dist/opentyrian/
+          cp linux/README-steamdeck.txt dist/opentyrian/README-steamdeck.txt
           cp doc/tyrian-freeware-license.txt dist/opentyrian/licenses/Tyrian.txt
           # SDL3 and SDL3_net are linked in statically, so their licenses ship too
           cp build/sdl/share/licenses/SDL3.txt dist/opentyrian/licenses/

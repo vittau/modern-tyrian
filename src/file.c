@@ -37,6 +37,42 @@
 
 const char *customDataDirPath = NULL;
 
+bool steamDeck(void)
+{
+	// Steam sets SteamDeck=1 for the games it launches on a Deck, in Game Mode
+	// and in Desktop Mode.  A build run from a plain Desktop-Mode terminal does
+	// not get it, so fall back to the DMI identity, which is the reliable one:
+	// the stable board_name is "Jupiter" on the LCD Deck and "Galileo" on the
+	// OLED (product_name carries the same string).
+	const char *steam_deck_env = getenv("SteamDeck");
+	if (steam_deck_env != NULL && strcmp(steam_deck_env, "1") == 0)
+		return true;
+
+#ifdef __linux__
+	static const char *const dmi_files[] =
+	{
+		"/sys/devices/virtual/dmi/id/board_name",
+		"/sys/devices/virtual/dmi/id/product_name",
+	};
+
+	for (size_t i = 0; i < COUNTOF(dmi_files); ++i)
+	{
+		FILE *f = fopen(dmi_files[i], "r");
+		if (f == NULL)
+			continue;
+
+		char name[64];
+		const char *line = fgets(name, sizeof(name), f);
+		fclose(f);
+
+		if (line != NULL && (strstr(name, "Jupiter") != NULL || strstr(name, "Galileo") != NULL))
+			return true;
+	}
+#endif
+
+	return false;
+}
+
 enum
 {
 	ERRNUM_EOF = -1,
@@ -234,6 +270,33 @@ static void determineUserDirPath(void)
 	userDirPathLen = 0;
 }
 
+const char *userDirGet(void)
+{
+	if (userDirPath == NULL)
+		determineUserDirPath();
+
+	return userDirPath != NULL ? userDirPath : "";
+}
+
+bool userDirPrepare(void)
+{
+	if (userDirPath == NULL)
+		determineUserDirPath();
+
+	if (userDirPathLen == 0)
+		return false;
+
+	// Ignore the error, like the per-file open below always did: a failed
+	// mkdir just means the later fopen() reports the real problem.
+#ifdef _WIN32
+	(void)_mkdir(userDirPath);
+#else
+	(void)mkdir(userDirPath, 0700);
+#endif
+
+	return true;
+}
+
 static bool userFilesDisabled = false;
 
 void userFilesDisable(void)
@@ -254,17 +317,8 @@ File userFileOpen(const char *filename, const char *mode)
 		return file;
 	}
 
-	if (userDirPath == NULL)
-		determineUserDirPath();
-
-	if (userDirPathLen == 0)
+	if (!userDirPrepare())
 		return fileOpen(filename, mode);
-
-#ifdef _WIN32
-	(void)_mkdir(userDirPath);
-#else
-	(void)mkdir(userDirPath, 0700);
-#endif
 
 	size_t pathSize = userDirPathLen + 1 + strlen(filename) + 1;
 	char *path = malloc(pathSize);

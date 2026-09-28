@@ -111,6 +111,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
+		{ 310, 0,   "log-file",          true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -187,6 +188,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               (requires --regress-script and --regress-frames)");
 			logInfo("  --starfield-speed=PERCENT    Background starfield speed as a percentage of the");
 			logInfo("                               original rate (10-100, default 25); sub-pixel motion");
+			logInfo("  --log-file=FILE              Mirror the log into FILE as well as stderr");
+			logInfo("                               (default on Steam Deck: the user config directory)");
 			logInfo("  --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated");
 			logInfo("                               motion (default on)");
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
@@ -625,6 +628,14 @@ void JE_paramCheck(int argc, char *argv[])
 				logError("%s: --regress-menu must be ingame, pause or help", argv[0]);
 				exit(EXIT_FAILURE);
 			}
+			break;
+
+		case 310: // --log-file
+			// logFileFromArgs() opens it before loadConfiguration(); this only
+			// catches an abbreviated spelling (e.g. --log) and must not reopen
+			// (which would truncate) an already-open log.
+			if (!logFileIsOpen() && !logOpenFile(option.arg))
+				logWarn("Failed to open '%s' for logging.", option.arg);
 			break;
 
 		default:

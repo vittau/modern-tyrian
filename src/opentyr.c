@@ -1006,6 +1006,32 @@ int main(int argc, char *argv[])
 
 	atexit(SDL_Quit);
 
+	// Logs.  Steam hides the game's stdout in Game Mode, so on a Deck mirror
+	// the log into the per-user directory automatically; --log-file=PATH
+	// overrides that and works on every platform.  Both run before
+	// loadConfiguration() so the whole startup is captured.
+	const char *log_path = logFileFromArgs(argc, argv);
+	char log_default_path[1024];
+	log_default_path[0] = '\0';
+
+	if (log_path == NULL && !regress && !selftest && steamDeck())
+	{
+		const char *user_dir = userDirGet();
+		if (user_dir[0] != '\0' && userDirPrepare())
+		{
+			snprintf(log_default_path, sizeof(log_default_path), "%s/opentyrian.log", user_dir);
+			log_path = log_default_path;
+		}
+	}
+
+	if (log_path != NULL)
+	{
+		if (logOpenFile(log_path))
+			logInfo("Logging to %s", log_path);
+		else
+			logWarn("Failed to open '%s' for logging.", log_path);
+	}
+
 	if (!regress && !selftest)
 	{
 		loadConfiguration();

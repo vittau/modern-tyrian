@@ -18,6 +18,79 @@
 */
 #include "logging.h"
 
+#include <stdio.h>
+#include <string.h>
+
+static FILE *log_file = NULL;
+
+// The output function in effect before logOpenFile(), so messages keep going
+// to stderr as well.
+static SDL_LogOutputFunction default_log_output = NULL;
+static void *default_log_userdata = NULL;
+
+// Every SDL log message goes through here once a log file is open.  Chaining
+// to the previous handler instead of replacing it leaves the terminal output
+// (and SDL's own stderr diagnostics) untouched; the file is flushed per line
+// so a crash still leaves a complete log.
+static void logOutputToFile(void *userdata, int category, SDL_LogPriority priority, const char *message)
+{
+	(void)userdata;
+
+	if (default_log_output != NULL)
+		default_log_output(default_log_userdata, category, priority, message);
+
+	if (log_file != NULL)
+	{
+		fprintf(log_file, "%s\n", message);
+		fflush(log_file);
+	}
+}
+
+bool logOpenFile(const char *path)
+{
+	FILE *file = fopen(path, "w");
+	if (file == NULL)
+		return false;
+
+	if (log_file != NULL)
+		fclose(log_file);
+
+	log_file = file;
+
+	if (default_log_output == NULL)
+	{
+		SDL_GetLogOutputFunction(&default_log_output, &default_log_userdata);
+		SDL_SetLogOutputFunction(logOutputToFile, NULL);
+	}
+
+	return true;
+}
+
+bool logFileIsOpen(void)
+{
+	return log_file != NULL;
+}
+
+const char *logFileFromArgs(int argc, char *argv[])
+{
+	static const char option[] = "--log-file";
+	const size_t option_len = sizeof(option) - 1;
+
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strncmp(argv[i], option, option_len) != 0)
+			continue;
+
+		if (argv[i][option_len] == '=')
+			return &argv[i][option_len + 1];
+
+		if (argv[i][option_len] == '\0' && i + 1 < argc)
+			return argv[i + 1];
+	}
+
+	return NULL;
+}
+
 SDL_PRINTF_VARARG_FUNC(1)
 void logFatal(SDL_PRINTF_FORMAT_STRING const char *fmt, ...)
 {
