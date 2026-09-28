@@ -106,7 +106,9 @@ inline static void blit_enemy(SDL_Surface *surface, unsigned int i, signed int x
 	          y = enemy[i].ey + y_offset;
 	const unsigned int index = enemy[i].egr[enemy[i].enemycycle - 1] + sprite_offset;
 
-	drawlist_set_context(DL_OBJ_ENEMY, i, 0);
+	// A pickup (armour 0 and a non-zero value) is still an enemy for the
+	// interpolation key but is tagged as an item so the lighting pass lights it.
+	drawlist_set_context(enemy[i].scoreitem ? DL_OBJ_ITEM : DL_OBJ_ENEMY, i, 0);
 
 	if (enemy[i].filter != 0)
 		blit_sprite2_filter(surface, x, y, *enemy[i].sprite2s, index, enemy[i].filter);
@@ -1174,6 +1176,9 @@ level_loop:
 	// lists.  This only records; with smooth motion off (or outside Modern) it
 	// is a no-op.
 	drawlist_set_smooth_enabled(interp_active());
+	// The Modern lighting pass needs a per-pixel emission tag of this tick; the
+	// sprite blits below fill it (no-op outside Modern / with lighting off).
+	drawlist_tag_begin();
 	drawlist_frame_begin();
 
 	/*---------------------------EVENTS-------------------------*/

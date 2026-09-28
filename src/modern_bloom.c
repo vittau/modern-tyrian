@@ -18,8 +18,11 @@
  */
 #include "modern_bloom.h"
 
+#include "drawlist.h"
 #include "opentyr.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char *const modern_quality_names[MODERN_QUALITY_MAX] =
@@ -56,6 +59,115 @@ bool set_modern_quality_by_name(const char *name, ModernQuality *quality)
 	return false;
 }
 
+bool modern_lighting_tags_wanted(void)
+{
+	return presentation == PRESENTATION_MODERN &&
+	       (modern_bloom_quality != MODERN_QUALITY_OFF ||
+	        modern_lighting_quality != MODERN_QUALITY_OFF);
+}
+
+// --- Emission tag (playfield) -------------------------------------------------
+//
+// The 264x184 tag that the pass consumes.  It is filled per presented frame by
+// interp.c (from the game's tag buffer produced by drawlist.c) plus the VFX
+// renderer.  Fixed-capacity static: no per-frame allocation.
+
+static Uint8 mb_tag[MODERN_PLAYFIELD_W * MODERN_PLAYFIELD_H];
+static bool mb_tag_valid = false;
+
+void modern_bloom_tag_begin(void)
+{
+	if (!modern_lighting_tags_wanted())
+	{
+		mb_tag_valid = false;
+		return;
+	}
+
+	memset(mb_tag, DL_TAG_NONE, sizeof mb_tag);
+	mb_tag_valid = true;
+}
+
+void modern_bloom_tag_from_game(const Uint8 *game_tag, int game_pitch, bool flip)
+{
+	if (!mb_tag_valid)
+		return;
+
+	for (int y = 0; y < MODERN_PLAYFIELD_H; ++y)
+	{
+		Uint8 *dst = mb_tag + (size_t)y * MODERN_PLAYFIELD_W;
+
+		if (game_tag == NULL)
+		{
+			memset(dst, DL_TAG_NONE, MODERN_PLAYFIELD_W);
+			continue;
+		}
+
+		// The playfield copy always starts at game x = 24 (both the normal and
+		// the spotlight special code read the same columns); the vertical-flip
+		// special code reverses the rows.
+		const int sy = flip ? (MODERN_PLAYFIELD_H - 1 - y) : y;
+		memcpy(dst, game_tag + (size_t)sy * (size_t)game_pitch + 24, MODERN_PLAYFIELD_W);
+	}
+}
+
+void modern_bloom_tag_pixel(int x, int y)
+{
+	if (!mb_tag_valid)
+		return;
+	if ((unsigned)x >= MODERN_PLAYFIELD_W || (unsigned)y >= MODERN_PLAYFIELD_H)
+		return;
+
+	mb_tag[(size_t)y * MODERN_PLAYFIELD_W + (size_t)x] = DL_TAG_VFX;
+}
+
+// --- Emission statistics (--light-tag-stats) ----------------------------------
+//
+// Debug-only per-class counters of the playfield pixels that pass the emissive
+// threshold.  Used to prove that no DL_TAG_NONE (ship/HUD/background/text)
+// pixel contributes to the light.  Never read by the pass.
+
+static int mb_threshold_override = -1;
+
+void modern_bloom_set_threshold(int threshold)
+{
+	mb_threshold_override = threshold;
+}
+
+static bool mb_stats_enabled = false;
+static bool mb_stats_registered = false;
+static unsigned long mb_stat_emissive[DL_TAG_MAX];
+static unsigned long mb_stat_tagged[DL_TAG_MAX];
+static unsigned long mb_stat_untagged = 0;
+static unsigned long mb_stat_frames = 0;
+
+static void mb_stats_print(void)
+{
+	static const char *const names[DL_TAG_MAX] =
+	{
+		"none", "player-shot", "enemy-shot", "explosion", "item", "superpixel", "vfx",
+	};
+	unsigned long total = 0;
+
+	printf("light tag stats: %lu gameplay frames\n", mb_stat_frames);
+	for (int i = 0; i < DL_TAG_MAX; ++i)
+	{
+		printf("  %-12s emit %lu   tagged %lu\n", names[i], mb_stat_emissive[i], mb_stat_tagged[i]);
+		total += mb_stat_emissive[i];
+	}
+	printf("  %-12s %lu  (bright but untagged: excluded)\n", "emissive", total);
+	printf("  %-12s %lu\n", "untagged", mb_stat_untagged);
+}
+
+void modern_bloom_set_stats(bool enabled)
+{
+	mb_stats_enabled = enabled;
+	if (enabled && !mb_stats_registered)
+	{
+		atexit(mb_stats_print);
+		mb_stats_registered = true;
+	}
+}
+
 // --- Emissive detection -----------------------------------------------------
 //
 // Tyrian's palette is a 16x16 hue x brightness grid: index = hue * 16 +
@@ -77,6 +189,32 @@ bool set_modern_quality_by_name(const char *name, ModernQuality *quality)
 // per-pixel tag buffer (a later phase) bright backdrops such as white clouds
 // or light rock can still glow; the tuned thresholds keep that from
 // dominating.
+//
+// Per-class emission weight (Q8: 256 = full).  Explosions and the wide VFX are
+// the reference; a pickup or a player shot contributes less so the frequent
+// small objects do not outshine an explosion, and overlapping shots add less.
+// Indexed by the DL_TAG_* class; DL_TAG_NONE is 0, so the tag-0 table is all
+// zero and the mask code needs no per-pixel branch.
+static const Uint16 mb_tag_weight_q8[DL_TAG_MAX] =
+{
+	0,     // DL_TAG_NONE
+	190,   // DL_TAG_PLAYER_SHOT
+	224,   // DL_TAG_ENEMY_SHOT
+	256,   // DL_TAG_EXPLOSION
+	170,   // DL_TAG_ITEM
+	200,   // DL_TAG_SUPERPIXEL
+	224,   // DL_TAG_VFX
+};
+
+// The base tables expanded per class (see mb_build_tables).
+static Uint8 mb_bloom_col_w[DL_TAG_MAX][256 * 3];
+static Uint8 mb_light_col_w[DL_TAG_MAX][256 * 3];
+
+// Ceiling on the combined per-pixel glow before it is screen-blended.  Keeps a
+// dense volley of overlapping shots from saturating into a solid coloured blob;
+// the base pixel keeps its own detail above it.
+#define MB_GLOW_CAP 216
+
 static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int light_threshold,
                             Uint8 *bloom_col, Uint8 *light_col)
 {
@@ -99,6 +237,19 @@ static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int l
 		light_col[i * 3 + 0] = (Uint8)(r * lw / 255);
 		light_col[i * 3 + 1] = (Uint8)(g * lw / 255);
 		light_col[i * 3 + 2] = (Uint8)(b * lw / 255);
+	}
+
+	// Expand the base tables once per class, scaled by the class weight.  A
+	// non-emissive class has weight 0, so its whole table is zero and the mask
+	// code needs no per-pixel branch: it just indexes the table with the tag.
+	for (int c = 0; c < DL_TAG_MAX; ++c)
+	{
+		const int w = mb_tag_weight_q8[c];
+		for (int i = 0; i < 256 * 3; ++i)
+		{
+			mb_bloom_col_w[c][i] = (Uint8)(bloom_col[i] * w / 256);
+			mb_light_col_w[c][i] = (Uint8)(light_col[i] * w / 256);
+		}
 	}
 }
 
@@ -205,21 +356,25 @@ typedef struct
 	Uint8 iterations;
 } MbParams;
 
-// Three levels.  High is the pre-merge Low; Low is half of it (gains halved,
-// ambient moved halfway toward 256).  Thresholds, radii and iterations are the
-// pre-merge Low's, per the user's decision.
+// Three levels (round 2 retune).  Thresholds are back at the pre-tag values
+// (224/216): only the bright cores of an emitter feed the glow, so a cube or a
+// shot keeps its shape and the halo stays a soft rim.  The gains are about
+// 0.7x the pre-tag High/Low, so per object High is a little under the way the
+// object glowed before the tag (which also carried the background); Low is
+// exactly half of High.  The ambient is a step closer to 256 than before, since
+// with backgrounds excluded the unlit field would otherwise read darker.
 static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 224,  2,   130, 256, 3 },  // low  (half of high's gain; bloom ambient was already 256)
-	{ 224,  2,   260, 256, 3 },  // high (the pre-merge low)
+	{ 224,  2,   108, 256, 3 },  // low  (0.6x high's gain; the screen blend and
+	{ 224,  2,   180, 256, 3 },  // high  lighter ambient put the result ~0.5x)
 };
 
 static const MbParams mb_light_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 216,  2,   450, 251, 3 },  // low  (half gain, ambient halfway to 256)
-	{ 216,  2,   900, 246, 3 },  // high (the pre-merge low)
+	{ 216,  2,   380, 252, 3 },  // low  (0.6x high's gain, see above)
+	{ 216,  2,   640, 248, 3 },  // high
 };
 
 // --- Explicit light sources (extension point) -------------------------------
@@ -286,7 +441,9 @@ static void mb_add_explicit_sources(void)
 
 // Builds the bloom mask at half resolution (2x2 block average) and the light
 // mask at quarter resolution (4x4 block average) through the per-index colour
-// tables.  Each half is skipped when its effect is off.
+// tables, but only for pixels whose emission tag is non-zero.  A non-emissive
+// pixel uses the zero colour, so a bright ship/HUD/background pixel contributes
+// nothing.  Each half is skipped when its effect is off.
 static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_light)
 {
 	if (do_bloom)
@@ -295,14 +452,17 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 		{
 			const Uint8 *row0 = frame->src + (size_t)(ly * 2) * frame->src_pitch;
 			const Uint8 *row1 = row0 + frame->src_pitch;
+			const Uint8 *tag0 = mb_tag + (size_t)(ly * 2) * MODERN_PLAYFIELD_W;
+			const Uint8 *tag1 = tag0 + MODERN_PLAYFIELD_W;
 			Uint8 *bloom = mb_bloom + (size_t)ly * MB_LW * 3;
 
 			for (int lx = 0; lx < MB_LW; ++lx)
 			{
-				const Uint8 *c00 = mb_bloom_col + row0[lx * 2] * 3;
-				const Uint8 *c10 = mb_bloom_col + row0[lx * 2 + 1] * 3;
-				const Uint8 *c01 = mb_bloom_col + row1[lx * 2] * 3;
-				const Uint8 *c11 = mb_bloom_col + row1[lx * 2 + 1] * 3;
+				const int x0 = lx * 2, x1 = x0 + 1;
+				const Uint8 *c00 = mb_bloom_col_w[tag0[x0]] + row0[x0] * 3;
+				const Uint8 *c10 = mb_bloom_col_w[tag0[x1]] + row0[x1] * 3;
+				const Uint8 *c01 = mb_bloom_col_w[tag1[x0]] + row1[x0] * 3;
+				const Uint8 *c11 = mb_bloom_col_w[tag1[x1]] + row1[x1] * 3;
 				Uint8 *d = bloom + lx * 3;
 				d[0] = (Uint8)((c00[0] + c10[0] + c01[0] + c11[0]) >> 2);
 				d[1] = (Uint8)((c00[1] + c10[1] + c01[1] + c11[1]) >> 2);
@@ -324,9 +484,10 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 				for (int k = 0; k < 4; ++k)
 				{
 					const Uint8 *row = frame->src + (size_t)(qy * 4 + k) * frame->src_pitch + qx * 4;
+					const Uint8 *tag = mb_tag + (size_t)(qy * 4 + k) * MODERN_PLAYFIELD_W + qx * 4;
 					for (int j = 0; j < 4; ++j)
 					{
-						const Uint8 *c = mb_light_col + row[j] * 3;
+						const Uint8 *c = mb_light_col_w[tag[j]] + row[j] * 3;
 						sr += c[0];
 						sg += c[1];
 						sb += c[2];
@@ -339,6 +500,45 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 			}
 		}
 	}
+}
+
+// Debug-only: counts, per tag class, the playfield pixels whose palette entry
+// is bright enough to emit.  Also counts bright pixels with tag NONE, which are
+// exactly the ones the tag now excludes (should stay 0 when the tag is built).
+static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool do_light)
+{
+	unsigned long item_tagged = 0;
+
+	for (int y = 0; y < MODERN_PLAYFIELD_H; ++y)
+	{
+		const Uint8 *row = frame->src + (size_t)y * frame->src_pitch;
+		const Uint8 *tag = mb_tag + (size_t)y * MODERN_PLAYFIELD_W;
+
+		for (int x = 0; x < MODERN_PLAYFIELD_W; ++x)
+		{
+			if (tag[x] != DL_TAG_NONE)
+			{
+				mb_stat_tagged[tag[x]]++;
+				if (tag[x] == DL_TAG_ITEM)
+					item_tagged++;
+			}
+
+			const Uint8 *cb = mb_bloom_col + row[x] * 3;
+			const Uint8 *cl = mb_light_col + row[x] * 3;
+			const bool bright =
+				(do_bloom && (cb[0] | cb[1] | cb[2]) != 0) ||
+				(do_light && (cl[0] | cl[1] | cl[2]) != 0);
+			if (!bright)
+				continue;
+
+			if (tag[x] != DL_TAG_NONE)
+				mb_stat_emissive[tag[x]]++;
+			else
+				mb_stat_untagged++;
+		}
+	}
+
+	return item_tagged;
 }
 
 // Bilinearly upsamples the quarter-resolution light into mb_light_half, so it
@@ -385,8 +585,8 @@ static void mb_combine(const MbParams *bloom, const MbParams *light)
 	for (int i = 0; i < MB_LPIX * 3; ++i)
 	{
 		int v = (mb_bloom[i] * bgain >> 7) + (mb_light_half[i] * lgain >> 7);
-		if (v > 255)
-			v = 255;
+		if (v > MB_GLOW_CAP)
+			v = MB_GLOW_CAP;
 		mb_bloom[i] = (Uint8)v;
 	}
 }
@@ -489,6 +689,16 @@ void modern_bloom_pass(ModernFrame *frame)
 		return;
 	}
 
+	// Every presented gameplay frame arms its own tag (interp.c).  A frame that
+	// did not (the level intro/Warning hold, a screen composed another way)
+	// emits nothing rather than reusing a stale tag.
+	if (!mb_tag_valid)
+	{
+		modern_lighting_reset_sources();
+		return;
+	}
+	mb_tag_valid = false;
+
 	const int playfield_x = frame->content_offset_x;
 	if (playfield_x < 0 || playfield_x + MB_W > frame->w || MB_H > frame->h)
 	{
@@ -496,8 +706,16 @@ void modern_bloom_pass(ModernFrame *frame)
 		return;
 	}
 
-	mb_build_tables(frame->palette, bloom->threshold, light->threshold, mb_bloom_col, mb_light_col);
+	const int bloom_threshold = mb_threshold_override >= 0 ? mb_threshold_override : bloom->threshold;
+	const int light_threshold = mb_threshold_override >= 0 ? mb_threshold_override : light->threshold;
+	mb_build_tables(frame->palette, bloom_threshold, light_threshold, mb_bloom_col, mb_light_col);
 	mb_build_masks(frame, bloom->gain != 0, light->gain != 0);
+
+	if (mb_stats_enabled)
+	{
+		mb_count_tags(frame, bloom->gain != 0, light->gain != 0);
+		mb_stat_frames++;
+	}
 
 	if (bloom->gain != 0)
 		mb_blur(mb_bloom, mb_bloom_scratch, MB_LW, MB_LH, bloom->radius, bloom->iterations);

@@ -19,6 +19,7 @@
 #include "vfx.h"
 
 #include "modern.h"
+#include "modern_bloom.h"
 #include "tyrian2.h"
 #include "varz.h"
 
@@ -652,6 +653,7 @@ static void vfx_put(Uint8 *base, int pitch, int x, int y, Uint8 index)
 		return;
 
 	base[(size_t)y * (size_t)pitch + (size_t)x] = index;
+	modern_bloom_tag_pixel(x, y);  // VFX always emit; see modern_bloom.h
 }
 
 // Interpolated integer position of a particle at the given 16.16 alpha.
@@ -748,6 +750,7 @@ static void vfx_draw_smoke(const VfxParticle *p, Uint8 *base, int pitch, Uint32 
 			{
 				vfx_darken(s);
 			}
+			modern_bloom_tag_pixel(x, y);
 		}
 	}
 }
@@ -778,6 +781,7 @@ static void vfx_draw_ring(const VfxParticle *p, Uint8 *base, int pitch, Uint32 a
 
 			Uint8 *s = base + (size_t)y * (size_t)pitch + (size_t)x;
 			vfx_blend(s, p->hue, value);
+			modern_bloom_tag_pixel(x, y);
 		}
 	}
 }

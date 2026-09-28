@@ -1160,14 +1160,27 @@ void JE_drawSP(void)
 				s += superpixels[i].x;
 
 				*s = (((*s & 0x0f) + superpixels[i].z) >> 1) + superpixels[i].color;
+				drawlist_tag_pixel(VGAScreen, (int)superpixels[i].x, (int)superpixels[i].y, DL_TAG_SUPERPIXEL);
 				if (superpixels[i].x > 0)
+				{
 					*(s - 1) = (((*(s - 1) & 0x0f) + (superpixels[i].z >> 1)) >> 1) + superpixels[i].color;
+					drawlist_tag_pixel(VGAScreen, (int)superpixels[i].x - 1, (int)superpixels[i].y, DL_TAG_SUPERPIXEL);
+				}
 				if (superpixels[i].x < VGAScreen->w - 1u)
+				{
 					*(s + 1) = (((*(s + 1) & 0x0f) + (superpixels[i].z >> 1)) >> 1) + superpixels[i].color;
+					drawlist_tag_pixel(VGAScreen, (int)superpixels[i].x + 1, (int)superpixels[i].y, DL_TAG_SUPERPIXEL);
+				}
 				if (superpixels[i].y > 0)
+				{
 					*(s - VGAScreen->pitch) = (((*(s - VGAScreen->pitch) & 0x0f) + (superpixels[i].z >> 1)) >> 1) + superpixels[i].color;
+					drawlist_tag_pixel(VGAScreen, (int)superpixels[i].x, (int)superpixels[i].y - 1, DL_TAG_SUPERPIXEL);
+				}
 				if (superpixels[i].y < VGAScreen->h - 1u)
+				{
 					*(s + VGAScreen->pitch) = (((*(s + VGAScreen->pitch) & 0x0f) + (superpixels[i].z >> 1)) >> 1) + superpixels[i].color;
+					drawlist_tag_pixel(VGAScreen, (int)superpixels[i].x, (int)superpixels[i].y + 1, DL_TAG_SUPERPIXEL);
+				}
 			}
 
 			superpixels[i].z--;
@@ -1218,14 +1231,27 @@ void drawlist_draw_superpixels_interp(SDL_Surface *surface, const void *pre, siz
 				Uint8 *s = (Uint8 *)surface->pixels + y * surface->pitch + x;
 
 				*s = (((*s & 0x0f) + sp[i].z) >> 1) + sp[i].color;
+				drawlist_tag_pixel(surface, x, y, DL_TAG_SUPERPIXEL);
 				if (x > 0)
+				{
 					*(s - 1) = (((*(s - 1) & 0x0f) + (sp[i].z >> 1)) >> 1) + sp[i].color;
+					drawlist_tag_pixel(surface, x - 1, y, DL_TAG_SUPERPIXEL);
+				}
 				if ((unsigned)x < surface->w - 1u)
+				{
 					*(s + 1) = (((*(s + 1) & 0x0f) + (sp[i].z >> 1)) >> 1) + sp[i].color;
+					drawlist_tag_pixel(surface, x + 1, y, DL_TAG_SUPERPIXEL);
+				}
 				if (y > 0)
+				{
 					*(s - surface->pitch) = (((*(s - surface->pitch) & 0x0f) + (sp[i].z >> 1)) >> 1) + sp[i].color;
+					drawlist_tag_pixel(surface, x, y - 1, DL_TAG_SUPERPIXEL);
+				}
 				if ((unsigned)y < surface->h - 1u)
+				{
 					*(s + surface->pitch) = (((*(s + surface->pitch) & 0x0f) + (sp[i].z >> 1)) >> 1) + sp[i].color;
+					drawlist_tag_pixel(surface, x, y + 1, DL_TAG_SUPERPIXEL);
+				}
 			}
 		}
 	}

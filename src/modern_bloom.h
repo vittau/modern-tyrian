@@ -54,12 +54,46 @@ extern ModernQuality modern_lighting_quality;
 // value.
 bool set_modern_quality_by_name(const char *name, ModernQuality *quality);
 
+// True when Modern is presenting and at least one of the two effects is on, so
+// the emission tag buffer is worth building (and the blits should tag).  False
+// for Classic, for both effects off, and before modern_init().
+bool modern_lighting_tags_wanted(void);
+
 // The effect pass.  Registered by modern_init() and run on every Modern
 // frame; it does nothing unless the frame is a gameplay frame and at least
 // one of the two effects is on.  It only reads `frame->src`/`frame->palette`
 // and writes the playfield rectangle of `frame->pixels`, so it is
 // deterministic, allocation-free and cannot touch game state.
 void modern_bloom_pass(ModernFrame *frame);
+
+// --- Emission tag (playfield) -------------------------------------------------
+//
+// The pass derives its light from the 8-bit playfield only where the per-pixel
+// emission tag says so.  `interp.c` fills the playfield tag from the game's
+// tag buffer (drawlist_tag_for_surface) right after it copies the playfield,
+// and the VFX call modern_bloom_tag_pixel() as they draw.  The tag is cleared
+// and marked valid by modern_bloom_tag_begin(), and the pass consumes it (a
+// frame that never called begin does not emit).
+
+// Clears the playfield tag for the frame about to be presented and marks it
+// valid.  No-op (and the pass then emits nothing) when lighting is off.
+void modern_bloom_tag_begin(void);
+
+// Copies the `flip`-aware 264x184 playfield window (source x 24..287) out of a
+// game tag buffer into the playfield tag.  `game_tag` may be NULL (then the
+// tag is just cleared).  Called by interp.c after the playfield copy.
+void modern_bloom_tag_from_game(const Uint8 *game_tag, int game_pitch, bool flip);
+
+// Marks one playfield pixel as VFX emission.  Called by the VFX renderer.
+void modern_bloom_tag_pixel(int x, int y);
+
+// Enables the per-class emitting-pixel counters (--light-tag-stats); prints
+// them at exit.  Debug only, never part of the pass output.
+void modern_bloom_set_stats(bool enabled);
+
+// Debug tuning override (--light-threshold=N): force both effect thresholds to
+// N instead of the per-level values.  N < 0 restores the table.
+void modern_bloom_set_threshold(int threshold);
 
 // --- Per-object light sources (extension point) -----------------------------
 //
