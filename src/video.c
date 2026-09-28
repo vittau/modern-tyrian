@@ -101,9 +101,12 @@ void init_video(void)
 	JE_clr256(VGAScreen);
 
 	// Create the window with a temporary initial size, hidden until we set up the
-	// scaler and find the true window size
+	// scaler and find the true window size.  HIGH_PIXEL_DENSITY makes the
+	// backbuffer the display's native pixels on a HiDPI (Retina) screen, so the
+	// presentation runs at the physical resolution instead of being upscaled by
+	// the OS; on other displays it is a no-op.
 	main_window = SDL_CreateWindow("OpenTyrian",
-		vga_width, vga_height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
+		vga_width, vga_height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 
 	if (main_window == NULL)
 	{
@@ -208,6 +211,53 @@ static SDL_DisplayID window_get_display(void)
 	return SDL_GetDisplayForWindow(main_window);
 }
 
+// Presentation is done in the window's native pixels, so all the fit/integer/
+// center rects, the sharp-bilinear prescale and its cached target are sized for
+// the display's physical resolution.  On a HiDPI (Retina) screen that is twice
+// the point size SDL_GetWindowSize reports, and the OS no longer upscales the
+// result; on every other display the two are identical.
+static void window_size_in_pixels(int *out_w, int *out_h)
+{
+	int w = 0, h = 0;
+
+	if (!SDL_GetWindowSizeInPixels(main_window, &w, &h) || w <= 0 || h <= 0)
+		SDL_GetWindowSize(main_window, &w, &h);
+
+	*out_w = w;
+	*out_h = h;
+}
+
+// SDL reports mouse coordinates in window points, not native pixels.  Convert
+// a point coordinate to the pixel space of the presentation rects (and back);
+// both are the identity when the window is not on a HiDPI display.
+static void window_points_to_pixels(Sint32 *x, Sint32 *y)
+{
+	int pt_w = 0, pt_h = 0, px_w = 0, px_h = 0;
+
+	SDL_GetWindowSize(main_window, &pt_w, &pt_h);
+	window_size_in_pixels(&px_w, &px_h);
+
+	if (pt_w > 0 && pt_h > 0 && px_w > 0 && px_h > 0)
+	{
+		*x = (Sint32)lroundf((float)*x * (float)px_w / (float)pt_w);
+		*y = (Sint32)lroundf((float)*y * (float)px_h / (float)pt_h);
+	}
+}
+
+static void window_pixels_to_points(Sint32 *x, Sint32 *y)
+{
+	int pt_w = 0, pt_h = 0, px_w = 0, px_h = 0;
+
+	SDL_GetWindowSize(main_window, &pt_w, &pt_h);
+	window_size_in_pixels(&px_w, &px_h);
+
+	if (pt_w > 0 && pt_h > 0 && px_w > 0 && px_h > 0)
+	{
+		*x = (Sint32)lroundf((float)*x * (float)pt_w / (float)px_w);
+		*y = (Sint32)lroundf((float)*y * (float)pt_h / (float)px_h);
+	}
+}
+
 static void window_center_in_display(SDL_DisplayID display_id)
 {
 	int win_w, win_h;
@@ -229,8 +279,9 @@ static float content_aspect_for_mode(void)
 	{
 		if (modern_aspect == MODERN_ASPECT_AUTO)
 		{
+			// Only the ratio matters, so points and pixels give the same value.
 			int w = 0, h = 0;
-			SDL_GetWindowSize(main_window, &w, &h);
+			window_size_in_pixels(&w, &h);
 			if (w > 0 && h > 0)
 				return (float)w / (float)h;
 		}
@@ -341,7 +392,10 @@ void video_on_win_resize(void)
 	int w, h;
 
 	// Tell video to reinit if the window was manually resized by the user.
-	// Also enforce a minimum size on the window (the logical frame).
+	// Also enforce a minimum size on the window (the logical frame).  This is a
+	// window geometry limit, so it stays in points (the unit SDL_SetWindowSize
+	// takes) to keep the same on-screen minimum as before; the pixel backbuffer
+	// is at least as large, so the logical frame always fits.
 
 	SDL_GetWindowSize(main_window, &w, &h);
 
@@ -606,8 +660,11 @@ static void present_sharp_bilinear(SDL_Texture *texture, int src_w, int src_h, c
 
 SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float content_aspect, ScalingMode mode)
 {
+	// The window size in native pixels: on HiDPI this is what makes the final
+	// linear pass of the sharp-bilinear path (and Center/Integer) land 1:1 on
+	// the display instead of on a point-sized backbuffer the OS then upscales.
 	int win_w, win_h;
-	SDL_GetWindowSize(main_window, &win_w, &win_h);
+	window_size_in_pixels(&win_w, &win_h);
 
 	SDL_Rect dst;
 
@@ -689,7 +746,7 @@ static void scale_and_flip(SDL_Surface *src_surface)
 	last_output_rect = dst_rect;
 }
 
-/** Maps a specified point in game screen coordinates to window coordinates. */
+/** Maps a specified point in game screen coordinates to window points. */
 void mapScreenPointToWindow(Sint32 *const inout_x, Sint32 *const inout_y)
 {
 	// The game frame is `last_output_frame_x/y` pixels into the presented
@@ -697,13 +754,19 @@ void mapScreenPointToWindow(Sint32 *const inout_x, Sint32 *const inout_y)
 	Sint32 cx = last_output_split ? split_game_to_canvas_x(*inout_x)
 	                              : *inout_x + last_output_frame_x;
 
+	// last_output_rect is in native pixels; SDL's window coordinate is a point.
 	*inout_x = (2 * cx + 1) * last_output_rect.w / (2 * last_output_canvas_w) + last_output_rect.x;
 	*inout_y = (2 * (*inout_y + last_output_frame_y) + 1) * last_output_rect.h / (2 * last_output_canvas_h) + last_output_rect.y;
+
+	window_pixels_to_points(inout_x, inout_y);
 }
 
 /** Maps a specified point in window coordinates to game screen coordinates. */
 void mapWindowPointToScreen(Sint32 *const inout_x, Sint32 *const inout_y)
 {
+	// SDL hands mouse events in points; the mapping below is in pixels.
+	window_points_to_pixels(inout_x, inout_y);
+
 	Sint32 cx = (2 * (*inout_x - last_output_rect.x) + 1) * last_output_canvas_w / (2 * last_output_rect.w);
 
 	*inout_x = last_output_split ? split_canvas_to_game_x(cx) : cx - last_output_frame_x;
@@ -713,6 +776,9 @@ void mapWindowPointToScreen(Sint32 *const inout_x, Sint32 *const inout_y)
 /** Scales a distance in window coordinates to game screen coordinates. */
 void scaleWindowDistanceToScreen(Sint32 *const inout_x, Sint32 *const inout_y)
 {
+	// The relative mouse deltas are in points too.
+	window_points_to_pixels(inout_x, inout_y);
+
 	*inout_x = (2 * *inout_x + 1) * last_output_canvas_w / (2 * last_output_rect.w);
 	*inout_y = (2 * *inout_y + 1) * last_output_canvas_h / (2 * last_output_rect.h);
 }

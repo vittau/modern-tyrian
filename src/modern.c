@@ -715,6 +715,11 @@ void modern_update_canvas_size(void)
 	if (!modern_ready)
 		return;
 
+	// The canvas is a logical surface (200 rows) and its width depends only on
+	// the window's aspect, never on its pixel count: a HiDPI display must not
+	// enlarge the canvas, only the resolution the canvas is presented at.  The
+	// point size below is fine because only the w:h ratio is used.  (The window
+	// pixel size lives in video.c's window_size_in_pixels.)
 	int win_w = 0, win_h = 0;
 	SDL_GetWindowSize(main_window, &win_w, &win_h);
 	if (win_w <= 0 || win_h <= 0)

@@ -60,13 +60,15 @@ void video_apply_display_settings(void);
 // Shared presentation helpers, used by both the Classic and Modern paths.
 SDL_Renderer *video_renderer(void);
 // Presents `texture` (src_w x src_h logical pixels) in the window and returns
-// the destination rectangle (also used for mouse mapping).  `content_aspect` is
-// the on-screen width/height of the whole image: Classic passes the 4:3 or 8:5
-// frame selected by the pixel aspect, Modern passes the canvas display aspect.
-// `mode` is the fit strategy; Modern always passes SCALE_FIT.  Center and
-// Integer draw with nearest-neighbour; Fit uses the sharp-bilinear path.
+// the destination rectangle, in the window's native pixels (also used for mouse
+// mapping, which converts SDL's window points to pixels as needed).
+// `content_aspect` is the on-screen width/height of the whole image: Classic
+// passes the 4:3 or 8:5 frame selected by the pixel aspect, Modern passes the
+// canvas display aspect.  `mode` is the fit strategy; Modern always passes
+// SCALE_FIT.  Center and Integer draw with nearest-neighbour; Fit uses the
+// sharp-bilinear path.
 SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float content_aspect, ScalingMode mode);
-// Records the presented output rectangle for mouse mapping.
+// Records the presented output rectangle (native pixels) for mouse mapping.
 void video_set_last_output_rect(const SDL_Rect *rect);
 // Modern variant: also records the canvas size and the offset of the 320x200
 // game frame inside the canvas, so window points still map to game coordinates
