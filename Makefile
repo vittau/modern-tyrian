@@ -190,6 +190,10 @@ regress-replay :
 regress-interp :
 	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --interp-check
 
+.PHONY : regress-smooth
+regress-smooth :
+	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --smoothness-check
+
 $(TARGET) : $(OBJS) $(RES)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)
 

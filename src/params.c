@@ -97,6 +97,9 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 282, 0,   "lighting",          true },
 		{ 283, 0,   "regress-bloom",     true },
 		{ 284, 0,   "regress-lighting",  true },
+		{ 287, 0,   "regress-interp-smoothness", false },
+		{ 288, 0,   "regress-smooth-alphas", true },
+		{ 289, 0,   "regress-gameplay-check", false },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -158,6 +161,11 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               compare it byte for byte with the real frame (proof)");
 			logInfo("  --regress-interp-alpha=A     Present the frame interpolated at alpha A (0..1)");
 			logInfo("                               (with --regress-snapshot; Modern only)");
+			logInfo("  --regress-interp-smoothness  Per level tick, check that every background layer and");
+			logInfo("                               matched object moves monotonically across the sub-frames");
+			logInfo("  --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)");
+			logInfo("  --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay");
+			logInfo("                               composition (drops the classic sidebar)");
 			logInfo("  --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated");
 			logInfo("                               motion (default on)");
 			logInfo("  --regress-realtime           Replay a demo in a real window with the wall clock and log");
@@ -492,6 +500,23 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_lighting_quality = (int)quality;
 			break;
 		}
+		case 287: // --regress-interp-smoothness
+			regress_interp_smoothness = 1;
+			break;
+		case 288: // --regress-smooth-alphas=N
+		{
+			const int count = atoi(option.arg);
+			if (count < 2 || count > 33)
+			{
+				logError("%s: --regress-smooth-alphas must be between 2 and 33", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_smooth_alphas = count;
+			break;
+		}
+		case 289: // --regress-gameplay-check
+			regress_gameplay_check = 1;
+			break;
 			
 		default:
 			assert(false);
@@ -527,6 +552,18 @@ void JE_paramCheck(int argc, char *argv[])
 	    regress_demo == 0 && regress_scenario_episode == 0)
 	{
 		logError("%s: --regress-interp-check/--regress-interp-alpha require --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_interp_smoothness && regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-interp-smoothness requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_gameplay_check && !regress_modern)
+	{
+		logError("%s: --regress-gameplay-check requires --regress-modern", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 	

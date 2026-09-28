@@ -103,6 +103,11 @@ A Visual Studio solution is provided in `visualc/`.
                                  compare it byte for byte with the real frame (proof)
     --regress-interp-alpha=A     Present the frame interpolated at alpha A (0..1)
                                  (with --regress-snapshot; Modern only)
+    --regress-interp-smoothness  Per level tick, check that every background layer and
+                                 matched object moves monotonically across the sub-frames
+    --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)
+    --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay
+                                 composition (drops the classic sidebar)
     --smooth-motion=on|off       Modern gameplay at the display refresh with interpolated
                                  motion (default on)
     --regress-realtime           Replay a demo in a real window with the wall clock and log

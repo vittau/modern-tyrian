@@ -63,6 +63,9 @@ int regress_arcade = 0;
 const char *regress_screen = NULL;
 int regress_replay_check = 0;
 int regress_interp_check = 0;
+int regress_interp_smoothness = 0;
+int regress_smooth_alphas = 5;
+int regress_gameplay_check = 0;
 int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
 int regress_bloom_quality = -1;
@@ -91,6 +94,48 @@ static Uint32 regress_clock = 0;
 static FILE *regress_out = NULL;
 static FILE *regress_state_out = NULL;
 static unsigned long regress_frame = 0;
+
+// Smoothness diagnostics: log the presented frame of the first few ticks whose
+// interpolation showed non-monotonic motion.
+static unsigned long regress_smooth_seen_events = 0;
+static unsigned regress_smooth_log_count = 0;
+
+// Gameplay-composition assertion (--regress-gameplay-check): while a level is
+// being presented in Modern, every frame must drop the classic sidebar.
+static unsigned long regress_gameplay_frames = 0;
+static unsigned long regress_gameplay_missing = 0;
+static char regress_gameplay_first[128] = "";
+
+static void regress_check_gameplay_composition(void)
+{
+	if (!regress_gameplay_check || !modern_in_level_period() || !modern_hud_in_panels())
+		return;
+
+	regress_gameplay_frames++;
+	if (!modern_last_frame_gameplay_panels())
+	{
+		if (regress_gameplay_missing == 0)
+			snprintf(regress_gameplay_first, sizeof regress_gameplay_first,
+			         "frame %lu: in-level frame used the full-frame composition "
+			         "(gameplay=%d)", regress_frame, modern_last_frame_gameplay() ? 1 : 0);
+		regress_gameplay_missing++;
+	}
+}
+
+static void regress_note_smoothness(void)
+{
+	if (!drawlist_smoothness_enabled())
+		return;
+
+	const unsigned long events = drawlist_smoothness_events();
+	if (events > regress_smooth_seen_events && regress_smooth_log_count < 8)
+	{
+		logError("Smoothness: %lu event(s) by presented frame %lu.",
+		         events - regress_smooth_seen_events, regress_frame);
+		regress_smooth_log_count++;
+	}
+	regress_smooth_seen_events = events;
+}
 
 bool regress_active(void)
 {
@@ -437,6 +482,7 @@ void regress_capture_frame(SDL_Surface *surface)
 	if (regress_has_snapshots())
 		regress_save_snapshots_8bit(surface);
 
+	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
 }
 
@@ -469,6 +515,8 @@ void regress_capture_modern_frame(void)
 	if (regress_has_snapshots())
 		regress_save_snapshots_modern(frame);
 
+	regress_check_gameplay_composition();
+	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
 }
 
@@ -631,6 +679,15 @@ void regress_init(void)
 	if (regress_interp_check)
 		drawlist_set_interp_check(true);
 
+	// Stage-3 smoothness proof: re-derive the sub-frame positions for every
+	// level tick and check they are monotonic.
+	if (regress_interp_smoothness)
+	{
+		drawlist_set_enabled(true);
+		drawlist_set_smoothness_check(true);
+		drawlist_set_smoothness_alphas((unsigned)regress_smooth_alphas);
+	}
+
 	// Real-time pacing benchmark: log presented-fps statistics and exit after
 	// the requested duration.
 	if (regress_realtime_active())
@@ -756,6 +813,33 @@ void regress_finish(void)
 		if (drawlist_mismatched_frames() != 0)
 		{
 			logError("Replay check FAILED: %s", drawlist_first_mismatch());
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_interp_smoothness)
+	{
+		logInfo("Smoothness: %lu level ticks, %lu bg layer checks, %lu object checks.",
+		        drawlist_smoothness_ticks(), drawlist_smoothness_bg_checks(),
+		        drawlist_smoothness_object_checks());
+		logInfo("Smoothness: horizontal events %lu, vertical events %lu, object events %lu (%lu event frames).",
+		        drawlist_smoothness_horizontal_events(), drawlist_smoothness_vertical_events(),
+		        drawlist_smoothness_object_events(), drawlist_smoothness_frames());
+		if (drawlist_smoothness_events() != 0)
+		{
+			logError("Smoothness check FAILED: %lu non-monotonic motion events.",
+			         drawlist_smoothness_events());
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_gameplay_check)
+	{
+		logInfo("Gameplay composition check: %lu in-level Modern frames, %lu without the panels.",
+		        regress_gameplay_frames, regress_gameplay_missing);
+		if (regress_gameplay_missing != 0)
+		{
+			logError("Gameplay composition check FAILED: %s", regress_gameplay_first);
 			exit(EXIT_FAILURE);
 		}
 	}

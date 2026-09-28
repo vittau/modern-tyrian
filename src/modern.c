@@ -86,6 +86,23 @@ static bool modern_ready = false;
 // One-shot flag set by JE_starShowVGA() just before it presents.
 static bool modern_gameplay_frame = false;
 
+// While set, every presented frame is composed as a gameplay frame.  The level
+// intro (and its palette fade) and the end-of-level animation present through
+// JE_showVGA directly, not through JE_starShowVGA, so they hold this around
+// their presentation block.  Cleared by the caller; never set by the compositor.
+static bool modern_gameplay_hold = false;
+
+// True from the level setup until the next level load starts: the level's own
+// presentation period.  Used only by the regression harness (--regress-gameplay
+// check) to assert that no in-level frame fell back to the classic full-frame
+// composition; it does not select the composition itself (the pause and in-game
+// menus present off this path and stay non-gameplay).
+static bool modern_in_level = false;
+
+// What the last modern_build_frame() actually did, for the harness assertion.
+static bool modern_last_gameplay = false;
+static bool modern_last_panels = false;
+
 // Row colours for the side panels: [left pre][right pre][left blur][right blur],
 // 3 bytes each.  Allocated by modern_set_canvas_size() for the canvas height,
 // never in the per-frame path.
@@ -269,6 +286,31 @@ float modern_aspect_ratio(void)
 void modern_mark_gameplay_frame(void)
 {
 	modern_gameplay_frame = true;
+}
+
+void modern_set_gameplay_hold(bool hold)
+{
+	modern_gameplay_hold = hold;
+}
+
+void modern_set_in_level(bool in_level)
+{
+	modern_in_level = in_level;
+}
+
+bool modern_last_frame_gameplay(void)
+{
+	return modern_last_gameplay;
+}
+
+bool modern_last_frame_gameplay_panels(void)
+{
+	return modern_last_panels;
+}
+
+bool modern_in_level_period(void)
+{
+	return modern_in_level;
 }
 
 void modern_register_pass(ModernPassFunction pass)
@@ -576,6 +618,18 @@ void modern_hud_begin_frame(void)
 	}
 }
 
+// Clears the relocated HUD panels and the message strip at a level start so the
+// level's first frames (the intro and its palette fade) cannot show a previous
+// level's HUD.  Called once per level, not per frame.
+void modern_level_reset(void)
+{
+	modern_hud_begin_frame();
+
+	if (modern_message_surface != NULL)
+		memset(modern_message_surface->pixels, 0,
+		       (size_t)modern_message_surface->pitch * (size_t)modern_message_surface->h);
+}
+
 void modern_init(void)
 {
 	// The bloom + dynamic-light pass lives in modern_bloom.c; it is the only
@@ -727,8 +781,10 @@ void modern_build_frame(SDL_Surface *src_surface)
 	frame->src_pitch = src_surface->pitch;
 	frame->palette = get_active_palette();
 
-	const bool gameplay = modern_gameplay_frame;
+	const bool gameplay = modern_gameplay_frame || modern_gameplay_hold;
 	modern_gameplay_frame = false;
+	modern_last_gameplay = gameplay;
+	modern_last_panels = false;
 
 	modern_last_kind = MODERN_FRAME_BLUR;
 	modern_last_split_l = modern_last_split_r = 0;
@@ -749,6 +805,7 @@ void modern_build_frame(SDL_Surface *src_surface)
 		// Panel mode: copy only the playfield rectangle (the original sidebar and
 		// bottom strip are dropped) and lay the HUD out in the freed columns and
 		// the message strip below the playfield.
+		modern_last_panels = true;
 		const int playfield_x = (frame->w - MODERN_PLAYFIELD_W) / 2;
 		const int copy_w = MIN((int)src_surface->w, MODERN_PLAYFIELD_W);
 		const int copy_h = MIN(MIN((int)src_surface->h, frame->h), MODERN_PLAYFIELD_H);
