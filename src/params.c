@@ -106,6 +106,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 290, 0,   "light-tag-stats",   false },
 		{ 291, 0,   "light-threshold",   true },
 		{ 292, 0,   "regress-script",    true },
+		{ 298, 0,   "regress-seed",      true },
 		
 		{ 0, 0, NULL, false }
 	};
@@ -152,6 +153,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
 			logInfo("                               (reaches script-driven screens such as WARNING)");
+			logInfo("  --regress-seed=N             Pin the RNG seed for a reproducible regress run");
 			logInfo("  --regress-frames=N           Cap a --regress-level run at N frames");
 			logInfo("  --regress-out=FILE           Write per-frame hashes to FILE (regress modes)");
 			logInfo("  --regress-state-out=FILE     Write per-frame game-state hashes to FILE");
@@ -578,7 +580,12 @@ void JE_paramCheck(int argc, char *argv[])
 			}
 			break;
 		}
-			
+
+		case 298: // --regress-seed=N
+			regress_seed = strtoul(option.arg, NULL, 0);
+			regress_seed_set = 1;
+			break;
+
 		default:
 			assert(false);
 			break;

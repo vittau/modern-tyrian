@@ -2128,7 +2128,11 @@ draw_player_shot_loop_end:
 				if (playDemo || normalBonusLevelCurrent || bonusLevelCurrent)
 					reallyEndLevel = true;
 				else
-					JE_dString(VGAScreen, 120, 60, miscText[21], FONT_SHAPES); // game over
+					// Centre "GAME OVER" on the playfield, not the whole 320-px
+					// frame: the Modern side panels drop the classic sidebar, so
+					// a frame-centred x drifts right (display-only; Classic and
+					// Modern 4:3 keep the original x).
+					JE_dString(VGAScreen, modern_playfield_center_x(miscText[21], FONT_SHAPES, 120), 60, miscText[21], FONT_SHAPES); // game over
 
 				if (firstGameOver)
 				{

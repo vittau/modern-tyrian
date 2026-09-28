@@ -49,6 +49,8 @@
 // two modes share the same deterministic RNG stream shape.
 static const unsigned long scenario_seed = 32402394;
 
+int regress_seed_set = 0;
+unsigned long regress_seed = 0;
 int regress_demo = 0;
 int regress_scenario_episode = 0;
 int regress_scenario_level = 0;
@@ -752,6 +754,15 @@ void regress_init(void)
 		modern_bloom_quality = regress_bloom_quality >= 0 ? (ModernQuality)regress_bloom_quality : MODERN_QUALITY_OFF;
 		modern_lighting_quality = MODERN_QUALITY_OFF;
 	}
+
+	// --regress-seed pins the RNG for a regress run.  Demo playback and the
+	// synthetic scenarios have their own fixed streams, but a --regress-script
+	// run otherwise inherits main()'s time(NULL) seed, which makes it
+	// irreproducible; the option lets such a run (e.g. a scripted death that
+	// reaches the !playDemo GAME OVER) be a stable baseline.  Regress-only and
+	// opt-in: it never affects a normal game.
+	if (regress_seed_set)
+		mt_srand(regress_seed);
 
 	JE_initProcessorType();
 

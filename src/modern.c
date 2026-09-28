@@ -19,6 +19,7 @@
 #include "modern.h"
 
 #include "config.h"
+#include "fonthand.h"
 #include "logging.h"
 #include "modern_bloom.h"
 #include "opentyr.h"
@@ -576,6 +577,25 @@ bool modern_hud_in_panels(void)
 int modern_side_panel_width(void)
 {
 	return modern_hud_in_panels() ? modern_hud_panel_w : 0;
+}
+
+// game_screen x of the playfield's left column.  The presentation copies game
+// x 24..287 (264 px) into the 8-bit frame's playfield window (the classic 24-px
+// left margin and the 32-px right sidebar are dropped); the Modern compositor
+// then keeps only that window.  Kept here rather than as a call-site constant.
+#define MODERN_PLAYFIELD_GAME_X 24
+
+int modern_playfield_center_x(const char *s, unsigned int font, int classic_x)
+{
+	// Classic (and Modern 4:3, which has no side panels) shows the full 320-px
+	// frame, so the game's own x is left untouched and stays byte-exact.
+	if (!modern_hud_in_panels())
+		return classic_x;
+
+	// Panel mode drops the classic sidebar and centres the playfield, so a text
+	// the game centred on the 320-px frame must be re-centred by its measured
+	// width within the playfield.
+	return MODERN_PLAYFIELD_GAME_X + (MODERN_PLAYFIELD_W - JE_textWidth(s, font)) / 2;
 }
 
 SDL_Surface *modern_hud_surface(int player)
