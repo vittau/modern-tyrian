@@ -170,6 +170,21 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - "Add to Steam" a partir do Desktop Mode, com um passo a passo no README;
   - logs num lugar fácil de achar;
   - desempenho a 60/90 Hz na tela do Deck.
+- [ ] **Controle analógico bom no gamepad/Steam Deck (pedido do usuário, 2026-09-28).** Faz parte do suporte ao Deck.
+  - **Zona morta** configurável de 0% a 20% do curso do stick.
+  - **Velocidade progressiva:** do fim da zona morta até 75% de input, a velocidade da nave cresce com a inclinação: devagar com pouco input, rápido com muito. Acima de 75% (medido de forma linear), velocidade máxima.
+  - **Botões:** um padrão razoável de fábrica e todos remapeáveis.
+
+  O que o código já faz:
+  - o analógico já é real e proporcional: `joystick_axis_reduce()` (`src/joystick.c`) tira o `threshold` (em passos de 1000/32767, ~3%) e divide pela `sensitivity`;
+  - o resultado soma no mesmo acumulador do mouse (`mouseXC`/`mouseYC` em `src/mainint.c`), limitado a ±30 e aplicado como `(mouseXC ± 3) / 4` px por tick.
+
+  A curva nova substitui essa redução só no **Modern**; o Classic fica byte-exact. É preciso conferir:
+  - se a zona morta deve ser radial em vez de por eixo;
+  - que o teto da curva (100% da velocidade) é o mesmo máximo de hoje, sem deixar a nave mais rápida que no original;
+  - se o menu de configuração de controles existente já remapeia os botões do gamepad SDL3 e grava no config.
+
+  Os ajustes (zona morta e, se fizer sentido, o ponto de 75%) entram em Setup, com opções de linha de comando para os testes.
 - [ ] **Filtro CRT (futuro, pedido do usuário, 2026-09-28).** NTSC/Composite baseado no Blargg (`snes_ntsc`) mais scanlines. Referências do próprio usuário:
   - `/Users/vitor/git/deadly-dave`. Tem uma porta escalar em C99 do `snes_ntsc` (`ntsc.c`, `include/ntsc.h`) e `filter.c`, com os modos OFF/SCANLINES/NTSC/BOTH. Nas scanlines, a faixa escura é meia linha do jogo, ou seja, 320×200 filtrado como numa tela de 640×400, e a atenuação é ponderada pela luminância. O NTSC alarga a imagem 7/3. A tabela de ~16 MB é montada sob demanda na primeira ativação. A teoria está em `docs/CRT.md`, e os testes em `tests/test_filter.c`.
   - `/Users/vitor/git/antivirus-95`. `src/crt-filter.ts` é uma passada estilo crt-geom. **Decisão do usuário:** sem curvatura (geom) e sem máscara; a vinheta pode entrar.
@@ -489,3 +504,13 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 ### 2026-09-28 — Steam Deck no roadmap
 - O usuário definiu o suporte a Steam Deck como prioridade: build Linux em `.tar.gz` com o binário direto (sem AppImage). Item na Fase 2 (§6). Entra na fila logo depois do lote atual, junto com o README, que ganha a seção de instalação no Deck.
 - Também entrou no roadmap, para o futuro: filtro CRT com NTSC/Composite (Blargg) e scanlines, com referências em `deadly-dave` e `antivirus-95` (§6).
+
+### 2026-09-28 — Pause, muzzle, HUD de vidro e estrelas a 25%; falha rara da CI resolvida
+- Integrados em `modernization`:
+  - pausa (P), menu (ESC) e ajuda (F1) mantêm o HUD Modern nas laterais, com "PAUSED" centralizado no campo de jogo; novo caso de regressão abre o menu no último quadro (`7fd7a72`);
+  - flash do tiro centralizado no sprite visível do projétil, da nave e dos inimigos (`7f4593d`);
+  - barras verticais com gradiente como o `JE_dBar3` do original e painéis laterais de "vidro" (fundo desfocado a 68%–32%) com sombra de 1 px sob o texto (`ab66dae`);
+  - estrelas do fundo a 25% da velocidade anterior, com movimento sub-pixel, em Classic e Modern; `--starfield-speed=PERCENT` (10–100) e a chave `starfield_speed_percent` no config ajustam (`0ffde66`).
+- **Falha rara da CI no Windows:** a causa era o canvas Modern alocado com `malloc` e lido antes de ser todo escrito no quadro 0. O macOS entrega páginas zeradas e o Windows não, por isso só o quadro 0 dos casos Modern demo1 divergia, com um hash diferente a cada vez. Confirmado localmente preenchendo o canvas com 0xAA; corrigido com `calloc` (`f9f0782`).
+- O caso do menu ganhou um caso de quadros próprio para que `tools/regress.sh --update` gere o baseline dele (`19059cc`).
+- Novo pedido do usuário: controle analógico com zona morta configurável e curva progressiva até 75% (§6, Fase 2, junto do Steam Deck). O jogo já tem analógico proporcional; a curva nova fica atrás do Modern.
