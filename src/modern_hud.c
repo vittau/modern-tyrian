@@ -188,6 +188,40 @@ static void hud_text(SDL_Surface *surface, int x, int y, const char *s, unsigned
 	JE_outText(surface, x, y, s, bank, bright);
 }
 
+// JE_outText() with blit_sprite_hv() (clamped) instead of
+// blit_sprite_hv_unsafe().  Plain text is byte-identical; the difference only
+// shows when a glyph nibble plus the '~' brightness boost would overflow the
+// low nibble (see hud_draw_message_strip).  `~` toggles +4 exactly like
+// JE_outText().
+static void hud_text_clamped(SDL_Surface *surface, int x, int y, const char *s, unsigned int bank, int bright)
+{
+	int toggled = 0;
+
+	for (int i = 0; s[i] != '\0'; ++i)
+	{
+		const int sprite_id = fontMap[(unsigned char)s[i]];
+
+		switch (s[i])
+		{
+		case ' ':
+			x += 6;
+			break;
+
+		case '~':
+			toggled = (toggled == 0) ? 4 : 0;
+			break;
+
+		default:
+			if (sprite_id != -1 && sprite_exists(TINY_FONT, sprite_id))
+			{
+				blit_sprite_hv(surface, x, y, TINY_FONT, sprite_id, bank, bright + toggled);
+				x += sprite(TINY_FONT, sprite_id)->width + 1;
+			}
+			break;
+		}
+	}
+}
+
 // A procedural horizontal bar with a 1px frame, scaled to `max_value`.
 static void hud_bar(SDL_Surface *surface, int x, int y, int w, int h, uint value, uint max_value, Uint8 base)
 {
@@ -664,7 +698,14 @@ static void hud_draw_message_strip(void)
 		int x = (MODERN_PLAYFIELD_W - JE_textWidth(buf, TINY_FONT)) / 2;
 		if (x < 2)
 			x = 2;
-		hud_text(surface, x, 9, buf, HUD_NUM_BANK, 5);
+
+		// Event strings use '~' to toggle +4 (e.g. "~WARNING:~ Spikes
+		// ahead!!").  JE_outText() draws with blit_sprite_hv_unsafe(), whose
+		// low nibble is not clamped, so at this brightness the '~' peak wraps
+		// into the colour block and corrupts the glyphs ("dark with strange
+		// dots").  Draw the message with the clamped primitive instead; plain
+		// messages are byte-identical to JE_outText().
+		hud_text_clamped(surface, x, 9, buf, HUD_NUM_BANK, 5);
 	}
 }
 

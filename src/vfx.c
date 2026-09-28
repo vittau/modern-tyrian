@@ -384,30 +384,34 @@ static void vfx_burst(Sint32 cx, Sint32 cy, int sparks, int debris, int smoke, i
 	{
 		const int d = vfx_rand_range(16);
 		const int speed = 2 + vfx_rand_range(4);
+		const int life = vfx_life(4 + vfx_rand_range(5));
+		const int value = bright ? 15 : 12 + vfx_rand_range(4);
 		const Sint32 vx = (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16;
 		const Sint32 vy = (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16;
 		vfx_spawn(VFX_KIND_SPARK, cx, cy, vx, vy + VFX_FP(scroll),
-		          vfx_life(4 + vfx_rand_range(5)), VFX_HUE_FIRE,
-		          bright ? 15 : 12 + vfx_rand_range(4), 0, 0);
+		          life, VFX_HUE_FIRE, value, 0, 0);
 	}
 
 	for (int i = 0; i < debris; ++i)
 	{
 		const int d = vfx_rand_range(16);
 		const int speed = vfx_rand_range(3);
+		const int life = vfx_life(12 + vfx_rand_range(14));
+		const int value = 9 + vfx_rand_range(5);
 		const Sint32 vx = (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16;
 		const Sint32 vy = (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16;
 		vfx_spawn(VFX_KIND_DEBRIS, cx, cy, vx, vy + VFX_FP(scroll),
-		          vfx_life(12 + vfx_rand_range(14)), VFX_HUE_DEBRIS,
-		          9 + vfx_rand_range(5), 0, 0);
+		          life, VFX_HUE_DEBRIS, value, 0, 0);
 	}
 
 	for (int i = 0; i < smoke; ++i)
 	{
-		const Sint32 off = VFX_FP(vfx_rand_bipolar(5));
-		vfx_spawn(VFX_KIND_SMOKE, cx + off, cy + off, 0, VFX_FP(scroll) + VFX_FPHALF,
-		          vfx_life(18 + vfx_rand_range(16)), VFX_HUE_SMOKE,
-		          3 + vfx_rand_range(4), VFX_FP(2 + vfx_rand_range(3)), VFX_FP(1) / 6);
+		const int off = vfx_rand_bipolar(5);
+		const int life = vfx_life(18 + vfx_rand_range(16));
+		const int value = 3 + vfx_rand_range(4);
+		const int rad = 2 + vfx_rand_range(3);
+		vfx_spawn(VFX_KIND_SMOKE, cx + VFX_FP(off), cy + VFX_FP(off), 0, VFX_FP(scroll) + VFX_FPHALF,
+		          life, VFX_HUE_SMOKE, value, VFX_FP(rad), VFX_FP(1) / 6);
 	}
 
 	for (int i = 0; i < flash; ++i)
@@ -463,10 +467,12 @@ static void vfx_ev_superpixels(const VfxEvent *e)
 	{
 		const int d = vfx_rand_range(16);
 		const int speed = 1 + vfx_rand_range(3);
+		const int life = vfx_life(4 + vfx_rand_range(4));
+		const int value = 11 + vfx_rand_range(5);
 		const Sint32 vx = (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16;
 		const Sint32 vy = (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16;
 		vfx_spawn(VFX_KIND_SPARK, x, y, vx, vy,
-		          vfx_life(4 + vfx_rand_range(4)), e->hue, 11 + vfx_rand_range(5), 0, 0);
+		          life, e->hue, value, 0, 0);
 	}
 }
 
@@ -475,8 +481,12 @@ static void vfx_ev_shot(const VfxEvent *e)
 	const Sint32 x = VFX_FP(e->x);
 	const Sint32 y = VFX_FP(e->y);
 
-	// Muzzle flash at the spawn point plus a couple of sparks along the shot.
-	vfx_spawn(VFX_KIND_FLASH, x, y, 0, 0, 2, VFX_HUE_FIRE, 15,
+
+	// Muzzle flash at the shot spawn point plus a couple of sparks along the
+	// shot.  The flash carries the shot's per-tick velocity so it stays on the
+	// bullet: the player shot sprite is only drawn from the next tick, by which
+	// point the bullet has already moved one step.
+	vfx_spawn(VFX_KIND_FLASH, x, y, VFX_FP(e->vx), VFX_FP(e->vy), 2, VFX_HUE_FIRE, 15,
 	          VFX_FP((vfx_reduce_flashes || vfx_level == VFX_LOW) ? 0 : 1), 0);
 
 	int dirx = e->vx, diry = e->vy;
@@ -497,8 +507,10 @@ static void vfx_ev_shot(const VfxEvent *e)
 		}
 		vx += VFX_FP(vfx_rand_bipolar(1));
 		vy += VFX_FP(vfx_rand_bipolar(1));
+		const int life = vfx_life(3 + vfx_rand_range(3));
+		const int value = 12 + vfx_rand_range(4);
 		vfx_spawn(VFX_KIND_SPARK, x, y, vx, vy,
-		          vfx_life(3 + vfx_rand_range(3)), VFX_HUE_FIRE, 12 + vfx_rand_range(4), 0, 0);
+		          life, VFX_HUE_FIRE, value, 0, 0);
 	}
 }
 
@@ -555,10 +567,12 @@ static void vfx_ev_impact(const VfxEvent *e)
 	{
 		const int d = vfx_rand_range(16);
 		const int speed = 1 + vfx_rand_range(3);
+		const int life = vfx_life(3 + vfx_rand_range(3));
+		const int value = 12 + vfx_rand_range(4);
 		vfx_spawn(VFX_KIND_SPARK, x, y,
 		          (Sint32)((vfx_dir_x[d] * speed) >> 7) << 16,
 		          (Sint32)((vfx_dir_y[d] * speed) >> 7) << 16,
-		          vfx_life(3 + vfx_rand_range(3)), e->hue, 12 + vfx_rand_range(4), 0, 0);
+		          life, e->hue, value, 0, 0);
 	}
 }
 
@@ -653,6 +667,16 @@ static void vfx_put(Uint8 *base, int pitch, int x, int y, Uint8 index)
 		return;
 
 	base[(size_t)y * (size_t)pitch + (size_t)x] = index;
+	modern_bloom_tag_pixel(x, y);  // VFX always emit; see modern_bloom.h
+}
+
+// Translucent blend at a playfield coordinate (bounds-checked).
+static void vfx_blend_at(Uint8 *base, int pitch, int x, int y, int hue, int value)
+{
+	if ((unsigned)x >= (unsigned)VFX_PLAYFIELD_W || (unsigned)y >= (unsigned)VFX_PLAYFIELD_H)
+		return;
+
+	vfx_blend(base + (size_t)y * (size_t)pitch + (size_t)x, hue, value);
 	modern_bloom_tag_pixel(x, y);  // VFX always emit; see modern_bloom.h
 }
 
@@ -794,23 +818,37 @@ static void vfx_draw_flash(const VfxParticle *p, Uint8 *base, int pitch, Uint32 
 	int r = (int)(p->rad >> 16);
 	if (r < 0) r = 0;
 	const int value = p->value * (int)p->life / (int)p->max_life;
-	const Uint8 index = vfx_index(p->hue, value);
 
-	// A small plus/cross reads as a hot flash without becoming a blob.
-	vfx_put(base, pitch, cx, cy, index);
-	if (r >= 1)
+	// Bright core so the flash still reads as a hot point...
+	vfx_put(base, pitch, cx, cy, vfx_index(p->hue, value));
+
+	// ...with four translucent arms that fade towards the tip.  Using the
+	// engine's nibble blend keeps them soft; the old plus/cross wrote opaque
+	// pixels and its 8-point case was a solid 3x3 white square.
+	for (int i = 1; i <= r + 1; ++i)
 	{
-		vfx_put(base, pitch, cx - 1, cy, index);
-		vfx_put(base, pitch, cx + 1, cy, index);
-		vfx_put(base, pitch, cx, cy - 1, index);
-		vfx_put(base, pitch, cx, cy + 1, index);
+		const int arm = value * (r + 2 - i) / (r + 2);
+		if (arm <= 0)
+			continue;
+
+		vfx_blend_at(base, pitch, cx - i, cy, p->hue, arm);
+		vfx_blend_at(base, pitch, cx + i, cy, p->hue, arm);
+		vfx_blend_at(base, pitch, cx, cy - i, p->hue, arm);
+		vfx_blend_at(base, pitch, cx, cy + i, p->hue, arm);
 	}
+
+	// High adds short, dim diagonal tips so the burst becomes a star rather
+	// than a square; Low stays a compact cross.
 	if (r >= 2)
 	{
-		vfx_put(base, pitch, cx - 1, cy - 1, index);
-		vfx_put(base, pitch, cx + 1, cy - 1, index);
-		vfx_put(base, pitch, cx - 1, cy + 1, index);
-		vfx_put(base, pitch, cx + 1, cy + 1, index);
+		const int tip = value / 2;
+		if (tip > 0)
+		{
+			vfx_blend_at(base, pitch, cx - 1, cy - 1, p->hue, tip);
+			vfx_blend_at(base, pitch, cx + 1, cy - 1, p->hue, tip);
+			vfx_blend_at(base, pitch, cx - 1, cy + 1, p->hue, tip);
+			vfx_blend_at(base, pitch, cx + 1, cy + 1, p->hue, tip);
+		}
 	}
 }
 

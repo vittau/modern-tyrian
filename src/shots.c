@@ -503,8 +503,10 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 
 		shotRepeat[bay_i] = weapon->shotrepeat;
 
-		// Read-only VFX hook: muzzle flash at the shot spawn.
-		vfx_event_shot(shot->shotX, shot->shotY, shot->shotXM, shot->shotYM);
+		// Read-only VFX hook: muzzle flash at the shot spawn.  +1 matches the
+		// sprite column player_shot_move_and_draw() draws the shot at, so the
+		// flash and the bullet share the same origin.
+		vfx_event_shot(shot->shotX + 1, shot->shotY, shot->shotXM, shot->shotYM);
 	}
 
 	return shot_id;

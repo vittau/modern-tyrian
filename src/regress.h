@@ -46,6 +46,7 @@
 extern int regress_demo;              // 0 = disabled, 1..5 = demo to replay
 extern int regress_scenario_episode;  // 0 = disabled, 1..4 = episode to start
 extern int regress_scenario_level;    // lvlFileNum within that episode (1-based)
+extern int regress_script;            // non-zero = run the episode script to reach the level
 extern int regress_frames;            // scenario length cap; 0 = run to the end
 extern const char *regress_out_path;  // where frame hashes are written
 extern int regress_detail;            // processorType to use (1..6)
@@ -77,6 +78,11 @@ bool regress_realtime_active(void);
 
 // True when a synthetic level scenario was requested.
 bool regress_scenario_active(void);
+
+// True when the level should be reached through the episode script
+// (--regress-script): the script's own screens (WARNING text, item screen, ...)
+// are then drawn and captured, instead of jumping straight to the level.
+bool regress_script_active(void);
 
 // True when --regress-screen was requested: draw one non-gameplay screen into a
 // deterministic state, present --regress-frames frames and exit.  The harness
