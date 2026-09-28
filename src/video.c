@@ -18,6 +18,7 @@
  */
 #include "video.h"
 
+#include "drawlist.h"
 #include "keyboard.h"
 #include "logging.h"
 #include "modern.h"
@@ -365,6 +366,7 @@ bool set_scaling_mode_by_name(const char *name)
 
 void JE_clr256(SDL_Surface *screen)
 {
+	drawlist_record_fill_full(screen);
 	SDL_FillSurfaceRect(screen, NULL, 0);
 
 	// A cleared presented screen no longer shows the tracked backdrop; the

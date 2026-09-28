@@ -56,6 +56,7 @@ extern const char *regress_state_out_path;  // where per-frame state hashes are 
 extern int regress_players;           // players to start a scenario with (1 or 2)
 extern int regress_arcade;            // non-zero = start a scenario in 1-player arcade mode
 extern const char *regress_screen;    // non-NULL = render one non-gameplay screen and exit
+extern int regress_replay_check;      // non-zero = record and replay-check every level frame
 
 // True when regress mode was requested.
 bool regress_active(void);
