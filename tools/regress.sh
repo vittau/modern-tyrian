@@ -125,6 +125,11 @@ if [ "$UPDATE_MANIFEST" -eq 1 ]; then
 	tmp="$MANIFEST.tmp"
 	print_manifest_header > "$tmp"
 	while read -r size crc name; do
+		# A checkout with CRLF (e.g. Windows git autocrlf) leaves a stray \r
+		# on the name; .gitattributes forces LF, but stay robust anyway.
+		size=${size%$'\r'}
+		crc=${crc%$'\r'}
+		name=${name%$'\r'}
 		case "$size" in ''|'#'*) continue ;; esac
 		if [ ! -f "$DATA_DIR/$name" ]; then
 			echo "missing: $name" >&2
@@ -145,6 +150,11 @@ fi
 
 bad_data=0
 while read -r size crc name; do
+	# See the note in the --update-manifest loop: strip a stray \r so the lock
+	# still works if a CRLF checkout slips through on Windows.
+	size=${size%$'\r'}
+	crc=${crc%$'\r'}
+	name=${name%$'\r'}
 	case "$size" in ''|'#'*) continue ;; esac
 
 	if [ ! -f "$DATA_DIR/$name" ]; then
