@@ -1,33 +1,36 @@
-/*
- *  Copyright (C) 2002-2010  The DOSBox Team
- *  OPL2/OPL3 emulation library
+/* 
+ * OpenTyrian: A modern cross-platform port of Tyrian
+ * Copyright (C) The OpenTyrian Development Team
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation; either
- *  version 2.1 of the License, or (at your option) any later version.
- * 
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
- * 
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-
 #ifndef OPL_H
 #define OPL_H
-/*
- * Originally based on ADLIBEMU.C, an AdLib/OPL2 emulation library by Ken Silverman
- * Copyright (C) 1998-2001 Ken Silverman
- * Ken Silverman's official web site: "http://www.advsys.net/ken"
- */
 
 #include "loudness.h"
 
 #include <stdint.h>
+
+/*
+ * AdLib/OPL2 music interface used by the LDS player (src/lds_play.c).
+ *
+ * The implementation (src/opl.c) drives the vendored Nuked-OPL3 emulator in
+ * OPL2-compatible mode at the chip's native rate (49716 Hz) and converts its
+ * output to the mixer's rate with the streaming band-limited resampler
+ * (src/resampler.c).
+ */
 
 typedef uintptr_t	Bitu;
 typedef intptr_t	Bits;
@@ -42,9 +45,6 @@ typedef int8_t		Bit8s;
 void adlib_init(Bit32u samplerate);
 void adlib_write(Bitu idx, Bit8u val);
 void adlib_getsample(Bit16s* sndptr, Bits numsamples);
-
-Bitu adlib_reg_read(Bitu port);
-void adlib_write_index(Bitu port, Bit8u val);
 
 #define opl_init() adlib_init(audioSampleRate)
 #define opl_write(reg, val) adlib_write(reg, val)
