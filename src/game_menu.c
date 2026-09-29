@@ -23,6 +23,7 @@
 #include "episodes.h"
 #include "file.h"
 #include "fonthand.h"
+#include "game_rules.h"
 #include "game_schema.h"
 #include "joystick.h"
 #include "keyboard.h"
@@ -852,14 +853,17 @@ void JE_itemScreen(void)
 			}
 			else if (superArcadeMode != SA_NONE || superTyrian)
 			{
+				// superShips: header, one name per arcade ship, then three labels.
+				const unsigned int arcadeShips = gameRules()->arcade->ship_count;
+
 				if (!superTyrian)
 					JE_helpBox(VGAScreen, 35, 25, superShips[superArcadeMode], 18, 7, 15, 4, FULL_SHADE);
 				else
-					JE_helpBox(VGAScreen, 35, 25, superShips[SA+3], 18, 7, 15, 4, FULL_SHADE);
+					JE_helpBox(VGAScreen, 35, 25, superShips[arcadeShips+3], 18, 7, 15, 4, FULL_SHADE);
 
-				JE_textShade(VGAScreen, 25, 50, superShips[SA+1], 15, 0, FULL_SHADE);
+				JE_textShade(VGAScreen, 25, 50, superShips[arcadeShips+1], 15, 0, FULL_SHADE);
 				JE_helpBox(VGAScreen,   25, 60, weaponPort[player[0].items.weapon[FRONT_WEAPON].id].name, 22, 7, 12, 1, FULL_SHADE);
-				JE_textShade(VGAScreen, 25, 120, superShips[SA+2], 15, 0, FULL_SHADE);
+				JE_textShade(VGAScreen, 25, 120, superShips[arcadeShips+2], 15, 0, FULL_SHADE);
 				JE_helpBox(VGAScreen,   25, 130, special[player[0].items.special].name, 22, 7, 12, 1, FULL_SHADE);
 			}
 			else

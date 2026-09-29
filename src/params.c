@@ -34,6 +34,7 @@
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "regress_rules.h"
 #include "vfx.h"
 #include "xmas.h"
 
@@ -63,6 +64,8 @@ const Options *JE_paramOptions(void)
 		{ PARAM_VARIANT, 0, "variant",    true },
 		{ PARAM_REGRESS_USER_ROOT, 0, "regress-user-root", true },
 		{ PARAM_REGRESS_USER_FILES, 0, "regress-user-files", false },
+		{ PARAM_INSTALL_2000, 0, "install-2000", true },
+		{ PARAM_INSTALL_2000_SPEC, 0, "install-2000-spec", true },
 		
 		{ 'n', 'n', "net",               true },
 		{ 256, 0,   "net-player-name",   true }, // TODO: no short codes because there should
@@ -119,6 +122,7 @@ const Options *JE_paramOptions(void)
 		{ 301, 0,   "regress-smooth-effects-check", false },
 		{ 311, 0,   "regress-front-weapon", true },
 		{ 312, 0,   "regress-front-power",  true },
+		{ 320, 0,   "regress-rules",        true },
 		{ 350, 0,   "regress-loadout",  true },
 		
 		{ 305, 0,   "deadzone",          true },
@@ -177,6 +181,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --variant=2.1|2000           Select variant for automation/testing (2000 unavailable)");
 			logInfo("  --regress-user-root=DIR      Enable user files only in DIR for a regress run");
 			logInfo("  --regress-user-files         Load/save configs and saves, then exit (requires DIR)");
+			logInfo("  --install-2000=WHAT          Install the Tyrian 2000 data headless and exit (0 ok, 1 failed):");
+			logInfo("                               download, a tyrian2000.zip, a folder, or detect");
+			logInfo("  --install-2000-spec=FILE     Test only: synthetic archive size/SHA-256/manifest for --install-2000");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
@@ -244,6 +251,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-reverse-y          Regress only: force the reverse-controls smoothie on");
 			logInfo("  --regress-front-weapon=N      Regress only: front weapon id (0-42) for --regress-script");
 			logInfo("  --regress-front-power=N       Regress only: front weapon power (1-11) for --regress-script");
+			logInfo("  --regress-rules=NAME          Code-owned gameplay fixture: events, spawn, sidekicks, twiddle, punch");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -267,6 +275,9 @@ void JE_paramCheck(int argc, char *argv[])
 		case PARAM_VARIANT:
 		case PARAM_REGRESS_USER_ROOT:
 		case PARAM_REGRESS_USER_FILES:
+		// Run by main() before video init (installerRunCli).
+		case PARAM_INSTALL_2000:
+		case PARAM_INSTALL_2000_SPEC:
 			break;
 			
 		case 'n':
@@ -686,6 +697,10 @@ void JE_paramCheck(int argc, char *argv[])
 			break;
 		}
 
+		case 320: // --regress-rules=events|spawn|sidekicks|twiddle|punch
+			regress_rule_fixture = option.arg;
+			break;
+
 		case 350: // --regress-loadout=widest
 			if (strcmp(option.arg, "widest") != 0)
 			{
@@ -759,6 +774,12 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 	}
 	
+	if (regress_rule_fixture != NULL && !regress_scenario_active())
+	{
+		logError("%s: --regress-rules requires --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
 	if ((regress_demo != 0 || regress_scenario_episode != 0) && regress_audio)
 	{
 		logError("%s: --regress-audio cannot be combined with --regress-demo/--regress-level", argv[0]);

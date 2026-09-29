@@ -19,7 +19,6 @@
 #include "game_schema.h"
 
 #include "config.h"
-#include "logging.h"
 #include "sndmast.h"
 
 #include <stddef.h>
@@ -54,10 +53,6 @@ static const char enemyShapeFiles2000[36] =
 static const uint8_t picturePalette21[13] = { 0, 7, 5, 8, 10, 5, 18, 19, 19, 20, 21, 22, 5 };
 static const uint8_t picturePalette2000[14] = { 0, 7, 5, 8, 10, 5, 18, 19, 19, 20, 21, 22, 5, 23 };
 
-// Events 58, 59, 68 (replaced), 83, 84, 85 and 99 have Tyrian 2000 rules that
-// Phase 3b implements.  Until then they do nothing.
-static const uint8_t deferredEvents2000[] = { 58, 59, 68, 83, 84, 85, 99 };
-
 const GameDataSchema gameDataSchema21 =
 {
 	{ 780, 42, 6, 13, 30, 10, 850 },
@@ -70,8 +65,7 @@ const GameDataSchema gameDataSchema21 =
 	13, 23, picturePalette21,
 	29, VOICE_COUNT, soundTitle21,
 	131,
-	0, 0, 0,
-	NULL, 0
+	0, 0, 0
 };
 
 const GameDataSchema gameDataSchema2000 =
@@ -86,8 +80,7 @@ const GameDataSchema gameDataSchema2000 =
 	14, 24, picturePalette2000,
 	31, VOICE_COUNT, soundTitle2000,
 	126,
-	10, 10, 3,
-	deferredEvents2000, sizeof deferredEvents2000
+	10, 10, 3
 };
 
 // Unused setup blocks of the 2000 HDT: counts of strings, skipped structurally.
@@ -194,26 +187,6 @@ const GameStringSchema gameStringSchema2000 =
 	{ 48, 49, 66, 70 },
 	&gameUiTables2000
 };
-
-bool gameEventDeferred(unsigned int eventType)
-{
-	static bool logged[256];
-	const GameDataSchema *schema = gameSchema();
-
-	for (size_t i = 0; i < schema->deferred_event_count; ++i)
-	{
-		if (schema->deferred_events[i] != eventType)
-			continue;
-		if (!logged[eventType])
-		{
-			logged[eventType] = true;
-			logWarn("Level event %u is not implemented for %s yet (Phase 3b); skipping it.",
-			        eventType, gameVariantCurrent()->display_name);
-		}
-		return true;
-	}
-	return false;
-}
 
 const GameDataSchema *gameSchema(void)
 {

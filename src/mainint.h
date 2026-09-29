@@ -56,7 +56,6 @@ void JE_highScoreCheck(void);
 void adjust_difficulty(void);
 
 void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer mouseX_, JE_integer mouseY_);
-void JE_sort(void);
 
 long weapon_upgrade_cost(long base_cost, unsigned int power);
 ulong JE_getCost(JE_byte itemType, JE_word itemNum);

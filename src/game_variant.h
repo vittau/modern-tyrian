@@ -24,6 +24,7 @@
 
 struct GameDataSchema;
 struct GameStringSchema;
+struct GameRules;
 
 typedef enum
 {
@@ -41,7 +42,8 @@ typedef struct
 	uint8_t episode_count, demo_count;
 	const struct GameDataSchema *data_schema;
 	const struct GameStringSchema *string_schema;
-	// UI and rule tables arrive in Phase 3b/3c.
+	const struct GameRules *rules;
+	// UI tables arrive in Phase 3c.
 } GameVariantDef;
 
 typedef enum

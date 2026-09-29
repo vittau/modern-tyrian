@@ -110,6 +110,9 @@ typedef struct
 
 extern VariantHighScore variantHighScores[VARIANT_SCORE_BOARDS][VARIANT_SCORE_ENTRIES];
 
+// GameVariant last started from the launcher (opentyrian.cfg), or -1.
+extern int launcherLastVariant;
+
 extern const KeySettings defaultKeySettings;
 extern JE_boolean smoothies[9];
 extern JE_byte starShowVGASpecialCode;
@@ -147,6 +150,7 @@ extern JE_boolean galagaMode;
 extern JE_boolean extraGame;
 extern JE_boolean twoPlayerMode, twoPlayerLinked, onePlayerAction, superTyrian, trentWin;
 extern JE_byte superArcadeMode;
+extern bool timedBattleMode;  // Tyrian 2000 Timed Battle (Phase 4); false in every other mode
 extern JE_byte superArcadePowerUp;
 extern JE_real linkGunDirec;
 extern JE_byte inputDevice[2];

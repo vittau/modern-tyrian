@@ -50,6 +50,7 @@
 #include "config.h"
 #include "config_file.h"
 #include "fonthand.h"
+#include "game_rules.h"
 #include "helptext.h"
 #include "keyboard.h"
 #include "loudness.h"
@@ -738,7 +739,8 @@ static void JE_destructMain(void)
 static void JE_introScreen(void)
 {
 	memcpy(VGAScreen2->pixels, VGAScreen->pixels, VGAScreen2->h * VGAScreen2->pitch);
-	JE_outText(VGAScreen, JE_fontCenter(specialName[7], TINY_FONT), 90, specialName[7], 12, 5);
+	const char *const destructName = specialName[gameRules()->arcade->destruct_code - 1];
+	JE_outText(VGAScreen, JE_fontCenter(destructName, TINY_FONT), 90, destructName, 12, 5);
 	JE_outText(VGAScreen, JE_fontCenter(miscText[64], TINY_FONT), 180, miscText[64], 15, 2);
 	JE_outText(VGAScreen, JE_fontCenter(miscText[65], TINY_FONT), 190, miscText[65], 15, 2);
 	JE_showVGA();

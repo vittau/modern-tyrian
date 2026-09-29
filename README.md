@@ -40,6 +40,15 @@ campaign, one- and two-player arcade modes, and networked play.
 | Windows (x86_64 / arm64) | `opentyrian-<version>-windows-x86_64.zip`, `…-arm64.zip` | unzip, then `opentyrian.exe` |
 | macOS (universal, Intel + Apple silicon) | `opentyrian-<version>-macos-universal.zip` | unzip, then open `OpenTyrian.app` |
 
+Every normal start opens the built-in launcher. Select **Tyrian 2.1** or
+**Tyrian 2000** with Left/Right and Enter, the gamepad's d-pad/left stick and A,
+or the mouse; Esc/B exits. The last choice only preselects a panel. The 2000
+panel shows **INSTALL** until its separate data validates; for now that button
+explains where to place the data. Set `TYRIAN2000_DATA` to your data directory,
+or place it in `tyrian2000/` beside the executable. About shows the data paths.
+`--variant=2.1` or `--variant=2000` skips the launcher for automation; regression
+and selftest runs also skip it. Tyrian 2000 data is never included in releases.
+
 The Linux binaries are statically linked against SDL3 and only need glibc, so
 they run as-is on SteamOS, Arch, Fedora and Debian. On a Deck, see the
 **Steam Deck** section below.
@@ -64,9 +73,9 @@ Saved games, configuration and logs are kept in one place:
 
 | File | Contents |
 | --- | --- |
-| `opentyrian.cfg` | presentation, aspect, scaling and input settings |
+| `opentyrian.cfg` | presentation, aspect, scaling, input settings and launcher preselection |
 | `tyrian.cfg` | in-game options and key/button bindings |
-| `tyrian.sav` | saved games |
+| `tyrian21/tyrian.sav`, `tyrian2000/tyrian.sav` | separate saved games and scores |
 | `opentyrian.log` | log (written automatically on a Steam Deck) |
 
 If an `opentyrian.cfg` exists **next to the executable**, the files are kept
@@ -539,6 +548,20 @@ The three CI workflows run `make regress` on Linux (x86_64 and arm64), macOS and
 Windows (x86_64 and arm64) after each build, and the full
 `make regress-replay`/`make regress-interp` sweeps run in the manually triggered
 `regress-full` workflow.
+
+The same jobs then run the Tyrian 2000 suite (`make regress-2000`, baselines in
+`test/regress-2000/`). Its data is never stored, cached or published: each run
+downloads the archive from the author's site with
+`tools/fetch_t2000_data.sh "$RUNNER_TEMP/tyrian2000"`, which checks its exact
+size and SHA-256, extracts it safely outside the checkout, verifies
+`test/regress-2000/data-manifest.txt` and only then renames it into place. A
+failed download or check fails the job, and the release packages contain only
+the Tyrian 2.1 data. To run the suite by hand:
+
+```bash
+tools/fetch_t2000_data.sh /path/outside/the/checkout/tyrian2000
+make regress-2000 TYRIAN2000_DATA=/path/outside/the/checkout/tyrian2000
+```
 
 ## <img src="docs/readme/h-credits.svg" alt="Credits and licence" width="100%">
 

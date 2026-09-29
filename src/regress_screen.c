@@ -34,7 +34,7 @@
 #include "fonthand.h"
 #include "game_menu.h"
 #include "game_schema.h"
-#include "high_scores.h"
+#include "highscores.h"
 #include "joystick.h"
 #include "jukebox.h"
 #include "keyboard.h"
@@ -283,7 +283,7 @@ void regress_screen_run(void)
 	player[0].cash = 12345;
 
 	seed_high_scores();
-	highScoresSortSuffix();  // the game sorts after loading a save
+	highScoreSortAll();  // the game sorts after loading a save
 	seed_save_slots();
 
 	// The data-cube screens read cubeMax/cubeList (normally set from a save or

@@ -60,7 +60,7 @@ void networkStartScreen(void);
 bool titleScreen(void);
 bool newGame(void);
 bool newSuperArcadeGame(unsigned int i);
-void newSuperTyrianGame(void);
+bool newSuperTyrianGame(void);
 void JE_readTextSync(void);
 void JE_displayText(void);
 
