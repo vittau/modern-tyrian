@@ -21,6 +21,8 @@
 #include "config.h"
 #include "drawlist.h"
 #include "episodes.h"
+#include "fonthand.h"
+#include "game_schema.h"
 #include "interp.h"
 #include "joystick.h"
 #include "keyboard.h"
@@ -90,6 +92,53 @@ int regress_reverse_y = 0;
 // on the --regress-script path.
 int regress_front_weapon = -1;
 int regress_front_power = -1;
+int regress_loadout_widest = 0;
+
+// Width of an item name as the HUD draws it: the data pads names with spaces.
+static int trimmed_name_width(const char *name)
+{
+	char copy[64];
+	size_t n = strlen(name);
+
+	while (n > 0 && name[n - 1] == ' ')
+		--n;
+	n = MIN(n, sizeof copy - 1);
+	memcpy(copy, name, n);
+	copy[n] = '\0';
+	return JE_textWidth(copy, TINY_FONT);
+}
+
+// The two widest of `count` items (ids 1..count) by name, best first.
+#define WIDEST_TWO(best, second, count, name_of) \
+	do { \
+		int best_w = -1, second_w = -1; \
+		for (unsigned int id_ = 1; id_ <= (count); ++id_) \
+		{ \
+			const int w_ = trimmed_name_width(name_of(id_)); \
+			if (w_ > best_w) { second = best; second_w = best_w; best = id_; best_w = w_; } \
+			else if (w_ > second_w) { second = id_; second_w = w_; } \
+		} \
+	} while (0)
+
+#define PORT_NAME(id) (weaponPort[id].name)
+#define OPTION_NAME(id) (options[id].name)
+#define POWER_NAME(id) (powerSys[id].name)
+
+static void apply_widest_loadout(PlayerItems *items)
+{
+	unsigned int port = 1, port2 = 1, side = 1, side2 = 1, gen = 1, unused = 1;
+
+	WIDEST_TWO(port, port2, gameSchema()->port_max, PORT_NAME);
+	WIDEST_TWO(side, side2, gameSchema()->sidekick_max, OPTION_NAME);
+	WIDEST_TWO(gen, unused, gameSchema()->generator_max, POWER_NAME);
+	(void)unused;
+
+	items->weapon[FRONT_WEAPON].id = (JE_byte)port;
+	items->weapon[REAR_WEAPON].id = (JE_byte)port2;
+	items->sidekick[LEFT_SIDEKICK] = (JE_byte)side;
+	items->sidekick[RIGHT_SIDEKICK] = (JE_byte)side2;
+	items->generator = (JE_byte)gen;
+}
 
 void regress_apply_loadout(void)
 {
@@ -616,6 +665,8 @@ void regress_capture_modern_frame(void)
 	const ModernFrame *frame = modern_current_frame();
 	if (frame == NULL || frame->pixels == NULL)
 		return;
+	if (regress_screen != NULL)
+		regress_screen_verify_mapping();
 
 	const bool write_frame = regress_out != NULL;
 	Uint64 hash = fnv_offset_basis;
@@ -725,6 +776,16 @@ void regress_begin_scenario(void)
 		player[1].weapon_mode = 2;
 		player[1].cash = 6789;
 		player[1].last_items = player[1].items;
+	}
+
+	if (regress_loadout_widest)
+	{
+		apply_widest_loadout(&player[0].items);
+		if (regress_players == 2)
+		{
+			apply_widest_loadout(&player[1].items);
+			player[1].last_items = player[1].items;
+		}
 	}
 
 	player[0].last_items = player[0].items;

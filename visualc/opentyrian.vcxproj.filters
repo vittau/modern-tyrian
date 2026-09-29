@@ -146,6 +146,9 @@
     <ClCompile Include="..\src\mouse.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\mouse_buttons.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\mtrand.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -373,6 +376,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\mouse.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\mouse_buttons.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\mtrand.h">

@@ -40,6 +40,7 @@
 #include "modern.h"
 #include "modern_hud.h"
 #include "mouse.h"
+#include "mouse_buttons.h"
 #include "mtrand.h"
 #include "musmast.h"
 #include "network.h"
@@ -1081,13 +1082,19 @@ void JE_sortHighScores(void)
 
 void JE_highScoreScreen(void)
 {
+	JE_highScoreScreenAt(0);
+}
+
+// The screen opened on page `first_page` (the regression harness picks one).
+void JE_highScoreScreenAt(size_t first_page)
+{
 	if (shopSpriteSheet.data == NULL)
 		JE_loadCompShapes(&shopSpriteSheet, '1');  // need mouse pointer and arrow sprites
 
 	bool restart = true;
 
-	size_t episodeIndex = 0;
-	// Only the episodes that have boards in the save file.
+	size_t episodeIndex = first_page < highScoreEpisodes() ? first_page : 0;
+	// Only the episodes that have boards in the save (3 in 2.1, 5 in Tyrian 2000).
 	const size_t episodeCount = highScoreEpisodes();
 
 	const int xCenter = 320 / 2;
@@ -3599,9 +3606,7 @@ redo:
 				/* mouse input */
 				if ((inputDevice == 0 || inputDevice == 2) && has_mouse)
 				{
-					button[0] |= (mouseButtonsDown & SDL_BUTTON_LMASK) != 0;
-					button[1] |= (mouseButtonsDown & SDL_BUTTON_RMASK) != 0;
-					button[2] |= (mouseButtonsDown & (mouse_has_three_buttons ? SDL_BUTTON_MMASK : SDL_BUTTON_RMASK)) != 0;
+					mouse_buttons_to_player(mouseButtonsDown, button);
 
 					Sint32 mouseXR;
 					Sint32 mouseYR;

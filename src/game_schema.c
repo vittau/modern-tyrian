@@ -18,6 +18,7 @@
  */
 #include "game_schema.h"
 
+#include "config.h"
 #include "sndmast.h"
 
 #include <stddef.h>
@@ -94,6 +95,71 @@ static const uint8_t gameplayChoices2000[] =
 	GAMEPLAY_FULL_GAME, GAMEPLAY_ARCADE, GAMEPLAY_TIMED_BATTLE, GAMEPLAY_ARCADE_2P, GAMEPLAY_NETWORK
 };
 
+
+// UI policies adapted from KScl/opentyrian2000 aad5aca (GPL-2.0), including
+// 26f40e7's mouse menu and rear-mode preview.  Keep our rebuilt joystick rows.
+// Menu topology.  Row numbers are selection numbers (the first entry is row 2).
+// Tyrian 2000 adds a Mouse row to both options menus and a mouse settings menu
+// (menu 14), so its options menu has 9 rows, its limited options menu 7 and the
+// mouse menu 6.  The fork keeps 6 rows for the limited menu, which hides "Done"
+// and leaves the new row and the volume rows at each other's numbers; here every
+// row is drawn and every label goes to its own action.
+static const GameUiTables gameUiTables21 =
+{
+	// menu_choices
+	{ 7, 9, 8, 0, 0, 11, SAVE_FILES_NUM / 2 + 2, 0, 0, 6, 4, 6, 7, 5, 0 },
+	// menu_esc
+	{ 0, 1, 1, 1, 2, 3, 3, 1, 8, 0, 0, 11, 3, 0, 0 },
+	// mouse_row_height
+	{ 16, 16, 16, 16, 26, 12, 11, 28, 0, 16, 16, 16, 8, 16, 0 },
+	// menu_help
+	{
+		{  1, 34,  2,  3,  4,  5,  0, 0, 0, 0, 0 },
+		{  6,  7,  8,  9, 10, 11, 11, 12, 0, 0, 0 },
+		{ 13, 14, 15, 15, 16, 17, 12,  0, 0, 0, 0 },
+		{ 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 },
+		{  4, 30, 30,  3,  5,  0, 0, 0, 0, 0, 0 },
+		{ 0 },
+		{ 16, 17, 15, 15, 12,  0, 0, 0, 0, 0, 0 },
+		{ 31, 31, 31, 31, 32, 12, 0, 0, 0, 0, 0 },
+		{  4, 34,  3,  5,  0, 0, 0, 0, 0, 0, 0 },
+		{ 0 }
+	},
+	// options, limited_options, mouse_menu
+	{ 2, 3, 6, 7, 0, 4, 5, 8 },
+	{ 0, 0, 2, 3, 0, 4, 5, 6 },
+	0, { 0, 1, 2 },
+	false, false,
+	0, 0, 0, 0,
+	50, 30
+};
+
+static const GameUiTables gameUiTables2000 =
+{
+	{ 7, 9, 9, 0, 0, 11, SAVE_FILES_NUM / 2 + 2, 0, 0, 6, 4, 7, 7, 5, 6 },
+	{ 0, 1, 1, 1, 2, 3, 3, 1, 8, 0, 0, 11, 3, 0, 3 },
+	{ 16, 16, 16, 16, 26, 12, 11, 28, 0, 16, 16, 16, 8, 16, 24 },
+	{
+		{  1, 34,  2,  3,  4,  5,  0, 0, 0, 0, 0 },
+		{  6,  7,  8,  9, 10, 11, 11, 12, 0, 0, 0 },
+		{ 13, 14, 15, 15, 16, 17, 35, 12, 0, 0, 0 },
+		{ 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 },
+		{  4, 30, 30,  3,  5,  0, 0, 0, 0, 0, 0 },
+		{  4, 37, 12,  0, 0, 0, 0, 0, 0, 0, 0 },
+		{ 16, 17, 35, 15, 15, 12, 0, 0, 0, 0, 0 },
+		{ 31, 31, 31, 31, 32, 12, 0, 0, 0, 0, 0 },
+		{  4, 34,  3,  5,  0, 0, 0, 0, 0, 0, 0 },
+		{ 35, 35, 35, 36, 12,  0, 0, 0, 0, 0, 0 }
+	},
+	{ 2, 3, 6, 7, 8, 4, 5, 9 },
+	{ 0, 0, 2, 3, 4, 5, 6, 7 },
+	1, { 0, 3, 4 },  // fire, both sidekicks, rear mode
+	true, true,
+	// The 2000 mark under the logo's right half (planet shape 151).
+	151, 155, 41, 45,
+	50, 24
+};
+
 // Menu strings by menu number (menuInt[n]).  Menus with no strings, or that
 // are read elsewhere in the HDT order, are zero.
 const GameStringSchema gameStringSchema21 =
@@ -104,7 +170,8 @@ const GameStringSchema gameStringSchema21 =
 	{ 0, 7, 9, 8, 0, 0, 11, 0, 0, 0, 6, 4, 6, 7, 5, 0 },
 	false, 0, NULL, 0, 0, 0, 0, 0, 0,
 	false, false,
-	{ 48, 49, 66 }
+	{ 48, 49, 66, 0 },
+	&gameUiTables21
 };
 
 // The 2000 HDT appends records to the misc text, so the labels the HUD knows
@@ -117,7 +184,8 @@ const GameStringSchema gameStringSchema2000 =
 	{ 0, 7, 9, 9, 0, 0, 11, 0, 0, 0, 6, 4, 7, 7, 5, 6 },
 	true, 4, setupSkip2000, sizeof setupSkip2000, 3, 39, 10, 6, 6,
 	true, true,
-	{ 48, 49, 66 }
+	{ 48, 49, 66, 70 },
+	&gameUiTables2000
 };
 
 const GameDataSchema *gameSchema(void)
@@ -128,4 +196,9 @@ const GameDataSchema *gameSchema(void)
 const GameStringSchema *gameStrings(void)
 {
 	return gameVariantCurrent()->string_schema;
+}
+
+const GameUiTables *gameUi(void)
+{
+	return gameStrings()->ui;
 }

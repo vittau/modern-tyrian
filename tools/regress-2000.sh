@@ -19,15 +19,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 UPDATE=0
+CASE_FILTER='.*'
 LAUNCHER_ONLY=0
 UPDATE_CASES=""
 for arg in "$@"; do
 	case "$arg" in
 		--update) UPDATE=1 ;;
 		--update-case=*) UPDATE=1; UPDATE_CASES="$UPDATE_CASES ${arg#*=}" ;;
+		--case=*) CASE_FILTER=${arg#*=} ;;
 		--only-launcher) LAUNCHER_ONLY=1 ;;
 		-h|--help)
-			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update | --update-case=LABEL ...] [--only-launcher]"
+			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update | --update-case=LABEL ...] [--case=REGEX] [--only-launcher]"
 			exit 0 ;;
 		*) echo "ERROR: unknown option: $arg" >&2; exit 2 ;;
 	esac
@@ -108,6 +110,7 @@ describe_status() {
 run_case() {
 	local kind=$1 label=$2 out log baseline rc start elapsed lines
 	shift 2
+	[[ "$label" =~ $CASE_FILTER ]] || return
 	if [ -n "$UPDATE_CASES" ]; then
 		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
 	fi
@@ -225,12 +228,75 @@ for fixture in events spawn sidekicks twiddle punch; do
 done
 
 # Non-gameplay screens that read the 2000 strings, pictures, palettes, ships and
-# the 126-record credits.
+# the 126-record credits.  The historic cases keep their names; every screen is
+# also rendered Modern at 16:9 and 21:9.
 run_case frames "screen-title" --regress-screen=title
 run_case frames "modern-screen-title-16x9" --regress-screen=title --regress-modern --regress-aspect=16:9
 run_case frames "screen-game-menu" --regress-screen=game-menu
 run_case frames "screen-ship-specs" --regress-screen=ship-specs
 run_case frames "screen-credits" --regress-screen=credits
+
+# LABEL|SCREEN: the descriptor after ':' selects the fixture (see
+# src/regress_screen.c).  Menus 3, 12 and 15 are the options, the limited options
+# and the mouse settings menus; ships are selected by new big illustrations 45
+# and 46; the weapon simulator shows the 2000 upgrade policy (front "None" keeps
+# its power controls, the rear weapon previews its two modes).
+SCREENS=(
+	"title|title"
+	"episode-select|episode-select"
+	"gameplay-select|gameplay-select"
+	"game-menu|game-menu"
+	"options|options"
+	"options-mouse-help|options:sel=8"
+	"options-limited|options-limited"
+	"options-limited-mouse-help|options-limited:sel=4"
+	"mouse|mouse"
+	"mouse-reset-help|mouse:sel=5"
+	"upgrade|upgrade"
+	"upgrade-ship45|upgrade:shipgraphic=45"
+	"upgrade-ship46|upgrade:shipgraphic=46"
+	"upgrade-port45|upgrade:shipgraphic=45,front=45"
+	"upgrade-port48|upgrade:shipgraphic=46,front=48"
+	"ship-specs|ship-specs"
+	"ship-specs-ship45|ship-specs:shipgraphic=45"
+	"ship-specs-ship46|ship-specs:shipgraphic=46"
+	"weapon-sim-front-none|weapon-sim:cat=3,front=0"
+	"weapon-sim-rear-none|weapon-sim:cat=4,rear=0"
+	"weapon-sim-done|weapon-sim:cat=3,front=0,sel=3"
+	"weapon-sim-rear-modes|weapon-sim:cat=4,twomode=1,mode=2"
+	"high-scores-ep1|high-scores"
+	"high-scores-ep5|high-scores:page=4"
+	"credits|credits"
+)
+for entry in "${SCREENS[@]}"; do
+	label=${entry%%|*}; screen=${entry#*|}
+	case "$label" in
+		title|game-menu|ship-specs|credits) ;;  # classic case exists above
+		*) run_case frames "screen-$label" --regress-screen="$screen" ;;
+	esac
+	for aspect in 16:9 21:9; do
+		name="modern-screen-$label-${aspect/:/x}"
+		[ "$name" = "modern-screen-title-16x9" ] && continue
+		run_case frames "$name" --regress-screen="$screen" --regress-modern --regress-aspect="$aspect"
+	done
+done
+
+# More than one preview cycle: cover both the power/cost line and rear-mode hint.
+for aspect in classic 16:9 21:9; do
+	extra=''
+	[ "$aspect" = classic ] || extra="--regress-modern --regress-aspect=$aspect"
+	run_case frames "screen-rear-mode-cycle-${aspect/:/x}" --regress-screen=weapon-sim:cat=4,twomode=1,mode=1 \
+		--regress-frames=210 $extra
+done
+
+# Modern HUD with the widest item names of the data (debug builds assert that
+# every HUD row fits its panel), one and two players.
+for aspect in 16:9 21:9 32:9; do
+	for players in 1 2; do
+		run_case frames "modern-hud-widest-${players}p-${aspect/:/x}" --regress-level=1:1 $M \
+			--regress-players="$players" --regress-loadout=widest --regress-frames=120 --regress-aspect="$aspect"
+	done
+done
 
 # Offline audio: 31 effects and nine voices at their 2000 IDs, 41 songs.
 run_case frames "audio" --regress-audio
@@ -239,10 +305,14 @@ run_case frames "audio" --regress-audio
 # boards get their names from the HDT, every difficulty starts at zero, and a
 # second start loads it without regenerating anything.
 cases=$((cases + 1))
-save_root="$ACTUAL_DIR/save-root"
-rm -rf "$save_root"; mkdir -p "$save_root" "$ACTUAL_DIR/save-cwd"
+# Generated defaults contain HDT names, so these saves also stay outside the
+# checkout.  Logs and frame/state hashes in actual/ carry no extracted strings.
+save_root=$(mktemp -d "${TMPDIR:-/tmp}/tyrian2000-save.XXXXXX") || exit 1
+trap 'rm -rf "$save_root"' EXIT
+save_cwd="$save_root/cwd"
+mkdir -p "$save_cwd"
 save_run() {
-	(cd "$ACTUAL_DIR/save-cwd" && HOME="$ACTUAL_DIR/save-cwd" XDG_CONFIG_HOME="$ACTUAL_DIR/save-cwd" APPDATA="$ACTUAL_DIR/save-cwd" \
+	(cd "$save_cwd" && HOME="$save_cwd" XDG_CONFIG_HOME="$save_cwd" APPDATA="$save_cwd" \
 		SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy "$BIN" --variant=2000 --data="$DATA_DIR" \
 		--regress-user-root="$save_root" --regress-user-files --regress-out="$ACTUAL_DIR/save.out") > "$ACTUAL_DIR/$1.log" 2>&1
 }
@@ -259,9 +329,9 @@ if [ "$save_ok" -eq 1 ]; then
 	for i in $(seq 0 29); do
 		[ "$(od -An -tu1 -j $((3552 + i * 39 + 38)) -N1 "$save" | tr -d ' ')" = 0 ] || save_ok=0
 	done
-	cp "$save" "$ACTUAL_DIR/save-first.sav"
+	cp "$save" "$save_root/first.sav"
 	save_run save-reload || save_ok=0
-	cmp -s "$ACTUAL_DIR/save-first.sav" "$save" || save_ok=0
+	cmp -s "$save_root/first.sav" "$save" || save_ok=0
 	if grep -Fq "is invalid or missing" "$ACTUAL_DIR/save-reload.log"; then save_ok=0; fi
 fi
 if [ "$save_ok" -eq 1 ]; then
