@@ -606,3 +606,6 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 ### 2026-09-29 — Trilha Tyrian 2000
 - O usuário passou um briefing para integrar o Tyrian 2000 (launcher, instalador de dados, saves separados, renderer moderno nas duas variantes). O plano e o diário dessa trilha ficam em `MODERNIZATION_PLAN_2000.md`.
 - **HUD sem "Player 1" no 1P (`46d8be8`)**, a pedido do usuário. O nome só aparece em partidas de dois jogadores, e no 1P e no arcade as linhas sobem e as barras se recentram. Worker: Codex `gpt-6-luna` até a cota acabar, depois Sonnet 5.5 no mesmo worktree.
+
+### 2026-09-29 — Release v0.2.1
+- **Release v0.2.1** no commit `6e76162`, a pedido do usuário. É uma versão de correções sobre a v0.2.0: as telas de remapeamento não estouram mais a largura, e o HUD do 1P não mostra "Player 1". A CI passou nos três sistemas e anexou os cinco pacotes. O `master` continua em `a81e640` e só avança se o usuário pedir.
