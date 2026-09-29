@@ -298,10 +298,11 @@ As mesmas regras do plano geral valem aqui:
 **Resultado:** o usuário instala o 2000 sem conhecimento técnico.
 
 ### Fase 6 — Launcher
-- [ ] Tela 16:9 (§5.4) no pipeline moderno, com teclado, gamepad e navegação.
-- [ ] Estado dos dados, "Install" quando necessário e o painel da última escolha pré-selecionado.
-- [ ] Steam Deck: sempre começa no launcher, como nos outros sistemas.
-- [ ] Imagens dos painéis do Tyrian 2.1 e do Tyrian 2000 geradas por um worker **Codex GPT-6 Luna (high)**, por decisão do usuário (2026-09-29). As imagens são arte original, sem copiar a arte, os sprites ou o logotipo do jogo; entram no git como assets do projeto, com a origem registrada.
+- [x] Tela 16:9 (§5.4) desenhada no tamanho físico da janela, com teclado, mouse, gamepad e navegação (`ca400ec`).
+- [x] Estado dos dados, "Install" quando necessário e o painel da última escolha pré-selecionado. O botão Install ainda é um stub, até o instalador ser ligado.
+- [x] Steam Deck: sempre começa no launcher, como nos outros sistemas. Falta validar no Deck físico.
+- [ ] Ligar a API do instalador (Fase 5) ao `launcherInstall2000()`.
+- [x] Imagens dos painéis do Tyrian 2.1 e do Tyrian 2000 geradas por um worker **Codex GPT-6 Luna (high)**, por decisão do usuário (2026-09-29). As imagens são arte original, sem copiar a arte, os sprites ou o logotipo do jogo; entram no git como assets do projeto, com a origem registrada.
 
 **Resultado:** a experiência de início é simples.
 
@@ -558,3 +559,11 @@ As mesmas regras do plano geral valem aqui:
 - **Arte do launcher (`cfa3c12`):** gerada por um worker Codex GPT-6 Luna. São dois painéis de 960×1080 sem texto e dois letreiros "TYRIAN 2.1"/"TYRIAN 2000" de 800×320 com alpha, originais e sem ™, em `assets/launcher/`, com os prompts em `SOURCES.md`.
 - **Queda dos workers:** a máquina reiniciou durante a pausa de limite. Os 4 workers Sonnet (3b, 3c, launcher, instalador) morreram sem relatório, e o trabalho não commitado ficou salvo em `refs/keep/<worktree>-snap1`. Eles foram retomados nos mesmos worktrees por tarefas de retomada.
 - **Modelo dos workers:** Codex **GPT-6.1 Sol high** daqui em diante, por decisão do usuário. Exigiu o Codex 0.159.1, porque a 0.158 não conhece o modelo e mostra o nome em minúsculas no rodapé.
+- **Tipo de worker:** os quatro workers GPT-6.1 Sol pararam no limite de uso do Codex, todos perto do fim. As árvores estão salvas em `refs/keep/<worktree>-snap2`. A 3b, a 3c e o instalador foram retomados por workers **Claude Sonnet 5.5 high**. O usuário decidiu que os workers seguintes voltam a ser Sonnet 5.5.
+- **Launcher (`ca400ec`):** o worker deixou o relatório pronto, e a revisão, o commit e o merge ficaram com o coordenador.
+  - **Abertura:** o launcher abre em todo início normal. `--variant`, regress e selftest continuam indo direto ao jogo.
+  - **Desenho:** a tela é desenhada direto no renderer SDL, no tamanho físico da janela. As 4 PNGs vão embutidas no binário: `tools/embed_assets.sh` no Makefile e `visualc/embed_assets.ps1` no VS. Os textos usam a fonte de debug do SDL em escala inteira.
+  - **Ordem de início:** a escolha passa pelo provider de dados antes de qualquer asset ou save da variante. Só depois vêm a migração 2b, os saves e `launcher/last_variant` no `opentyrian.cfg`, que é compartilhado e serve só para pré-selecionar o painel.
+  - **Testes:** 10 casos `--regress-launcher` de hash, independentes dos dados, entram no `regress-2000`. Com eles, `make regress` fica em 164 casos mais os guards e `regress-2000` em 29 casos, tudo PASS.
+  - **Pendências:** ligar o instalador, e validar no Windows/VS nativo e no Deck físico.
+- **Decisões do usuário:** o 2000 também terá o modo Modern com o HUD novo, e as demos de atração seguem o HUD do modo ativo (Fase 7).
