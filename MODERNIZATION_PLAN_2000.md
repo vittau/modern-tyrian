@@ -307,6 +307,8 @@ As mesmas regras do plano geral valem aqui:
 
 ### Fase 7 — Renderer moderno no 2000
 - [ ] Widescreen, escala, iluminação, partículas, HUD e efeitos validados no 2000, e o movimento suave também.
+- [ ] O modo Modern do 2000 usa o novo HUD nos painéis laterais, como no 2.1 (decisão do usuário, 2026-09-29). Os textos do HUD usam os rótulos semânticos do schema, não índices fixos de `miscText`.
+- [ ] As demos de atração seguem o HUD do modo ativo, clássico ou moderno, nas duas variantes (decisão do usuário, 2026-09-29). Validar com casos `modern-demo*` no `regress-2000`, com a asserção de que os painéis do HUD moderno estão presentes durante a demo.
 - [ ] Heurísticas pic-1 e pic-2 e créditos conferidos nas telas do 2000.
 - [ ] Tag buffer e luz colorida cobrindo os sprites novos (naves e armas do 2000).
 - [ ] Comparação visual com o 2000 original no Classic.
