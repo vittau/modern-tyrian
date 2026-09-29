@@ -2,7 +2,7 @@
 
 Plano e diário da integração do **Tyrian 2000** ao Modern Tyrian, mantendo o **Tyrian 2.1 Freeware** exatamente como está. Nasceu do briefing do usuário de 2026-09-29. O plano geral de modernização continua em `MODERNIZATION_PLAN.md`, e este documento cobre só a trilha do 2000.
 
-**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. Fase 2 concluída (2a: variante, provider e `--variant=`; 2b: saves por variante e migração). A Fase 3 espera a aprovação dos documentos.
+**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. Fase 2 concluída (2a: variante, provider e `--variant=`; 2b: saves por variante e migração). Documentos da Fase 1 aprovados pelo usuário em 2026-09-29; Fase 3 em andamento.
 
 ---
 
@@ -241,7 +241,7 @@ As mesmas regras do plano geral valem aqui:
 - [x] Levantar todos os pontos de integração no nosso código, arquivo por arquivo, com o risco para os recursos Modern (§3.3).
 - [x] Plano de testes do 2000: como gerar baselines e demos sem commitar dados (§8).
 
-**Resultado:** documento técnico aprovado pelo usuário antes da Fase 3.
+**Resultado:** documento técnico aprovado pelo usuário antes da Fase 3. ✔ Aprovado em 2026-09-29.
 
 ### Fase 2 — `GameVariant` e provider (só no 2.1)
 - [x] `GameVariant` e a estrutura por variante (§5.1), com o 2.1 como única implementação.
@@ -507,3 +507,12 @@ As mesmas regras do plano geral valem aqui:
 - **Para quem atualiza da v0.2.x:** a primeira abertura copia o save. Um binário antigo continua usando o save da raiz, e o progresso passa a divergir entre os dois.
 
 - **Correção no Windows (`d313c43`):** o `stat` abaixo de um arquivo devolve `ENOENT` no Windows e `ENOTDIR` no POSIX. Com isso, um arquivo chamado `tyrian21` não ligava o modo só-leitura. Agora a migração checa explicitamente a raiz e a pasta do namespace, e o `check_user_paths.sh` diz o passo que falhou. Worker: Claude Sonnet 5.5 high (`worker-start` normal), a pedido do usuário para esta sessão. CI verde nos três sistemas; o Linux arm64 precisou de uma nova execução porque o runner travou 45 min na compilação.
+
+### 2026-09-29 — Fase 3 começa
+- **O usuário aprovou os três documentos de `docs/t2000/`** ("Aprove e siga").
+- **Divisão da Fase 3:**
+  - **3a:** esquemas de dados por variante, carregadores e a primeira `make regress-2000`. A meta é o 2000 carregar e o Episódio 1 iniciar.
+  - **3b:** eventos do T2K, substituição de inimigos e regras (sidekicks com carga, rear "None", twiddles), como hooks.
+  - **3c:** conflitos com os menus e o HUD do Modern.
+- **Workers desta sessão:** Claude Sonnet 5.5 high, a pedido do usuário.
+
