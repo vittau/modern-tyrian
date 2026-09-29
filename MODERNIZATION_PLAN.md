@@ -605,3 +605,4 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-09-29 — Trilha Tyrian 2000
 - O usuário passou um briefing para integrar o Tyrian 2000 (launcher, instalador de dados, saves separados, renderer moderno nas duas variantes). O plano e o diário dessa trilha ficam em `MODERNIZATION_PLAN_2000.md`.
+- **HUD sem "Player 1" no 1P (`46d8be8`)**, a pedido do usuário. O nome só aparece em partidas de dois jogadores, e no 1P e no arcade as linhas sobem e as barras se recentram. Worker: Codex `gpt-6-luna` até a cota acabar, depois Sonnet 5.5 no mesmo worktree.
