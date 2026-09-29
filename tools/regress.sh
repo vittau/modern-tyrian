@@ -697,7 +697,7 @@ pairs=$((pairs + 1))
 
 SCREENS=(
 	title episode-select high-scores game-menu upgrade purchase options
-	cube-list cube-reader keyboard joystick load-save solid setup
+	cube-list cube-reader keyboard keyboard-long joystick joystick-multi load-save solid setup
 )
 
 for s in "${SCREENS[@]}"; do
@@ -706,6 +706,13 @@ for s in "${SCREENS[@]}"; do
 		--regress-screen="$s" --regress-modern --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_case "screen-$s" --regress-screen="$s"
+done
+
+# Two simultaneous mappings must leave the pic-1 border free at every width.
+for aspect in 21:9 32:9; do
+	pairs=$((pairs + 1))
+	run_case "modern-screen-joystick-multi-${aspect/:/x}" \
+		--regress-screen=joystick-multi --regress-modern --regress-aspect="$aspect"
 done
 
 pairs=$((pairs + 1))

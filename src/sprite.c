@@ -117,7 +117,65 @@ void free_sprites(unsigned int table)
 	sprite_table[table].count = 0;
 }
 
-// does not clip on left or right edges of surface
+// Font tables share these blitters with non-text artwork.  Keep the historical
+// fast path for contained glyphs and artwork, but decode edge-crossing glyphs
+// using coordinates so neither foreground nor shadow can wrap to another row.
+static bool blit_font_edge(SDL_Surface *surface, int x, int y, unsigned int table,
+                           unsigned int index, int mode, Uint8 hue, Sint8 value, bool black)
+{
+	const Sprite *glyph = sprite(table, index);
+	if (table > TINY_FONT || (x >= 0 && x <= surface->w - glyph->width))
+		return false;
+	if (x >= surface->w || x <= -(int)glyph->width)
+		return true;
+	assert(SDL_BITSPERPIXEL(surface->format) == 8);
+	unsigned int column = 0;
+	int row = y;
+	for (size_t i = 0; i < glyph->size; ++i)
+	{
+		const Uint8 data = glyph->data[i];
+		if (data == 255)
+		{
+			if (++i >= glyph->size)
+				break;
+			column += glyph->data[i];
+		}
+		else if (data == 254)
+			column = glyph->width;
+		else if (data == 253)
+			++column;
+		else
+		{
+			const int px = x + (int)column;
+			if (px >= 0 && px < surface->w && row >= 0 && row < surface->h)
+			{
+				Uint8 *pixel = (Uint8 *)surface->pixels + row * surface->pitch + px;
+				Uint8 v = (data & 0x0f) + value;
+				if (mode == DL_SPRITE_HV || mode == DL_SPRITE_HV_BLEND)
+					if (v > 0xf)
+						v = (v >= 0x1f) ? 0 : 0xf;
+				switch (mode)
+				{
+				case DL_SPRITE_BLIT: *pixel = data; break;
+				case DL_SPRITE_BLEND: *pixel = (data & 0xf0) | (((*pixel & 0x0f) + (data & 0x0f)) / 2); break;
+				case DL_SPRITE_HV_UNSAFE: *pixel = (hue << 4) | ((data & 0x0f) + value); break;
+				case DL_SPRITE_HV: *pixel = (hue << 4) | v; break;
+				case DL_SPRITE_HV_BLEND: *pixel = (hue << 4) | (((*pixel & 0x0f) + v) / 2); break;
+				case DL_SPRITE_DARK: *pixel = black ? 0 : ((*pixel & 0xf0) | ((*pixel & 0x0f) / 2)); break;
+				}
+			}
+			++column;
+		}
+		if (column >= glyph->width)
+		{
+			column = 0;
+			++row;
+		}
+	}
+	return true;
+}
+
+// Non-font artwork retains the original horizontal-edge behavior.
 void blit_sprite(SDL_Surface *surface, int x, int y, unsigned int table, unsigned int index)
 {
 	drawlist_record_blit_sprite(surface, x, y, table, index, DL_SPRITE_BLIT, 0, 0, false);
@@ -128,6 +186,9 @@ void blit_sprite(SDL_Surface *surface, int x, int y, unsigned int table, unsigne
 		return;
 	}
 	
+	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_BLIT, 0, 0, false))
+		return;
+
 	const Sprite * const cur_sprite = sprite(table, index);
 	
 	const Uint8 *data = cur_sprite->data;
@@ -179,7 +240,7 @@ void blit_sprite(SDL_Surface *surface, int x, int y, unsigned int table, unsigne
 	}
 }
 
-// does not clip on left or right edges of surface
+// Font glyphs clip horizontally; non-font artwork keeps the legacy behavior.
 void blit_sprite_blend(SDL_Surface *surface, int x, int y, unsigned int table, unsigned int index)
 {
 	drawlist_record_blit_sprite(surface, x, y, table, index, DL_SPRITE_BLEND, 0, 0, false);
@@ -190,6 +251,9 @@ void blit_sprite_blend(SDL_Surface *surface, int x, int y, unsigned int table, u
 		return;
 	}
 	
+	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_BLEND, 0, 0, false))
+		return;
+
 	const Sprite * const cur_sprite = sprite(table, index);
 	
 	const Uint8 *data = cur_sprite->data;
@@ -241,7 +305,7 @@ void blit_sprite_blend(SDL_Surface *surface, int x, int y, unsigned int table, u
 	}
 }
 
-// does not clip on left or right edges of surface
+// Font glyphs clip horizontally; non-font artwork keeps the legacy behavior.
 // unsafe because it doesn't check that value won't overflow into hue
 // we can replace it when we know that we don't rely on that 'feature'
 void blit_sprite_hv_unsafe(SDL_Surface *surface, int x, int y, unsigned int table, unsigned int index, Uint8 hue, Sint8 value)
@@ -254,6 +318,9 @@ void blit_sprite_hv_unsafe(SDL_Surface *surface, int x, int y, unsigned int tabl
 		return;
 	}
 	
+	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_HV_UNSAFE, hue, value, false))
+		return;
+
 	hue <<= 4;
 	
 	const Sprite * const cur_sprite = sprite(table, index);
@@ -307,7 +374,7 @@ void blit_sprite_hv_unsafe(SDL_Surface *surface, int x, int y, unsigned int tabl
 	}
 }
 
-// does not clip on left or right edges of surface
+// Font glyphs clip horizontally; non-font artwork keeps the legacy behavior.
 void blit_sprite_hv(SDL_Surface *surface, int x, int y, unsigned int table, unsigned int index, Uint8 hue, Sint8 value)
 {
 	drawlist_record_blit_sprite(surface, x, y, table, index, DL_SPRITE_HV, hue, value, false);
@@ -318,6 +385,9 @@ void blit_sprite_hv(SDL_Surface *surface, int x, int y, unsigned int table, unsi
 		return;
 	}
 	
+	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_HV, hue, value, false))
+		return;
+
 	hue <<= 4;
 	
 	const Sprite * const cur_sprite = sprite(table, index);
@@ -377,7 +447,7 @@ void blit_sprite_hv(SDL_Surface *surface, int x, int y, unsigned int table, unsi
 	}
 }
 
-// does not clip on left or right edges of surface
+// Font glyphs clip horizontally; non-font artwork keeps the legacy behavior.
 void blit_sprite_hv_blend(SDL_Surface *surface, int x, int y, unsigned int table, unsigned int index, Uint8 hue, Sint8 value)
 {
 	drawlist_record_blit_sprite(surface, x, y, table, index, DL_SPRITE_HV_BLEND, hue, value, false);
@@ -388,6 +458,9 @@ void blit_sprite_hv_blend(SDL_Surface *surface, int x, int y, unsigned int table
 		return;
 	}
 	
+	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_HV_BLEND, hue, value, false))
+		return;
+
 	hue <<= 4;
 	
 	const Sprite * const cur_sprite = sprite(table, index);
@@ -447,7 +520,7 @@ void blit_sprite_hv_blend(SDL_Surface *surface, int x, int y, unsigned int table
 	}
 }
 
-// does not clip on left or right edges of surface
+// Font glyphs clip horizontally; non-font artwork keeps the legacy behavior.
 void blit_sprite_dark(SDL_Surface *surface, int x, int y, unsigned int table, unsigned int index, bool black)
 {
 	drawlist_record_blit_sprite(surface, x, y, table, index, DL_SPRITE_DARK, 0, 0, black);
@@ -458,6 +531,9 @@ void blit_sprite_dark(SDL_Surface *surface, int x, int y, unsigned int table, un
 		return;
 	}
 	
+	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_DARK, 0, 0, black))
+		return;
+
 	const Sprite * const cur_sprite = sprite(table, index);
 	
 	const Uint8 *data = cur_sprite->data;

@@ -31,8 +31,11 @@
 
 #include "config.h"
 #include "episodes.h"
+#include "fonthand.h"
 #include "game_menu.h"
+#include "joystick.h"
 #include "jukebox.h"
+#include "keyboard.h"
 #include "logging.h"
 #include "mainint.h"
 #include "menus.h"
@@ -40,12 +43,68 @@
 #include "opentyr.h"
 #include "palette.h"
 #include "picload.h"
+#include "sprite.h"
 #include "tyrian2.h"
 #include "video.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void draw_test_glyph(SDL_Surface *surface, int x, unsigned int font, int mode)
+{
+	const unsigned int glyph = fontMap['A'];
+	switch (mode)
+	{
+	case 0: blit_sprite(surface, x, 4, font, glyph); break;
+	case 1: blit_sprite_blend(surface, x, 4, font, glyph); break;
+	case 2: blit_sprite_hv_unsafe(surface, x, 4, font, glyph, 15, -3); break;
+	case 3: blit_sprite_hv(surface, x, 4, font, glyph, 15, -3); break;
+	case 4: blit_sprite_hv_blend(surface, x, 4, font, glyph, 15, -3); break;
+	case 5: blit_sprite_dark(surface, x, 4, font, glyph, false); break;
+	case 6: blit_sprite_dark(surface, x, 4, font, glyph, true); break;
+	}
+}
+
+// Compare a partially visible glyph against a crop of the contained glyph,
+// checking every pixel so row wrapping and writes outside the glyph fail.
+static void verify_font_clipping(void)
+{
+	SDL_Surface *reference = SDL_CreateSurface(48, 32, SDL_PIXELFORMAT_INDEX8);
+	SDL_Surface *edge = SDL_CreateSurface(48, 32, SDL_PIXELFORMAT_INDEX8);
+	if (reference == NULL || edge == NULL)
+		exit(EXIT_FAILURE);
+	for (unsigned int font = FONT_SHAPES; font <= TINY_FONT; ++font)
+	{
+		const int width = sprite(font, fontMap['A'])->width;
+		const int positions[] = { 46, -2, 48, -width };
+		for (int mode = 0; mode < 7; ++mode)
+		{
+			SDL_FillSurfaceRect(reference, NULL, 0x85);
+			draw_test_glyph(reference, 8, font, mode);
+			for (size_t i = 0; i < COUNTOF(positions); ++i)
+			{
+				SDL_FillSurfaceRect(edge, NULL, 0x85);
+				draw_test_glyph(edge, positions[i], font, mode);
+				for (int y = 0; y < edge->h; ++y)
+					for (int x = 0; x < edge->w; ++x)
+					{
+						const int column = x - positions[i];
+						const Uint8 expected = column >= 0 && column < width
+							? *((Uint8 *)reference->pixels + y * reference->pitch + 8 + column) : 0x85;
+						if (*((Uint8 *)edge->pixels + y * edge->pitch + x) != expected)
+						{
+							logFatal("Font clipping failed: font %u mode %d at (%d,%d), origin %d.", font, mode, x, y, positions[i]);
+							exit(EXIT_FAILURE);
+						}
+					}
+			}
+		}
+	}
+	SDL_DestroySurface(reference);
+	SDL_DestroySurface(edge);
+	logInfo("Regression: font clipping matches contained glyph crops (3 fonts, 7 modes, 4 edges).");
+}
 
 // Representative, deterministic save data for the high-score screen (the real
 // save files are not loaded in regress mode).
@@ -185,13 +244,33 @@ void regress_screen_run(void)
 		JE_itemScreenStartAt(MENU_DATA_CUBE_SUB, 0);
 		JE_itemScreen();
 	}
-	else if (strcmp(name, "keyboard") == 0)
+	else if (strcmp(name, "keyboard") == 0 || strcmp(name, "keyboard-long") == 0)
 	{
+		if (strcmp(name, "keyboard-long") == 0)
+			keySettings[0] = SDL_SCANCODE_KP_MEMSUBTRACT;
 		JE_itemScreenStartAt(MENU_KEYBOARD_CONFIG, 0);
 		JE_itemScreen();
 	}
-	else if (strcmp(name, "joystick") == 0)
+	else if (strcmp(name, "joystick") == 0 || strcmp(name, "joystick-multi") == 0)
 	{
+		if (strcmp(name, "joystick-multi") == 0)
+		{
+			verify_font_clipping();
+			// Reuse the synthetic stick: no hardware or persistent user config.
+			joystick_inject_stick(0, 0);
+			if (joysticks != 1)
+				exit(EXIT_FAILURE);
+			joystick[0].is_gamepad = true;
+			reset_joystick_assignments(0);
+			joystick[0].assignment[4][1] = (Joystick_assignment){ GAMEPAD_BUTTON, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false, false };
+			joystick[0].assignment[5][0] = (Joystick_assignment){ BUTTON, 0, false, false };
+			joystick[0].assignment[5][1] = (Joystick_assignment){ BUTTON, 1, false, false };
+			joystick[0].assignment[6][0] = (Joystick_assignment){ GAMEPAD_AXIS, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, false, false };
+			joystick[0].assignment[6][1] = (Joystick_assignment){ HAT, 11, true, true };
+			// Very large raw indices exercise the counted overflow fallback.
+			joystick[0].assignment[7][0] = (Joystick_assignment){ HAT, 12344, false, true };
+			joystick[0].assignment[7][1] = (Joystick_assignment){ AXIS, 12344, false, false };
+		}
 		JE_itemScreenStartAt(MENU_JOYSTICK_CONFIG, 0);
 		JE_itemScreen();
 	}
