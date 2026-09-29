@@ -550,3 +550,9 @@ As mesmas regras do plano geral valem aqui:
   - **para a 3c:** menus 3/12/15 com linhas extras, espaçamento do episódio 5, marca do 2000 no título e heurísticas pic-1/pic-2 nas telas do 2000;
   - **para o launcher:** offsets estáticos (`pcxpos`, músicas) precisam de reset se o launcher trocar de versão no mesmo processo.
 
+
+### 2026-09-29 — Rodada paralela: CI, arte do launcher, 3b, 3c, launcher e instalador
+- **CI do 2000 (`d773095`):** `tools/fetch_t2000_data.sh` baixa da Camanis a cada execução, confere o tamanho e o SHA-256, extrai com segurança fora do checkout e verifica o manifesto. Os três workflows rodam `make regress-2000` depois do 2.1, sem cache. Na falha, sobem só `*.txt`/`*.log`, e as releases continuam só com o 2.1. No Windows, os baselines novos saíam com CRLF; foi corrigido com `test/regress-2000/** eol=lf` no `.gitattributes` (`a3787f4`), e a CI ficou verde nos três sistemas.
+- **Arte do launcher (`cfa3c12`):** gerada por um worker Codex GPT-6 Luna. São dois painéis de 960×1080 sem texto e dois letreiros "TYRIAN 2.1"/"TYRIAN 2000" de 800×320 com alpha, originais e sem ™, em `assets/launcher/`, com os prompts em `SOURCES.md`.
+- **Queda dos workers:** a máquina reiniciou durante a pausa de limite. Os 4 workers Sonnet (3b, 3c, launcher, instalador) morreram sem relatório, e o trabalho não commitado ficou salvo em `refs/keep/<worktree>-snap1`. Eles foram retomados nos mesmos worktrees por tarefas de retomada.
+- **Modelo dos workers:** Codex **GPT-6.1 Sol high** daqui em diante, por decisão do usuário. Exigiu o Codex 0.159.1, porque a 0.158 não conhece o modelo e mostra o nome em minúsculas no rodapé.
