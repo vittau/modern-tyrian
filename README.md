@@ -311,10 +311,12 @@ controlled by the one `lighting` setting; `--bloom` overrides the bloom alone:
   separable box passes, then combined with a screen-style saturating add.
 - **Dynamic lighting** is the wide illumination: the same emissive pixels cast
   their colour over the surrounding playfield, so nearby terrain, enemies and
-  the ship are lit in the hue of the fire. It is built at a quarter of the
-  logical resolution, blurred with a large box radius and bilinearly upsampled;
-  the unlit base is scaled by a slight ambient factor (0.96 at `high`, 0.98 at
-  `low`).
+  the ship are lit in the hue of the fire. The colour is the emitting object's
+  own dominant saturated shade (its sprite's body colour), not the white-hot
+  core of its brightest pixels, so a blue shot casts blue light and a green
+  pickup green. It is built at a quarter of the logical resolution, blurred with
+  a large box radius and bilinearly upsampled; the unlit base is scaled by a
+  slight ambient factor (0.96 at `high`, 0.98 at `low`).
 
 Both effects run only on gameplay frames, only on the 264×184 playfield (never
 on the HUD panels, menus or title screen), are deterministic integer math, and

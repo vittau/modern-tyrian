@@ -27,10 +27,11 @@
 //
 //   * `modern_bloom`    — a tight additive glow around the brightest pixels
 //     (shots, lasers, explosions, engine flames).  This is Phase 1 "Bloom".
-//   * `modern_lighting` — a wide coloured illumination map: every emissive
-//     pixel spreads its hue over the surrounding playfield, so terrain,
-//     enemies and the ship read as lit by nearby fire (Phase 2 "Luzes
-//     dinâmicas", first version).
+//   * `modern_lighting` — a wide coloured illumination map: the emissive
+//     pixels spread the colour of the object that emits them (its dominant
+//     saturated shade, not the white-hot core of its brightest pixels) over
+//     the surrounding playfield, so terrain, enemies and the ship read as lit
+//     by nearby fire (Phase 2 "Luzes dinâmicas").
 //
 // Three levels: OFF, LOW and HIGH.  HIGH is the pre-merge LOW; LOW is half of
 // it.  The default outside Modern is OFF (pinned in regression mode); a Modern
@@ -83,6 +84,12 @@ void modern_bloom_tag_begin(void);
 // game tag buffer into the playfield tag.  `game_tag` may be NULL (then the
 // tag is just cleared).  Called by interp.c after the playfield copy.
 void modern_bloom_tag_from_game(const Uint8 *game_tag, int game_pitch, bool flip);
+
+// Copies the matching window of the per-pixel object-light palette index
+// buffer (drawlist_lightcol_for_surface) into the playfield light-colour buffer.
+// `game_lcol` may be NULL (then the whole buffer is left at 0, meaning "use the
+// pixel's own colour").  Called by interp.c right after modern_bloom_tag_from_game().
+void modern_bloom_lightcol_from_game(const Uint8 *game_lcol, int game_pitch, bool flip);
 
 // Marks one playfield pixel as VFX emission.  Called by the VFX renderer.
 void modern_bloom_tag_pixel(int x, int y);

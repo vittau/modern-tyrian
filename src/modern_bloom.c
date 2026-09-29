@@ -70,9 +70,12 @@ bool modern_lighting_tags_wanted(void)
 //
 // The 264x184 tag that the pass consumes.  It is filled per presented frame by
 // interp.c (from the game's tag buffer produced by drawlist.c) plus the VFX
-// renderer.  Fixed-capacity static: no per-frame allocation.
+// renderer.  Beside it, the per-pixel object-light palette index says which
+// colour the tagged object's light should take.  Fixed-capacity statics: no
+// per-frame allocation.
 
 static Uint8 mb_tag[MODERN_PLAYFIELD_W * MODERN_PLAYFIELD_H];
+static Uint8 mb_lcol[MODERN_PLAYFIELD_W * MODERN_PLAYFIELD_H];  // 0 = use the pixel's own colour
 static bool mb_tag_valid = false;
 
 void modern_bloom_tag_begin(void)
@@ -84,6 +87,7 @@ void modern_bloom_tag_begin(void)
 	}
 
 	memset(mb_tag, DL_TAG_NONE, sizeof mb_tag);
+	memset(mb_lcol, 0, sizeof mb_lcol);
 	mb_tag_valid = true;
 }
 
@@ -110,6 +114,26 @@ void modern_bloom_tag_from_game(const Uint8 *game_tag, int game_pitch, bool flip
 	}
 }
 
+void modern_bloom_lightcol_from_game(const Uint8 *game_lcol, int game_pitch, bool flip)
+{
+	if (!mb_tag_valid)
+		return;
+
+	for (int y = 0; y < MODERN_PLAYFIELD_H; ++y)
+	{
+		Uint8 *dst = mb_lcol + (size_t)y * MODERN_PLAYFIELD_W;
+
+		if (game_lcol == NULL)
+		{
+			memset(dst, 0, MODERN_PLAYFIELD_W);
+			continue;
+		}
+
+		const int sy = flip ? (MODERN_PLAYFIELD_H - 1 - y) : y;
+		memcpy(dst, game_lcol + (size_t)sy * (size_t)game_pitch + 24, MODERN_PLAYFIELD_W);
+	}
+}
+
 void modern_bloom_tag_pixel(int x, int y)
 {
 	if (!mb_tag_valid)
@@ -118,6 +142,8 @@ void modern_bloom_tag_pixel(int x, int y)
 		return;
 
 	mb_tag[(size_t)y * MODERN_PLAYFIELD_W + (size_t)x] = DL_TAG_VFX;
+	// VFX are drawn with their own palette index and emit their own colour.
+	mb_lcol[(size_t)y * MODERN_PLAYFIELD_W + (size_t)x] = 0;
 }
 
 // --- Emission statistics (--light-tag-stats) ----------------------------------
@@ -140,6 +166,18 @@ static unsigned long mb_stat_tagged[DL_TAG_MAX];
 static unsigned long mb_stat_untagged = 0;
 static unsigned long mb_stat_frames = 0;
 
+// Emitted-colour statistics: for every pixel that passes the *light* threshold
+// and carries a tag, accumulate the weighted light colour the mask would get,
+// its palette hue block (index >> 4) and whether the pixel is near-white.  The
+// accumulation is weighted by the emission strength (the max channel of the
+// weighted light colour), so it reports the colour of the emitted light energy,
+// not of the pixel count.  This is what tells us whether the light reads white
+// (a desaturated energy-weighted hue) or the object's colour.  Debug only.
+static unsigned long mb_stat_rgb[DL_TAG_MAX][3];   // sum of weighted colour
+static unsigned long mb_stat_energy[DL_TAG_MAX];   // sum of max channel
+static unsigned long mb_stat_hue[DL_TAG_MAX][16];  // energy per palette hue block
+static unsigned long mb_stat_white[DL_TAG_MAX];    // energy from near-white pixels
+
 static void mb_stats_print(void)
 {
 	static const char *const names[DL_TAG_MAX] =
@@ -151,7 +189,28 @@ static void mb_stats_print(void)
 	printf("light tag stats: %lu gameplay frames\n", mb_stat_frames);
 	for (int i = 0; i < DL_TAG_MAX; ++i)
 	{
-		printf("  %-12s emit %lu   tagged %lu\n", names[i], mb_stat_emissive[i], mb_stat_tagged[i]);
+		printf("  %-12s emit %lu   tagged %lu", names[i], mb_stat_emissive[i], mb_stat_tagged[i]);
+		const unsigned long e = mb_stat_energy[i];
+		if (e > 0)
+		{
+			const double r = (double)mb_stat_rgb[i][0] / e,
+			             g = (double)mb_stat_rgb[i][1] / e,
+			             b = (double)mb_stat_rgb[i][2] / e;
+			const double mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+			const double mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+			const double sat = mx > 0.0 ? (mx - mn) / mx : 0.0;
+			printf("   light chroma (%3.0f,%3.0f,%3.0f) sat %.2f  white-energy %.0f%%",
+			       r * 255.0 / mx, g * 255.0 / mx, b * 255.0 / mx, sat,
+			       100.0 * (double)mb_stat_white[i] / e);
+		}
+		printf("\n");
+		if (e > 0)
+		{
+			printf("               hue (energy %%):");
+			for (int h = 0; h < 16; ++h)
+				printf(" %lu", mb_stat_hue[i][h] * 100 / e);
+			printf("\n");
+		}
 		total += mb_stat_emissive[i];
 	}
 	printf("  %-12s %lu  (bright but untagged: excluded)\n", "emissive", total);
@@ -206,9 +265,27 @@ static const Uint16 mb_tag_weight_q8[DL_TAG_MAX] =
 	224,   // DL_TAG_VFX
 };
 
-// The base tables expanded per class (see mb_build_tables).
-static Uint8 mb_bloom_col_w[DL_TAG_MAX][256 * 3];
-static Uint8 mb_light_col_w[DL_TAG_MAX][256 * 3];
+// Per-class table of the object light colour: palette[index] scaled by the
+// class weight (Q8).  The mask loop looks the object's representative index up
+// here, then multiplies the result by the pixel's own emission weight
+// (mb_bloom_w/mb_light_w), so the *hue* comes from the object's dominant colour
+// while the *shape* still comes from the pixel.  DL_TAG_NONE's table is all
+// zero, so a non-emissive pixel contributes nothing even if it is bright.
+static Uint8 mb_rep[DL_TAG_MAX][256 * 3];
+
+// Per-palette-index emission weight (Q8: 0 = below threshold), one table per
+// effect: (max channel - threshold) rescaled to 0..255.
+static Uint16 mb_bloom_w[256];
+static Uint16 mb_light_w[256];
+
+// Per-hue-family fallback colour: the brightest, most saturated shade of each
+// hue block of the active palette.  Used as the light colour for a pixel with
+// no object colour (VFX, superpixels and anything not stamped by a sprite
+// blit), so even those emit their hue's saturated shade rather than their own
+// near-white core.  This is the "derive the light from the hue block's
+// saturated shade" half of the design; the per-object representative below is
+// the other half.
+static Uint8 mb_hue_rep[16];
 
 // Ceiling on the combined per-pixel glow before it is screen-blended.  Keeps a
 // dense volley of overlapping shots from saturating into a solid coloured blob;
@@ -220,8 +297,7 @@ static Uint8 mb_light_col_w[DL_TAG_MAX][256 * 3];
 // it would only weaken the flood guard).
 #define MB_GLOW_CAP 216
 
-static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int light_threshold,
-                            Uint8 *bloom_col, Uint8 *light_col)
+static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int light_threshold)
 {
 	for (int i = 0; i < 256; ++i)
 	{
@@ -236,25 +312,42 @@ static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int l
 		if (light_threshold < 255 && m > light_threshold)
 			lw = (m - light_threshold) * 255 / (255 - light_threshold);
 
-		bloom_col[i * 3 + 0] = (Uint8)(r * bw / 255);
-		bloom_col[i * 3 + 1] = (Uint8)(g * bw / 255);
-		bloom_col[i * 3 + 2] = (Uint8)(b * bw / 255);
-		light_col[i * 3 + 0] = (Uint8)(r * lw / 255);
-		light_col[i * 3 + 1] = (Uint8)(g * lw / 255);
-		light_col[i * 3 + 2] = (Uint8)(b * lw / 255);
+		mb_bloom_w[i] = (Uint16)bw;
+		mb_light_w[i] = (Uint16)lw;
 	}
 
-	// Expand the base tables once per class, scaled by the class weight.  A
-	// non-emissive class has weight 0, so its whole table is zero and the mask
-	// code needs no per-pixel branch: it just indexes the table with the tag.
+	// Expand palette colour * class weight once per class.
 	for (int c = 0; c < DL_TAG_MAX; ++c)
 	{
 		const int w = mb_tag_weight_q8[c];
-		for (int i = 0; i < 256 * 3; ++i)
+		for (int i = 0; i < 256; ++i)
 		{
-			mb_bloom_col_w[c][i] = (Uint8)(bloom_col[i] * w / 256);
-			mb_light_col_w[c][i] = (Uint8)(light_col[i] * w / 256);
+			mb_rep[c][i * 3 + 0] = (Uint8)(palette[i].r * w / 256);
+			mb_rep[c][i * 3 + 1] = (Uint8)(palette[i].g * w / 256);
+			mb_rep[c][i * 3 + 2] = (Uint8)(palette[i].b * w / 256);
 		}
+	}
+
+	// Per-hue-family saturated representative (the no-object-colour fallback).
+	for (int h = 0; h < 16; ++h)
+	{
+		int best = h * 16;
+		int best_score = -1, best_max = -1;
+		for (int b = 0; b < 16; ++b)
+		{
+			const int i = h * 16 + b;
+			const int r = palette[i].r, g = palette[i].g, bl = palette[i].b;
+			const int mx = MAX(r, MAX(g, bl));
+			const int mn = MIN(r, MIN(g, bl));
+			const int score = (mx - mn) * mx;
+			if (score > best_score || (score == best_score && mx > best_max))
+			{
+				best_score = score;
+				best_max = mx;
+				best = i;
+			}
+		}
+		mb_hue_rep[h] = (Uint8)best;
 	}
 }
 
@@ -330,9 +423,6 @@ static void mb_blur(Uint8 *a, Uint8 *b, int w, int h, int radius, int iterations
 #define MB_QW (MB_W / 4)
 #define MB_QH (MB_H / 4)
 #define MB_QPIX (MB_QW * MB_QH)
-
-static Uint8 mb_bloom_col[256 * 3];
-static Uint8 mb_light_col[256 * 3];
 
 static Uint8 mb_bloom[MB_LPIX * 3];
 static Uint8 mb_bloom_scratch[MB_LPIX * 3];
@@ -447,11 +537,25 @@ static void mb_add_explicit_sources(void)
 	}
 }
 
+// Emitted colour of one playfield pixel: the object's representative colour
+// (or, when the object buffer holds 0 --- VFX/superpixels and anything not
+// stamped by a sprite blit, the saturated shade of the pixel's own hue family),
+// scaled by the pixel's own emission weight.  Packed 0xRRGGBB.
+static inline Uint32 mb_emit_rgb(const Uint8 *rep_class, Uint8 pi, Uint8 rep, Uint16 w)
+{
+	const Uint8 idx = rep != 0 ? rep : mb_hue_rep[pi >> 4];
+	const Uint8 *c = rep_class + idx * 3;
+	const Uint32 r = (Uint32)((c[0] * w) >> 8);
+	const Uint32 g = (Uint32)((c[1] * w) >> 8);
+	const Uint32 b = (Uint32)((c[2] * w) >> 8);
+	return (r << 16) | (g << 8) | b;
+}
+
 // Builds the bloom mask at half resolution (2x2 block average) and the light
-// mask at quarter resolution (4x4 block average) through the per-index colour
-// tables, but only for pixels whose emission tag is non-zero.  A non-emissive
-// pixel uses the zero colour, so a bright ship/HUD/background pixel contributes
-// nothing.  Each half is skipped when its effect is off.
+// mask at quarter resolution (4x4 block average).  Each pixel's colour is the
+// object light colour (its representative shade) times the pixel's emission
+// weight; a pixel whose tag is NONE, or which is below the effect's threshold,
+// contributes nothing.  Each half is skipped when its effect is off.
 static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_light)
 {
 	if (do_bloom)
@@ -462,19 +566,32 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 			const Uint8 *row1 = row0 + frame->src_pitch;
 			const Uint8 *tag0 = mb_tag + (size_t)(ly * 2) * MODERN_PLAYFIELD_W;
 			const Uint8 *tag1 = tag0 + MODERN_PLAYFIELD_W;
+			const Uint8 *lc0 = mb_lcol + (size_t)(ly * 2) * MODERN_PLAYFIELD_W;
+			const Uint8 *lc1 = lc0 + MODERN_PLAYFIELD_W;
 			Uint8 *bloom = mb_bloom + (size_t)ly * MB_LW * 3;
 
 			for (int lx = 0; lx < MB_LW; ++lx)
 			{
 				const int x0 = lx * 2, x1 = x0 + 1;
-				const Uint8 *c00 = mb_bloom_col_w[tag0[x0]] + row0[x0] * 3;
-				const Uint8 *c10 = mb_bloom_col_w[tag0[x1]] + row0[x1] * 3;
-				const Uint8 *c01 = mb_bloom_col_w[tag1[x0]] + row1[x0] * 3;
-				const Uint8 *c11 = mb_bloom_col_w[tag1[x1]] + row1[x1] * 3;
+				const Uint8 t[4]  = { tag0[x0], tag0[x1], tag1[x0], tag1[x1] };
+				const Uint8 p[4]  = { row0[x0], row0[x1], row1[x0], row1[x1] };
+				const Uint8 rr[4] = { lc0[x0],  lc0[x1],  lc1[x0],  lc1[x1]  };
+				Uint32 sr = 0, sg = 0, sb = 0;
+
+				for (int k = 0; k < 4; ++k)
+				{
+					if (t[k] == DL_TAG_NONE)
+						continue;
+					const Uint32 v = mb_emit_rgb(mb_rep[t[k]], p[k], rr[k], mb_bloom_w[p[k]]);
+					sr += (v >> 16) & 0xff;
+					sg += (v >> 8) & 0xff;
+					sb += v & 0xff;
+				}
+
 				Uint8 *d = bloom + lx * 3;
-				d[0] = (Uint8)((c00[0] + c10[0] + c01[0] + c11[0]) >> 2);
-				d[1] = (Uint8)((c00[1] + c10[1] + c01[1] + c11[1]) >> 2);
-				d[2] = (Uint8)((c00[2] + c10[2] + c01[2] + c11[2]) >> 2);
+				d[0] = (Uint8)(sr >> 2);
+				d[1] = (Uint8)(sg >> 2);
+				d[2] = (Uint8)(sb >> 2);
 			}
 		}
 	}
@@ -487,18 +604,22 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 
 			for (int qx = 0; qx < MB_QW; ++qx)
 			{
-				int sr = 0, sg = 0, sb = 0;
+				Uint32 sr = 0, sg = 0, sb = 0;
 
 				for (int k = 0; k < 4; ++k)
 				{
 					const Uint8 *row = frame->src + (size_t)(qy * 4 + k) * frame->src_pitch + qx * 4;
 					const Uint8 *tag = mb_tag + (size_t)(qy * 4 + k) * MODERN_PLAYFIELD_W + qx * 4;
+					const Uint8 *lcl = mb_lcol + (size_t)(qy * 4 + k) * MODERN_PLAYFIELD_W + qx * 4;
+
 					for (int j = 0; j < 4; ++j)
 					{
-						const Uint8 *c = mb_light_col_w[tag[j]] + row[j] * 3;
-						sr += c[0];
-						sg += c[1];
-						sb += c[2];
+						if (tag[j] == DL_TAG_NONE)
+							continue;
+						const Uint32 v = mb_emit_rgb(mb_rep[tag[j]], row[j], lcl[j], mb_light_w[row[j]]);
+						sr += (v >> 16) & 0xff;
+						sg += (v >> 8) & 0xff;
+						sb += v & 0xff;
 					}
 				}
 
@@ -512,7 +633,9 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 
 // Debug-only: counts, per tag class, the playfield pixels whose palette entry
 // is bright enough to emit.  Also counts bright pixels with tag NONE, which are
-// exactly the ones the tag now excludes (should stay 0 when the tag is built).
+// exactly the ones the tag excludes (should stay 0 when the tag is built).  The
+// emitted-colour statistics use the same colour the mask uses, so they report
+// the tinted light.
 static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool do_light)
 {
 	unsigned long item_tagged = 0;
@@ -521,6 +644,7 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 	{
 		const Uint8 *row = frame->src + (size_t)y * frame->src_pitch;
 		const Uint8 *tag = mb_tag + (size_t)y * MODERN_PLAYFIELD_W;
+		const Uint8 *lcl = mb_lcol + (size_t)y * MODERN_PLAYFIELD_W;
 
 		for (int x = 0; x < MODERN_PLAYFIELD_W; ++x)
 		{
@@ -531,11 +655,9 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 					item_tagged++;
 			}
 
-			const Uint8 *cb = mb_bloom_col + row[x] * 3;
-			const Uint8 *cl = mb_light_col + row[x] * 3;
 			const bool bright =
-				(do_bloom && (cb[0] | cb[1] | cb[2]) != 0) ||
-				(do_light && (cl[0] | cl[1] | cl[2]) != 0);
+				(do_bloom && mb_bloom_w[row[x]] != 0) ||
+				(do_light && mb_light_w[row[x]] != 0);
 			if (!bright)
 				continue;
 
@@ -543,6 +665,28 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 				mb_stat_emissive[tag[x]]++;
 			else
 				mb_stat_untagged++;
+
+			// Emitted-colour statistics (see mb_stats_print): only the light
+			// threshold matters, and only the tag-carrying particles.  Weighted
+			// by the emitted colour's max channel so the bright cores (which
+			// dominate the blurred light) count more than the dim rims.
+			if (do_light && mb_light_w[row[x]] != 0 && tag[x] != DL_TAG_NONE)
+			{
+				const Uint32 v = mb_emit_rgb(mb_rep[tag[x]], row[x], lcl[x], mb_light_w[row[x]]);
+				const int cr = (int)((v >> 16) & 0xff);
+				const int cg = (int)((v >> 8) & 0xff);
+				const int cb = (int)(v & 0xff);
+				const int mx = MAX(cr, MAX(cg, cb));
+				const int mn = MIN(cr, MIN(cg, cb));
+				const Uint8 rep = lcl[x] != 0 ? lcl[x] : row[x];
+				mb_stat_rgb[tag[x]][0] += (unsigned long)cr;
+				mb_stat_rgb[tag[x]][1] += (unsigned long)cg;
+				mb_stat_rgb[tag[x]][2] += (unsigned long)cb;
+				mb_stat_energy[tag[x]] += (unsigned long)mx;
+				mb_stat_hue[tag[x]][rep >> 4] += (unsigned long)mx;
+				if (mx > 0 && (mx - mn) * 4 < mx)
+					mb_stat_white[tag[x]] += (unsigned long)mx;
+			}
 		}
 	}
 
@@ -716,7 +860,7 @@ void modern_bloom_pass(ModernFrame *frame)
 
 	const int bloom_threshold = mb_threshold_override >= 0 ? mb_threshold_override : bloom->threshold;
 	const int light_threshold = mb_threshold_override >= 0 ? mb_threshold_override : light->threshold;
-	mb_build_tables(frame->palette, bloom_threshold, light_threshold, mb_bloom_col, mb_light_col);
+	mb_build_tables(frame->palette, bloom_threshold, light_threshold);
 	mb_build_masks(frame, bloom->gain != 0, light->gain != 0);
 
 	if (mb_stats_enabled)
