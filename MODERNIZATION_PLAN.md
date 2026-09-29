@@ -592,3 +592,13 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **CI:** verde nos três sistemas usando os núcleos do runner.
   - **Como foi feito:** primeiro worker Codex (`gpt-6-sol`). O Orca 1.4.215/216 não reconhece o Codex v0.158 como pronto (`agent_readiness` expira), então a tarefa foi injetada num terminal aberto à mão com `dispatch --inject`.
 - **Overlay de performance do Steam Deck:** o usuário viu o overlay (MangoHud) não aparecer no build Linux. O código de vídeo é equivalente ao do Deadly Dave (SDL3 3.4.16 estático, renderizador padrão), e depois o overlay voltou a aparecer sem mudança nenhuma. Uma tarefa de log do renderizador (Codex `gpt-6-luna`) foi abortada a pedido do usuário.
+
+### 2026-09-29 — Release v0.2.0, master alinhado e remapeamento corrigido
+- **Release v0.2.0** no commit `a81e640`, a pedido do usuário, com os cinco pacotes anexados pela CI. Inclui luz colorida, partículas de ambiente, o limite de luz dos tiros grandes, as barras mais altas, a costura do cabeçalho pic-1 e a regressão em paralelo.
+- **`master` avançado por fast-forward** até `a81e640`, a pedido do usuário: 176 commits do `modernization`, sem commit de merge.
+- **Telas de remapeamento (`67e063e`).**
+  - **Causa:** com dois mapeamentos numa ação, o texto do controle passava de x=320. A tela pic-1 deixava de alargar no Modern (não sobrava coluna livre) e o excesso reaparecia na linha seguinte, à esquerda.
+  - **Rótulos:** o valor que não cabe em x ≤ 310 vira rótulos curtos (`A/RB`, `LY-/UP`, `RT+/H12X-`), e `+N` entra como último recurso. O texto original fica sempre que cabe, então o Classic não muda. Nomes longos de teclas encurtam do mesmo jeito (`L Shift`, `KP …`, `SC n`).
+  - **Corte na borda:** glyphs de fonte que cruzam a borda da superfície agora são cortados em vez de dar a volta.
+  - **Regressão:** ganhou as telas `joystick-multi` e `keyboard-long` e ficou com 164 casos, em ~56 s em paralelo.
+  - **Worker:** Codex `gpt-6-sol`.
