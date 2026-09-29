@@ -91,10 +91,11 @@
 // 1-player ship-status panel (right).  The original put shield, armor and power
 // on the right sidebar, so they stay there, now as vertical bars; the playfield
 // status block the Modern HUD used to carry (name, lives, cash, superbombs and
-// the special-weapon icon) is grouped with them as "the ship".  The special
-// icon reserves a 28-row slot when one is held, otherwise the name starts near
-// the top (and the special layout packs its rows a little tighter, since the
-// 78 px bars leave no slack beside a held special).
+// the special-weapon icon) is grouped with them as "the ship".  The name is
+// only drawn in multiplayer.  The special icon reserves a 28-row slot when one
+// is held, otherwise the block starts near the top (and the special layout
+// packs its rows a little tighter, since the 78 px bars leave no slack beside a
+// held special).
 //
 // Only the upper block (down to the superbomb row) and the bottom stack
 // (generator name over the cheat notice, anchored to HUD_BOTTOM_Y) have fixed
@@ -105,6 +106,7 @@
 #define ST_NAME_Y         6
 #define ST_GEN_GAP        3   // generator name to the cheat notice
 // Row steps of the upper block: name -> lives, lives -> cash, cash -> bombs.
+// The name row only exists in 2P; a 1P game starts at the lives / cash row.
 // The life and superbomb icons are 14 rows tall, so every step after one keeps
 // a gap.  The lives row only exists in arcade / 2P.
 #define ST_STEP_NAME      10
@@ -112,7 +114,7 @@
 #define ST_STEP_CASH      11
 #define ST_STEP_NAME_HI   8
 #define ST_STEP_CASH_HI   9
-// The row after the name; lives/cash/superbombs follow it.
+// The first row of the upper block (the name in 2P); lives/cash/superbombs follow.
 
 // 1-player armament panel (left).  Weapons, sidekicks and their gauges; the
 // global boss bars and level timer sit at the bottom (they used to share the
@@ -800,15 +802,16 @@ static int hud_cp_shift(int panel_w)
 // ---------------------------------------------------------------------------
 
 // 1-player ship-status panel (the right one): everything the original playfield
-// HUD carried (special icon, name, lives, cash, superbombs) grouped with the
-// shield / armor / power vertical bars the original drew on the right sidebar,
-// plus the generator name and the cheat notice.  Always player 0.
+// HUD carried (special icon, optional multiplayer name, lives, cash, superbombs)
+// grouped with the shield / armor / power vertical bars the original drew on
+// the right sidebar, plus the generator name and the cheat notice.  Always
+// player 0.
 static void hud_draw_status_panel(const HudPanel *p)
 {
 	// Upper block.  With a special weapon the 2x2 icon takes a 28-row slot and
-	// the rows below it pack tighter; without one the name starts near the top.
+	// the rows below it pack tighter; without one they start near the top.  The
+	// name row is only needed in multiplayer and is omitted in one-player games.
 	const bool special = (player[0].items.special > 0);
-	const int step_name  = special ? ST_STEP_NAME_HI : ST_STEP_NAME;
 	const int step_cash  = special ? ST_STEP_CASH_HI : ST_STEP_CASH;
 
 	int y;
@@ -822,8 +825,11 @@ static void hud_draw_status_panel(const HudPanel *p)
 		y = ST_NAME_Y;
 	}
 
-	hud_draw_name(p, 0, y, false);
-	y += step_name;
+	if (twoPlayerMode)
+	{
+		hud_draw_name(p, 0, y, false);
+		y += special ? ST_STEP_NAME_HI : ST_STEP_NAME;
+	}
 
 	if (onePlayerAction || twoPlayerMode)
 	{
