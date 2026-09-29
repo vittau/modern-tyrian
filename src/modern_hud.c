@@ -73,12 +73,13 @@
 
 // Vertical vitals block (shield / armor / power reserve), shared by every
 // layout.  Three columns filling bottom-up, the label above each bar and its
-// numeric value below.  The 1P panel has room for 52 px bars; the 2P/16:10
+// numeric value below.  The 1P panel has room for 78 px bars; the 2P/16:10
 // compact panel must also carry the weapon and sidekick icon+name+gauge rows,
-// so its bars are shorter (26 px) while still being a much heavier block than
-// the old 4 px horizontal lines.
-#define VIT_BAR_H_1P      52
+// so its bars start at 26 px and grow (up to 39 px) by whatever the panel width
+// frees at the bottom; see hud_cp_shift().
+#define VIT_BAR_H_1P      78
 #define VIT_BAR_H_COMPACT 26
+#define VIT_BAR_H_COMPACT_MAX 39
 #define VIT_LABEL_GAP     7   // label row to bar top
 #define VIT_VALUE_GAP     1   // bar bottom to value row
 
@@ -92,16 +93,26 @@
 // status block the Modern HUD used to carry (name, lives, cash, superbombs and
 // the special-weapon icon) is grouped with them as "the ship".  The special
 // icon reserves a 28-row slot when one is held, otherwise the name starts near
-// the top.
+// the top (and the special layout packs its rows a little tighter, since the
+// 78 px bars leave no slack beside a held special).
+//
+// Only the upper block (down to the superbomb row) and the bottom stack
+// (generator name over the cheat notice, anchored to HUD_BOTTOM_Y) have fixed
+// rows; the vitals block is centred in the free space between them, so it
+// stays put while lives, bombs or the cheat notice change.
 #define ST_SPECIAL_Y      2
-#define ST_NAME_HI_Y      34
+#define ST_NAME_HI_Y      31
 #define ST_NAME_Y         6
-#define ST_NOSPECIAL_UP   14
-#define ST_VIT_LABEL_Y    94
-#define ST_GEN_Y          164
-#define ST_CHEAT_Y        174
-// The row after the name; lives/cash/superbombs follow it.  Computed at run
-// time: ST_NAME_HI_Y + 10 when a special is held, ST_NAME_Y + 10 otherwise.
+#define ST_GEN_GAP        3   // generator name to the cheat notice
+// Row steps of the upper block: name -> lives, lives -> cash, cash -> bombs.
+// The life and superbomb icons are 14 rows tall, so every step after one keeps
+// a gap.  The lives row only exists in arcade / 2P.
+#define ST_STEP_NAME      10
+#define ST_STEP_LIVES     16
+#define ST_STEP_CASH      11
+#define ST_STEP_NAME_HI   8
+#define ST_STEP_CASH_HI   9
+// The row after the name; lives/cash/superbombs follow it.
 
 // 1-player armament panel (left).  Weapons, sidekicks and their gauges; the
 // global boss bars and level timer sit at the bottom (they used to share the
@@ -133,19 +144,23 @@
 #define CP_LIVES_Y        9
 #define CP_CASH_Y         24
 #define CP_BOMBS_Y        31
-#define CP_VIT_LABEL_Y    47
-#define CP_FRONT_NAME_Y   90
-#define CP_FRONT_PIPS_Y   97
-#define CP_REAR_NAME_Y    104
-#define CP_REAR_PIPS_Y    111  // rear firing mode shares this row
-#define CP_SK_L_LABEL_Y   118
-#define CP_SK_L_ICON_Y    125
-#define CP_SK_R_LABEL_Y   143
-#define CP_SK_R_ICON_Y    150
-#define CP_BOSS_Y         169
-#define CP_TIMER_LABEL_Y  177
-#define CP_TIMER_VALUE_Y  185
-#define CP_CHEAT_Y        177
+#define CP_VIT_LABEL_Y    46
+// Rows below the vitals, for the shortest (26 px) bars; hud_cp_shift() moves
+// them down as the bars grow.
+#define CP_FRONT_NAME_Y   88
+#define CP_FRONT_PIPS_Y   95
+#define CP_REAR_NAME_Y    102
+#define CP_REAR_PIPS_Y    109  // rear firing mode shares this row
+#define CP_SK_L_LABEL_Y   116
+#define CP_SK_L_ICON_Y    123
+#define CP_SK_R_LABEL_Y   141
+#define CP_SK_R_ICON_Y    148
+#define CP_BOSS_Y         166
+
+// Lowest row (exclusive) a panel's text may use.  The cheat notice, the
+// generator name and the 2P timer are anchored to it.
+#define HUD_BOTTOM_Y      199
+#define HUD_TIMER_GAP     4   // inline 2P timer: label to value
 
 // ---------------------------------------------------------------------------
 // Small helpers.
@@ -703,20 +718,81 @@ static void hud_draw_sidekick(const HudPanel *p, int pi, int k, int label_y, int
 	hud_text(p->surface, num_x, icon_y + 4, num, HUD_NUM_BANK, 1);
 }
 
-static void hud_draw_cheat(const HudPanel *p, int y)
+// The cheat notice uses as few lines as the panel width allows: one line in a
+// wide panel, "Cheaters always" / "prosper." in a 16:9 one, one word per line in
+// the narrowest.  Each line takes an 8-row step (6-row glyphs).
+static const char *const hud_cheat_text[3][3] = {
+	{ "Cheaters always prosper.", "", "" },
+	{ "Cheaters always", "prosper.", "" },
+	{ "Cheaters", "always", "prosper." },
+};
+
+static int hud_cheat_lines(int panel_w)
+{
+	const int avail = panel_w - 2 * HUD_MARGIN;
+
+	for (int n = 1; n < 3; ++n)
+	{
+		int widest = 0;
+		for (int l = 0; l < n; ++l)
+			widest = MAX(widest, JE_textWidth(hud_cheat_text[n - 1][l], TINY_FONT));
+		if (widest <= avail)
+			return n;
+	}
+	return 3;
+}
+
+// Top row of the cheat notice: its last line ends on HUD_BOTTOM_Y.
+static int hud_cheat_y(int panel_w)
+{
+	return HUD_BOTTOM_Y - (hud_cheat_lines(panel_w) * 8 - 2);
+}
+
+static void hud_draw_cheat(const HudPanel *p)
 {
 	if (!youAreCheating)
 		return;
 
-	static const char *const cheat_lines[3] = { "Cheaters", "always", "prosper." };
-	HUD_ASSERT_FIT(p->surface, y + 2 * 8, 6);
-	for (int l = 0; l < 3; ++l)
+	const int lines = hud_cheat_lines(p->w);
+	const int y = hud_cheat_y(p->w);
+
+	HUD_ASSERT_FIT(p->surface, y + (lines - 1) * 8, 6);
+	for (int l = 0; l < lines; ++l)
 	{
-		int x = (p->w - JE_textWidth(cheat_lines[l], TINY_FONT)) / 2;
+		const char *text = hud_cheat_text[lines - 1][l];
+		int x = (p->w - JE_textWidth(text, TINY_FONT)) / 2;
 		if (x < HUD_MARGIN)
 			x = HUD_MARGIN;
-		hud_text(p->surface, x, y + l * 8, cheat_lines[l], 3, 4);
+		hud_text(p->surface, x, y + l * 8, text, 3, 4);
 	}
+}
+
+// The 2P level timer stacks its label over its value in a narrow panel; a wider
+// one puts them side by side on one row, which frees 8 rows at the bottom.
+// `sample` is the widest value the timer can show ("%.1f" of a 16-bit
+// countdown / 100).
+static bool hud_timer_inline(int panel_w)
+{
+	const int avail = panel_w - 2 * HUD_MARGIN;
+
+	return JE_textWidth(miscText[66], TINY_FONT) + HUD_TIMER_GAP +
+	       JE_textWidth("655.3", SMALL_FONT_SHAPES) <= avail;
+}
+
+// How many rows the 2P compact panel's lower rows move down, i.e. how much
+// taller the vitals bars get (26 -> 26 + shift, at most 39).  Everything below
+// the bars (weapons, sidekicks) moves with them, so what limits it is the
+// bottom of the panel: the boss bar (6 rows + 2) must clear the cheat notice
+// (player 2's panel) and the timer (player 1's panel), both anchored to
+// HUD_BOTTOM_Y.  Depends only on the panel width, so the layout is static.
+static int hud_cp_shift(int panel_w)
+{
+	const int cheat_top = hud_cheat_y(panel_w);
+	const int timer_top = HUD_BOTTOM_Y - (hud_timer_inline(panel_w) ? 8 : 16);
+	const int boss_max = MIN(cheat_top, timer_top) - 8;
+	const int shift = boss_max - CP_BOSS_Y;
+
+	return MAX(0, MIN(shift, VIT_BAR_H_COMPACT_MAX - VIT_BAR_H_COMPACT));
 }
 
 // ---------------------------------------------------------------------------
@@ -729,13 +805,11 @@ static void hud_draw_cheat(const HudPanel *p, int y)
 // plus the generator name and the cheat notice.  Always player 0.
 static void hud_draw_status_panel(const HudPanel *p)
 {
-	// Adaptive upper block: the special icon reserves a 28-row slot, otherwise
-	// the name starts near the top.  When no special is held the whole block is
-	// 28 rows shorter, so the lower block (vitals, generator, cheat)
-	// slides up by the same amount to keep the panel balanced instead of leaving
-	// a hole under the score.
+	// Upper block.  With a special weapon the 2x2 icon takes a 28-row slot and
+	// the rows below it pack tighter; without one the name starts near the top.
 	const bool special = (player[0].items.special > 0);
-	const int drop = special ? 0 : ST_NOSPECIAL_UP;
+	const int step_name  = special ? ST_STEP_NAME_HI : ST_STEP_NAME;
+	const int step_cash  = special ? ST_STEP_CASH_HI : ST_STEP_CASH;
 
 	int y;
 	if (special)
@@ -749,30 +823,40 @@ static void hud_draw_status_panel(const HudPanel *p)
 	}
 
 	hud_draw_name(p, 0, y, false);
-	y += 10;
+	y += step_name;
 
 	if (onePlayerAction || twoPlayerMode)
 	{
 		// The life icon is a 12x14 tile: give the row 16 px so the icon and its
 		// count cannot touch the cash row below (review fix 1).
 		hud_draw_lives(p, 0, y);
-		y += 16;
+		y += ST_STEP_LIVES;
 	}
 
 	hud_draw_cash(p, 0, y);
-	y += 11;
+	y += step_cash;
 
 	hud_draw_bombs(p, 0, y);
+	const int upper_bottom = y + 14;   // the superbomb icons are 14 rows tall
 
-	// Shield, armor and power reserve: three vertical bars, bottom-up.  The
-	// generator name and cheat notice keep their bottom slots so the freed
-	// upper rows become even space instead of a hole under the score.
-	hud_draw_vitals(p, 0, ST_VIT_LABEL_Y - drop, VIT_BAR_H_1P);
+	// Bottom stack: the generator name (roomy panels) over the cheat notice.
+	const int gen_y = hud_cheat_y(p->w) - ST_GEN_GAP - 6;
+	const int lower_top = p->roomy ? gen_y : hud_cheat_y(p->w);
+
+	// Shield, armor and power reserve: three vertical bars, bottom-up, the whole
+	// block (label row + bars + value row) centred in the free space between the
+	// two.
+	const int vit_h = VIT_LABEL_GAP + VIT_BAR_H_1P + VIT_VALUE_GAP + 6;
+	int label_y = upper_bottom + (lower_top - upper_bottom - vit_h) / 2;
+	if (label_y < upper_bottom)
+		label_y = upper_bottom;
+
+	hud_draw_vitals(p, 0, label_y, VIT_BAR_H_1P);
 
 	if (p->roomy)
-		hud_draw_generator(p, 0, ST_GEN_Y);
+		hud_draw_generator(p, 0, gen_y);
 
-	hud_draw_cheat(p, ST_CHEAT_Y);
+	hud_draw_cheat(p);
 }
 
 // 1-player armament panel (the left one): front/rear weapon name, power pips
@@ -792,22 +876,25 @@ static void hud_draw_armament_panel(const HudPanel *p)
 // notice (player 1's holds the timer).
 static void hud_draw_compact_panel(const HudPanel *p, int pi, bool with_cheat)
 {
+	// Every row below the vitals moves down with the taller bars.
+	const int sh = hud_cp_shift(p->w);
+
 	hud_draw_special(p, pi, 3, false);
 	hud_draw_name(p, pi, CP_NAME_Y, true);
 	hud_draw_lives(p, pi, CP_LIVES_Y);
 	hud_draw_cash(p, pi, CP_CASH_Y);
 	hud_draw_bombs(p, pi, CP_BOMBS_Y);
 
-	hud_draw_vitals(p, pi, CP_VIT_LABEL_Y, VIT_BAR_H_COMPACT);
+	hud_draw_vitals(p, pi, CP_VIT_LABEL_Y, VIT_BAR_H_COMPACT + sh);
 
-	hud_draw_weapon(p, pi, FRONT_WEAPON, -1, CP_FRONT_NAME_Y, CP_FRONT_PIPS_Y, -1, false);
-	hud_draw_weapon(p, pi, REAR_WEAPON, -1, CP_REAR_NAME_Y, CP_REAR_PIPS_Y, -1, true);
+	hud_draw_weapon(p, pi, FRONT_WEAPON, -1, CP_FRONT_NAME_Y + sh, CP_FRONT_PIPS_Y + sh, -1, false);
+	hud_draw_weapon(p, pi, REAR_WEAPON, -1, CP_REAR_NAME_Y + sh, CP_REAR_PIPS_Y + sh, -1, true);
 
-	hud_draw_sidekick(p, pi, LEFT_SIDEKICK, CP_SK_L_LABEL_Y, CP_SK_L_ICON_Y);
-	hud_draw_sidekick(p, pi, RIGHT_SIDEKICK, CP_SK_R_LABEL_Y, CP_SK_R_ICON_Y);
+	hud_draw_sidekick(p, pi, LEFT_SIDEKICK, CP_SK_L_LABEL_Y + sh, CP_SK_L_ICON_Y + sh);
+	hud_draw_sidekick(p, pi, RIGHT_SIDEKICK, CP_SK_R_LABEL_Y + sh, CP_SK_R_ICON_Y + sh);
 
 	if (with_cheat)
-		hud_draw_cheat(p, CP_CHEAT_Y);
+		hud_draw_cheat(p);
 }
 
 // Reproduces the `tempW` side effects of the original JE_inGameDisplays,
@@ -941,8 +1028,26 @@ void modern_hud_draw_timer(const char *label, const char *value, int brightness)
 	SDL_Surface *surface = modern_hud_surface(0);
 	const int w = modern_side_panel_width();
 	const bool two = (twoPlayerMode && !galagaMode);
-	const int label_y = two ? CP_TIMER_LABEL_Y : AR_TIMER_LABEL_Y;
-	const int value_y = two ? CP_TIMER_VALUE_Y : AR_TIMER_VALUE_Y;
+
+	if (two && hud_timer_inline(w))
+	{
+		// One row: label, then value, centred as a pair on the bottom rows.
+		const int lw = JE_textWidth(label, TINY_FONT);
+		const int vw = JE_textWidth(value, SMALL_FONT_SHAPES);
+		int x = (w - (lw + HUD_TIMER_GAP + vw)) / 2;
+		if (x < HUD_MARGIN)
+			x = HUD_MARGIN;
+		const int value_y = HUD_BOTTOM_Y - 8;
+		HUD_ASSERT_FIT(surface, value_y, 8);
+		JE_textShade(surface, x, value_y + 1, label, 7, brightness, FULL_SHADE);
+		JE_dString(surface, x + lw + HUD_TIMER_GAP, value_y, value, SMALL_FONT_SHAPES);
+		return;
+	}
+
+	// Stacked, the 2P timer's value ends on HUD_BOTTOM_Y (label 6 rows, gap 2,
+	// value 8 rows).
+	const int label_y = two ? HUD_BOTTOM_Y - 16 : AR_TIMER_LABEL_Y;
+	const int value_y = two ? HUD_BOTTOM_Y - 8 : AR_TIMER_VALUE_Y;
 
 	int x = (w - JE_textWidth(label, TINY_FONT)) / 2;
 	if (x < HUD_MARGIN)
@@ -1082,7 +1187,7 @@ bool modern_hud_boss_target(int bar, bool two_player, SDL_Surface **surface, int
 	if (two_player)
 	{
 		*surface = modern_hud_surface(bar);
-		*y = CP_BOSS_Y;
+		*y = CP_BOSS_Y + hud_cp_shift(w);
 	}
 	else
 	{
