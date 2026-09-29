@@ -30,6 +30,7 @@
 #include "game_data.h"
 #include "gamepad_selftest.h"
 #include "helptext.h"
+#include "installer.h"
 #include "interp.h"
 #include "joystick.h"
 #include "jukebox.h"
@@ -991,7 +992,8 @@ int main(int argc, char *argv[])
 	customDataDirPath = bootstrap.data_directory;
 	bool regress = bootstrap.regress;
 	bool selftest = bootstrap.selftest;
-	if ((!regress && !selftest) || bootstrap.regress_user_root != NULL)
+	const char *install_request = installerCliArgument(argc, argv);
+	if (install_request == NULL && ((!regress && !selftest) || bootstrap.regress_user_root != NULL))
 	{
 		if (!userFilesEnable(bootstrap.regress_user_root))
 		{
@@ -1046,7 +1048,7 @@ int main(int argc, char *argv[])
 	char log_default_path[1024];
 	log_default_path[0] = '\0';
 
-	if (log_path == NULL && !regress && !selftest && steamDeck())
+	if (log_path == NULL && install_request == NULL && !regress && !selftest && steamDeck())
 	{
 		const char *user_dir = userDirGet();
 		if (user_dir[0] != '\0' && userDirPrepare())
@@ -1063,6 +1065,10 @@ int main(int argc, char *argv[])
 		else
 			logWarn("Failed to open '%s' for logging.", log_path);
 	}
+
+	// Headless data install for automation and tests: no video, config or saves.
+	if (install_request != NULL)
+		return installerRunCli(install_request, installerCliSpecArgument(argc, argv)) ? EXIT_SUCCESS : EXIT_FAILURE;
 
 	if (userFilesEnabled())
 	{

@@ -56,6 +56,9 @@ ifeq ($(PLATFORM), WIN32)
 endif
 
 SRCS := $(wildcard src/*.c)
+# Vendored zip reader (MIT); the project's own files keep their warnings, this one does not.
+SRCS += src/third_party/miniz/miniz.c
+MINIZ_DEFINES := -DMINIZ_NO_STDIO -DMINIZ_NO_TIME -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
 OBJS := $(SRCS:src/%.c=obj/%.o)
 DEPS := $(SRCS:src/%.c=obj/%.d)
 
@@ -225,6 +228,8 @@ $(TARGET) : $(OBJS) $(RES)
 obj/%.o : src/%.c
 	@mkdir -p "$(dir $@)"
 	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -c -o $@ $<
+
+obj/third_party/miniz/miniz.o : ALL_CFLAGS += -Wno-error -w $(MINIZ_DEFINES)
 
 obj/resources.o : visualc/resources.rc visualc/tyrian.ico
 	@mkdir -p "$(dir $@)"
