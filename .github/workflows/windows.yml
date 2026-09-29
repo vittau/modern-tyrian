@@ -39,7 +39,7 @@ jobs:
           # still caches the resulting environment between runs.
           update: true
           install: >-
-            make git curl unzip zip diffutils perl
+            make git curl unzip zip diffutils perl python
             ${{ matrix.prefix }}-cc
             ${{ matrix.prefix }}-pkgconf
             ${{ matrix.prefix }}-sdl3

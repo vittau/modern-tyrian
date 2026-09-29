@@ -1254,8 +1254,8 @@ static bool runJob(const Paths *paths, Failure *failure, Outcome *outcome)
 		// Structurally valid Tyrian 2000 data that is not the original release
 		// (a GOG build, say): accepted, and marked so in the log.
 		outcome->nonCanonical = true;
-		logWarn("Tyrian 2000 data is non-canonical: %zu file(s) missing from the manifest, %zu differ from it",
-		        report.missing, report.differing);
+		logWarn("Tyrian 2000 data is non-canonical: %lu file(s) missing from the manifest, %lu differ from it",
+		        (unsigned long)report.missing, (unsigned long)report.differing);
 	}
 	if (cancelRequested(failure))
 		return false;
