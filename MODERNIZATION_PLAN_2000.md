@@ -2,7 +2,7 @@
 
 Plano e diário da integração do **Tyrian 2000** ao Modern Tyrian, mantendo o **Tyrian 2.1 Freeware** exatamente como está. Nasceu do briefing do usuário de 2026-09-29. O plano geral de modernização continua em `MODERNIZATION_PLAN.md`, e este documento cobre só a trilha do 2000.
 
-**Estado:** mapeamento feito e decisões do usuário tomadas (§12, 2026-09-29). A Fase 1 (pesquisa) está pronta para começar; o usuário retoma em 2026-09-30.
+**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. A Fase 2 (só 2.1) pode seguir.
 
 ---
 
@@ -101,7 +101,7 @@ No começo, um launcher 16:9 deixa o usuário escolher a variante:
   - `cubetxt1–5.dat`;
   - `tyrian.hdt`, `tyrian.snd`, `music.mus`, `tyrian.pic`, `palette.dat`;
   - `newsh*.shp`, `shapes*.dat`, `estsc.shp`;
-  - `demo.1–4`;
+  - `demo.1–5` (as cinco idênticas byte a byte às do 2.1);
   - executáveis DOS (`tyrian2.exe`, `setup.exe`, `shipedit.exe`) e ícones.
 - **Licença (ponto de atenção):** o zip **não traz texto de licença**. O `readme.txt` é o release note de 1999 ("Copyright (c) 1999, Eclipse Software / Stealth Productions, All Rights Reserved"). O status de freeware vem do anúncio da Camanis. Por isso o projeto **não redistribui** esses dados em nenhuma forma (§9). Diferente do 2.1, cujo pacote freeware traz `license.doc`, que permite a redistribuição e que já embutimos.
 
@@ -234,12 +234,12 @@ As mesmas regras do plano geral valem aqui:
 - este arquivo é o diário da trilha 2000.
 
 ### Fase 1 — Pesquisa (sem código de jogo)
-- [ ] Fixar o pino do OpenTyrian2000 (§12) e a base do upstream contra a qual o diff é lido.
-- [ ] Classificar cada mudança do fork (§4) → `docs/t2000/fork-diff.md`.
-- [ ] Mapear os formatos de dados do 2000 que diferem do 2.1: `.lvl` do episódio 5, strings em `tyrian.hdt`, `levels5.dat`, `cubetxt5.dat`, eventos de fase novos e save.
-- [ ] Documentar as diferenças de gameplay confirmadas no jogo original e no fork (armas, naves, sidekicks, eventos, Timed Battle, scoring).
-- [ ] Levantar todos os pontos de integração no nosso código, arquivo por arquivo, com o risco para os recursos Modern (§3.3).
-- [ ] Plano de testes do 2000: como gerar baselines e demos sem commitar dados (§8).
+- [x] Fixar o pino do OpenTyrian2000 (§12) e a base do upstream contra a qual o diff é lido.
+- [x] Classificar cada mudança do fork (§4) → `docs/t2000/fork-diff.md`.
+- [x] Mapear os formatos de dados do 2000 que diferem do 2.1: `.lvl` do episódio 5, strings em `tyrian.hdt`, `levels5.dat`, `cubetxt5.dat`, eventos de fase novos e save.
+- [x] Documentar as diferenças de gameplay confirmadas no jogo original e no fork (armas, naves, sidekicks, eventos, Timed Battle, scoring).
+- [x] Levantar todos os pontos de integração no nosso código, arquivo por arquivo, com o risco para os recursos Modern (§3.3).
+- [x] Plano de testes do 2000: como gerar baselines e demos sem commitar dados (§8).
 
 **Resultado:** documento técnico aprovado pelo usuário antes da Fase 3.
 
@@ -348,8 +348,8 @@ As mesmas regras do plano geral valem aqui:
   Os baselines são hashes de quadro e estado, não dados do jogo. Nenhum trecho dos arquivos originais é commitado.
 - **Origem dos dados nos testes:**
   - **local:** a suíte usa a pasta instalada pelo instalador ou `TYRIAN2000_DATA`;
-  - **CI:** baixa da mesma URL oficial, confere o SHA-256 e guarda no cache do Actions, que é privado ao repositório e não é redistribuição. A escolha está em §12.
-- **Demos:** as `demo.1–4` do 2000 são a base dos casos de gameplay, como no 2.1, junto com scripts de regressão para o episódio 5 e o Timed Battle.
+  - **CI:** baixa da mesma URL oficial a cada execução (5 MB) e confere o tamanho e o SHA-256, **sem cache do Actions**. A Fase 1 mostrou que o cache de um repositório público pode ser restaurado por PRs de forks, então não é privado. Os dados ficam só na pasta temporária do job, fora do checkout e dos pacotes. A escolha está em §12.
+- **Demos:** as `demo.1–5` do 2000 são idênticas às do 2.1 e só jogam o episódio 1. Servem de base, mas os casos do episódio 5, do Timed Battle e dos eventos novos vêm de scripts de regressão e fixtures do próprio código (`docs/t2000/integration.md`).
 
 ---
 
@@ -406,7 +406,7 @@ As mesmas regras do plano geral valem aqui:
 
 1. **Pino do fork:** `KScl/opentyrian2000@master`, commit `aad5aca` (2026-02-22).
 2. **Fonte do download:** `camanis.net/tyrian/tyrian2000.zip`, com o tamanho e o SHA-256 de §3.2. Instalação manual e detecção do GOG como alternativas.
-3. **CI do 2000:** a CI baixa os dados da fonte oficial, confere o hash, guarda no cache privado do Actions e roda `make regress-2000`.
+3. **CI do 2000:** a CI baixa os dados da fonte oficial, confere o hash e roda `make regress-2000`. Sem cache do Actions, que num repositório público não é privado (ajuste da Fase 1).
 4. **Configurações:** apresentação e controle compartilhados entre as variantes; saves, high scores e progresso separados por variante.
 5. **Launcher:** **sempre abre no launcher**, inclusive no Steam Deck, sem pular para a última variante. O launcher é **parte do próprio binário**, a primeira tela do jogo desenhada no pipeline moderno, e não um programa separado. A última escolha só define qual painel começa selecionado. `--variant=` fica para regressão e automação.
 6. **Branch:** `modernization`, fase a fase, com o 2.1 sempre verde.
@@ -435,3 +435,23 @@ As mesmas regras do plano geral valem aqui:
   - A tentativa com o Sonnet foi parada antes de qualquer edição (`task_1a7951363cc7`, dispatch `ctx_1d9092e90fd1`).
   - Especificação: `.worker-reports/specs/spec-t2000-phase1.md`. Worktree `t2000p1` limpo.
   - Para retomar: `worker-start --task task_1a7951363cc7 --retry-of ctx_1d9092e90fd1`, ou, com o Codex, `task-create` com a mesma especificação e `dispatch --inject`.
+
+### 2026-09-29 — Fase 1 concluída
+- **Worker:** Codex `gpt-6-sol` high, retomado a pedido do usuário. Levou ~22 min. Documentos revisados e trazidos para `docs/t2000/`:
+  - `fork-diff.md`: diff próprio do fork contra o merge-base `967c12e` (50 arquivos, +1.292/−476 linhas), 187 linhas de classificação e a evidência de cada diferença de gameplay;
+  - `data-formats.md`: formatos 2.1 × 2000, arquivo a arquivo, e quais carregadores nossos quebrariam;
+  - `integration.md`: riscos por arquivo, a API C99 da Fase 2 (`game_variant.h`, `game_data.h`, `bootstrap.h`, `user_paths.h`) e a suíte `regress-2000`.
+- **Achados principais:**
+  - o formato dos arquivos é o mesmo, e mudam as contagens: um segundo banco de armas e inimigos, mais strings, 13 bancos de shapes, 31 efeitos sonoros (as vozes mudam de ID), 14 imagens e 24 paletas;
+  - o save do 2000 tem 4.722 bytes, os mesmos 2.502 do 2.1 mais placares sem criptografia. O nosso carregador aceitaria o prefixo e truncaria o arquivo ao salvar, então namespaces separados são obrigatórios;
+  - o evento 68 é explosão aleatória no 2.1 e substituição de inimigo no 2000. Tem que ficar atrás da variante;
+  - os carregadores de strings, itens, shapes, imagens, sons e créditos quebrariam com os dados do 2000; hoje o guarda em `src/opentyr.c` recusa esses dados antes de tudo;
+  - as cores e classes do tag buffer já saem da análise de cada sprite, então não precisamos de uma tabela de cores por ID.
+- **Correções ao plano:**
+  - cinco demos, não quatro, todas iguais às do 2.1;
+  - sem cache do Actions na CI (acima);
+  - a "correção" do fork no menu de upgrade não se aplica ao nosso código, que já protege o índice;
+  - no fim de cada bloco de itens sobram 77 bytes que o fork não lê. Fica em aberto, sem inventar ID;
+  - o fork marca os eventos novos e o rastro do Flying Punch como aproximações, então a fidelidade ao DOS precisa de comparação manual.
+- **Validação:** build GCC-16 C99 com `-Werror` e os 164 casos passando, sem mudança de baseline. Nenhum dado do 2000 entrou no worktree ou nos documentos, só nomes, tamanhos e checksums.
+
