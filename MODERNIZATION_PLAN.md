@@ -574,4 +574,15 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **Correção:** as linhas do cabeçalho (y ≤ 33) repetem a última coluna interior (310). O mapeamento do mouse não muda, e o Classic continua idêntico.
   - **Arte original:** o segmento escuro no topo da caixa (y=6, x 285–293) já está na pic 1 e não foi alterado.
   - **Regressão:** ganhou a tela `--regress-screen=shield` e ficou com 158 casos.
-- **Em andamento:** luz do Mega Cannon no power 6 (`megacannon`) e barras de vida 50% mais altas (`tallbars`).
+- **Barras de vida 50% mais altas (`ed0c9fb`).**
+  - **1P e arcade:** as barras vão de 52 para 78 px. O bloco delas fica centrado entre o bloco de cima e a pilha de baixo (gerador sobre o aviso de trapaça), que agora fica presa ao pé do painel.
+  - **Arma especial:** com uma especial equipada, as linhas sob o ícone ficam um pouco mais juntas, porque o pior caso (arcade + especial + trapaça a 16:9) só cabe assim.
+  - **2P compacto:** as barras crescem o quanto a largura libera: 39 px em 21:9 e 32:9, 35 em 16:9 e 29 em 16:10. O que limita é o pé do painel.
+  - **Rodapé:** o aviso de trapaça usa de 1 a 3 linhas conforme a largura, e o cronômetro do 2P vai para uma linha só quando cabe.
+- **Luz do Mega Cannon no power 6 (`c116186`).**
+  - **Causa:** o orbe é desenhado com quatro sprites de 70 a 95 pixels brilhantes cada, contra menos de 30 nos tiros pequenos. Por isso somava 8 vezes a luz de um Pulse-Cannon e saturava um platô largo. A luz colorida não foi a causa: ela até reduziu a luz do orbe.
+  - **Correção geral:** cada sprite grava sua pegada emissiva (número de pixels brilhantes) no byte de tag, junto da classe. Um tiro do jogador com mais de 32 pixels brilhantes tem a emissão escalada para esse valor de referência.
+  - **Efeito medido:** a luz adicionada do Mega Cannon caiu 3,1×, e a do Laser e do Zica Laser caiu cerca de 2,5×. Tiros pequenos, explosões, tiros inimigos e itens não mudam, e o custo ficou em cerca de 0,02 ms.
+  - **Novas opções de teste:** `--regress-front-weapon` e `--regress-front-power` (311–312) montam o armamento no `--regress-script`.
+  - **Falso alarme:** o agente viu rodadas em paralelo divergirem, mas o driver de medição dele não fixava `--regress-seed` e caía em `time(NULL)`. Os casos da suíte fixam a semente.
+- **Em andamento:** a suíte de regressão em paralelo (`regressspeed`, Codex). O Orca 1.4.215/216 não reconhece o Codex v0.158 como pronto, então a tarefa foi injetada num terminal aberto à mão.
