@@ -133,7 +133,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] HUD que fica dentro do playfield (dinheiro, vidas e nomes, superbombas, arma especial, barras de chefe, timer da fase, aviso de cheat) movido para os painéis laterais no modo Modern quando cada painel tem ≥ 51 px (16:9 original ou mais largo). Jogador 1 à esquerda, jogador 2 à direita. Merge `1292c30`
 - [x] Gamepad via API de Gamepad do SDL3, com hot-plug e remapeamento por nome no cfg; autoteste `--selftest-gamepad` com gamepad virtual (51 checks). Integrado a `modernization` no merge `85f741a`
 - [x] Harness imune a input real: no modo regress só `SDL_EVENT_QUIT` passa, joysticks ficam inertes, o foco fica fixo e no macOS o processo sobe com `SDL_HINT_MAC_BACKGROUND_APP` (§2.19)
-- [ ] Bloom simples pela máscara de brilho da paleta
+- [x] Bloom simples pela máscara de brilho da paleta
 - [—] ~~Visão estendida~~: descartada pelo usuário depois das medições (§2.20, §7). As laterais ficam só com o preenchimento procedural do widescreen
 
 ### Fase 2 — O "Modern"
@@ -143,11 +143,11 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   3. [x] (`09441a8`, merge `b9b65da`) Interpolação entre o tick anterior e o atual na taxa do monitor, obrigatória para a suavidade (pedido do usuário). Vale para todo movimento: inimigos (inclusive os de chão, que andam com o scroll), nave e sidekicks, tiros do jogador e dos inimigos, explosões que seguem objetos e scroll das três camadas. Nascimento, remoção, reuso de slot ou salto maior que um limiar entram direto na posição nova, sem deslizar. Os quadros de animação dos sprites não são misturados: só as posições são interpoladas.
   4. [x] (`1092367`) Efeitos, paleta e HUD sobre o quadro interpolado. Os fades de paleta (intro e fim de fase, menus) mesclam os passos até o prazo do tick, e as barras de escudo, armadura, força e chefe são redesenhadas com o comprimento interpolado. VFX, bloom e luz já estavam no quadro apresentado. Ficam por tick, documentado em `.worker-reports/smooth4.md`: a rampa de brilho de 4 bits do filtro da fase, os gauges e pips discretos e os textos. Check: `--regress-smooth-effects-check`.
   Custo: ~1 tick (~28 ms) de atraso de imagem por interpolar, configurável. A infraestrutura das etapas 1 e 2 é a mesma do snapshot por tick e do tag buffer abaixo.
-- [ ] Snapshot e fila de eventos por tick
-- [ ] Tag buffer nas funções `blit_sprite*`
-- [ ] Luzes dinâmicas, com cor derivada da matiz da paleta
-- [ ] VFX (na grade de 320×200): faíscas, destroços, fumaça, shockwave, trilhas, muzzle flash e impactos
-- [ ] Partículas ambiente (poeira, névoa, energia)
+- [x] Snapshot e fila de eventos por tick
+- [x] Tag buffer nas funções `blit_sprite*`
+- [x] Luzes dinâmicas, com cor derivada da matiz da paleta (luz com a cor do objeto emissor, merge `lightcol`)
+- [x] VFX (na grade de 320×200): faíscas, destroços, fumaça, shockwave, trilhas, muzzle flash e impactos
+- [x] Partículas ambiente (poeira, névoa, energia): 5 estilos por tipo de fase, ligados ao Effects (merge `ambient`)
 - [x] HUD expandido, etapa 2 do HUD modernizado (§7), commit `5a5952b`. Pendente, pedido do usuário: no modo Modern, só o HUD novo, sem a barra lateral original
 - [x] Só o HUD novo no Modern (commit desta entrada): a barra lateral e a faixa de baixo originais saem do canvas nos quadros de jogo, e o HUD novo assume toda a informação delas e usa o espaço liberado
 - [x] Fallback de widescreen para telas fora do jogo: laterais com a própria tela desfocada e escurecida (média 40×25 + esticamento bilinear, ~0,08 ms em 16:9)
@@ -196,7 +196,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
   - **Menu:** uma entrada nova em Setup › Graphics, com Off/Scanlines/NTSC/Both.
   - **Licença:** o `snes_ntsc` é LGPL, compatível com a GPL-2.0+.
 - [ ] Acessibilidade: menos flashes, menos partículas, cores alternativas de projéteis, intensidade dos efeitos ajustável
-- [ ] README novo (pedido do usuário, 2026-09-28), com a qualidade e o estilo do README de `vittau/antivirus-95`: banner e cabeçalhos de seção em SVG gerados por script, badges, tagline, tabelas curtas e prosa enxuta. **As capturas de tela só depois dos ajustes em andamento.** Esboço das seções:
+- [x] README novo (pedido do usuário, 2026-09-28; entregue em `67fa07f`), com a qualidade e o estilo do README de `vittau/antivirus-95`: banner e cabeçalhos de seção em SVG gerados por script, badges, tagline, tabelas curtas e prosa enxuta. **As capturas de tela só depois dos ajustes em andamento.** Esboço das seções:
   - banner, badges (CI, licença, release) e tagline;
   - captura de gameplay;
   - o que o modo Modern traz;
@@ -558,3 +558,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   5. atualizar o README com o texto proposto em `.worker-reports/pentium.md` §7.
 - **Pendências:** validar no Deck o analógico corrigido (`467d25a`); o README com o detalhe Pentium fixo; as partículas de ambiente continuam sem posição na fila.
 - **Retomada: detalhe Pentium no branch principal (`420984d`).** No Modern o detalhe fica fixo em Pentium (ou SuperWild com a trapaça) e a linha some do menu. O Classic guarda a escolha do jogador em `tyrian.cfg`, e uma instalação nova começa em Pentium. As flags de detalhe são só visuais: o hash de estado é igual nos seis níveis e nas duas apresentações. Os casos Modern da regressão agora rodam em `-d4` (mais um `-d6`), e a suíte ficou com 151 casos. README atualizado (`c24a846`).
+
+### 2026-09-29 — Release v0.1.0, luz colorida e partículas de ambiente
+- **Release v0.1.0** publicada a pedido do usuário no commit `93b373b`, com os pacotes Linux x86_64/arm64, Windows x86_64/arm64 e macOS universal anexados pela CI. Nas releases, a CI agora pula a suíte de regressão (`521fc4b`); os pushes continuam rodando.
+- **Retomada:** a sessão nova precisou de `orca orchestration run-use --id run_e0cad877e2fd` para voltar a despachar (`consumer_fenced`).
+- **Partículas de ambiente (`ambient`):** brasas na lava, neve no gelo, névoa na água e no desfoque, poeira fina no espaço e poeira no resto (62 fases amostradas). Só clareiam ou mesclam de leve, não emitem luz, usam RNG próprio e seguem o Effects (Low esparso, High um pouco mais). Estão bem discretas, e o usuário vai avaliar jogando.
+- **Luz com a cor do objeto (`lightcol`):** a auditoria confirmou que a luz vinha dos miolos brancos (tiro azul inimigo: 94–98% da energia no bloco de fogo). Agora cada pixel marcado leva a cor representativa do objeto (o tom saturado da família de matiz dominante do sprite), que tinge a luz e o bloom. Intensidade praticamente igual e custo inalterado (~0,47 ms no High).
+- A regressão ficou com 156 casos.
