@@ -54,6 +54,15 @@
     <ClCompile Include="..\src\game_schema.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\regress_rules.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\highscores.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_rules.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\game_variant.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -258,6 +267,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\game_schema.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\regress_rules.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\highscores.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_rules.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\game_variant.h">

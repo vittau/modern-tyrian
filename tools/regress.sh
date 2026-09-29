@@ -267,6 +267,11 @@ if ! "$ROOT/tools/check_user_paths.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/user-path
 	exit 1
 fi
 
+if ! "$ROOT/tools/check_game_rules.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/rules-21"; then
+	echo "ERROR: game-rules checks failed"
+	exit 1
+fi
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'

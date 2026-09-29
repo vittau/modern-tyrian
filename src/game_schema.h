@@ -84,12 +84,6 @@ typedef struct GameDataSchema
 	// Save file: the encrypted prefix is common; 2000 appends unencrypted
 	// high-score boards (data-formats.md, "Save layout and namespaces").
 	uint16_t save_suffix_timed_boards, save_suffix_main_boards, save_suffix_boards_per;
-
-	// Level events whose rule differs in this variant and is not implemented yet
-	// (Phase 3b).  They are skipped, with a one-time log line, instead of running
-	// the 2.1 rule (event 68) or being reported as invalid.
-	const uint8_t *deferred_events;
-	size_t deferred_event_count;
 } GameDataSchema;
 
 // Semantic misc-text labels.  The HUD and menus ask for these instead of raw
@@ -107,7 +101,7 @@ typedef enum
 {
 	GAMEPLAY_FULL_GAME,
 	GAMEPLAY_ARCADE,
-	GAMEPLAY_TIMED_BATTLE,  // Tyrian 2000 only; the mode itself is Phase 3b
+	GAMEPLAY_TIMED_BATTLE,  // Tyrian 2000 only; the mode itself is Phase 4
 	GAMEPLAY_ARCADE_2P,
 	GAMEPLAY_NETWORK
 } GameplayChoice;
@@ -157,10 +151,6 @@ static inline unsigned int gameVoiceSound(unsigned int voice)
 {
 	return gameSchema()->sfx_count + 1 + voice;
 }
-
-// True when the level event type is deferred to Phase 3b in this variant; the
-// first time each type is met it is logged.
-bool gameEventDeferred(unsigned int eventType);
 
 // Sound slots in use: effects plus voices.
 static inline unsigned int gameSoundCount(void)
