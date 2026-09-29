@@ -1,11 +1,25 @@
 #!/bin/bash
 # Real save/config serializers, exclusively inside isolated user roots.
-set -eu
+set -eEu
 
 SOURCE_BIN=$1
 OUT=$3
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
+
+# Under set -e a failing step would otherwise exit without a word (-E carries
+# the trap into run_isolated and the other functions): name it and
+# show the tail of the newest log, which is the run that step just checked.
+report_failure() {
+	local status=$1 line=$2 command=$3 log
+	echo "FAIL user-paths: line $line exited $status: $command" >&2
+	log=$(ls -t "$OUT"/*.log 2>/dev/null | head -n 1) || true
+	if [ -n "$log" ]; then
+		echo "--- tail of $log ---" >&2
+		tail -n 20 "$log" >&2 || true
+	fi
+}
+trap 'report_failure $? $LINENO "$BASH_COMMAND"' ERR
 SANDBOX="$OUT/sandbox"
 mkdir -p "$SANDBOX/home/.config" "$SANDBOX/xdg" "$SANDBOX/appdata" "$SANDBOX/cwd" "$SANDBOX/bin"
 # Also isolate portable detection: never probe a config beside the real binary.

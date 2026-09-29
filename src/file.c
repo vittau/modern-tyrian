@@ -44,6 +44,10 @@
 #include <unistd.h>
 #endif
 
+#if !defined(S_ISDIR) && defined(_S_IFMT) && defined(_S_IFDIR)
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#endif
+
 const char *customDataDirPath = NULL;
 
 bool steamDeck(void)
@@ -394,6 +398,18 @@ static int publishLegacySave(const char *temp, const char *destination)
 	return rename(temp, destination) == 0 ? 0 : errno;
 }
 
+// Returns 0 when path is missing or a directory, otherwise the errno that
+// blocks it.  POSIX reports a path below a regular file as ENOTDIR while
+// Windows reports ENOENT, so a directory that is really a file is checked
+// explicitly to behave the same everywhere.
+static int dirObstruction(const char *path)
+{
+	struct stat info;
+	if (stat(path, &info) != 0)
+		return errno == ENOENT ? 0 : errno;
+	return S_ISDIR(info.st_mode) ? 0 : ENOTDIR;
+}
+
 void userPathsMigrateLegacy21(void)
 {
 	if (!userFilesEnabled() || gameVariantCurrent()->id != VARIANT_TYRIAN21)
@@ -401,19 +417,31 @@ void userPathsMigrateLegacy21(void)
 
 	char *destination = userFilePath(USER_FILE_VARIANT_SAVE, "tyrian.sav");
 	char *temp = userFilePath(USER_FILE_VARIANT_SAVE, "tyrian.sav.tmp");
+	char *space = userFilePath(USER_FILE_SHARED, gameVariantCurrent()->save_namespace);
 	int error = 0;
 	struct stat info;
-	if (destination == NULL || temp == NULL)
+	if (destination == NULL || temp == NULL || space == NULL)
 		error = ENOMEM;
-	else if (stat(destination, &info) == 0)
+	else
+	{
+		const char *root = userDirGet();
+		error = dirObstruction(root[0] != '\0' ? root : ".");
+		if (error == 0)
+			error = dirObstruction(space);
+	}
+	if (error != 0)
+		goto failed;
+
+	if (stat(destination, &info) == 0)
 	{
 		logInfo("Save migration: nothing to migrate (tyrian21/tyrian.sav already exists).");
 		goto done;
 	}
-	else if (errno != ENOENT)
+	if (errno != ENOENT)
+	{
 		error = errno;
-	if (error != 0)
 		goto failed;
+	}
 
 	File source = userFileOpen("tyrian.sav", "rb");
 	if (source.error)
@@ -472,6 +500,7 @@ failed:
 	logWarn("Save migration: skipped (%s); using root save read-only, saving disabled for this session.",
 	        error != 0 ? strerror(error) : "copy failed");
 done:
+	free(space);
 	free(temp);
 	free(destination);
 }
