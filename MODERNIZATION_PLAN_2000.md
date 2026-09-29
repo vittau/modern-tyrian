@@ -265,11 +265,11 @@ As mesmas regras do plano geral valem aqui:
 **Resultado:** a arquitetura suporta duas versões, e o 2.1 fica byte a byte igual.
 
 ### Fase 3 — Núcleo do OpenTyrian2000
-- [ ] Parser e dados do 2000 (strings, episódio 5, tabelas embutidas), atrás da variante.
+- [x] Parser e dados do 2000 (strings, episódio 5, tabelas embutidas), atrás da variante.
 - [ ] Eventos de fase do T2K e substituição de inimigos, como hooks.
 - [ ] Regras específicas: sidekicks com carga, rear "None", twiddles do 2000.
 - [ ] Resolver os conflitos com os menus e HUD do Modern (`game_menu.c`, `menus.c`, `mainint.c`, `tyrian2.c`).
-- [ ] Compila e roda com os dados do 2000 apontados à mão, e o Episódio 1 inicia.
+- [x] Compila e roda com os dados do 2000 apontados à mão, e o Episódio 1 inicia.
 - [ ] O 2.1 segue verde na regressão.
 
 **Resultado:** o Tyrian 2000 inicia.
@@ -529,3 +529,24 @@ As mesmas regras do plano geral valem aqui:
 - **Workers desta sessão:** Claude Sonnet 5.5 high, a pedido do usuário.
 - **Decisão do usuário (launcher):** as imagens do Tyrian e do Tyrian 2000 no launcher vão ser geradas por um worker Codex GPT-6 Luna high, e só elas; os outros workers da sessão continuam Sonnet 5.5.
 - **Referência visual do launcher** enviada pelo usuário e registrada em §5.4, com os ajustes: sem arena, título sem cópia do logotipo, arte na resolução da janela.
+
+### 2026-09-29 — Fase 3a: esquemas, carregadores e `regress-2000` (`d1a6bd7`)
+- **Worker:** Claude Sonnet 5.5 high, ~1h20, com uma pausa no limite de uso.
+- **Esquemas:** `src/game_schema.[ch]` com tabelas `GameDataSchema`/`GameStringSchema` para o 2.1 e o 2000, sem `if` de variante nos carregadores.
+  - Os arrays crescem ao máximo das duas versões, e o 2.1 lê os mesmos bytes na mesma ordem.
+  - Os carregadores cobertos são itens com bancos de IDs, textos com as seções finais do 2000, 13 bancos de shapes e o banco extra de naves (IDs >500), 14 imagens/24 paletas, 31 efeitos com as vozes deslocadas, 126 créditos e 5 episódios.
+  - Os rótulos semânticos (jogador 1/2, timer) substituem os índices crus de `miscText`.
+- **`--variant=2000`:** seleciona uma instalação do 2000 validada, sem fallback por arquivo.
+  - A busca padrão do 2000 é `TYRIAN2000_DATA`, depois `tyrian2000/` ao lado do executável, depois `./tyrian2000`.
+  - O save do 2000 tem 4.722 bytes em `tyrian2000/`, e os nomes padrão vêm do HDT.
+- **Eventos do 2000:** 58, 59, 68, 83, 84, 85 e 99 são pulados, com log, até a 3b. O 68 não roda mais a regra do 2.1.
+- **O que roda:** o 2000 chega ao título e inicia o Episódio 1, e todas as fases do E1–E5 iniciam sem crash no build debug.
+- **Testes:**
+  - `make regress-2000 TYRIAN2000_DATA=<pasta>` tem 19 casos determinísticos, sem alegar fidelidade, com manifesto próprio (79 arquivos);
+  - `make regress` ganhou `check_no_t2000_data.sh`, que recusa qualquer arquivo do 2000 no tree e isenta os 39 idênticos ao 2.1;
+  - os 164 casos do 2.1 passam sem mudar baseline.
+- **Pendências:**
+  - **para a 3b:** tabelas do arcade/Super Tyrian e placares novos na interface;
+  - **para a 3c:** menus 3/12/15 com linhas extras, espaçamento do episódio 5, marca do 2000 no título e heurísticas pic-1/pic-2 nas telas do 2000;
+  - **para o launcher:** offsets estáticos (`pcxpos`, músicas) precisam de reset se o launcher trocar de versão no mesmo processo.
+
