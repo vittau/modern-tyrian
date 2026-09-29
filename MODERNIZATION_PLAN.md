@@ -585,4 +585,10 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **Efeito medido:** a luz adicionada do Mega Cannon caiu 3,1×, e a do Laser e do Zica Laser caiu cerca de 2,5×. Tiros pequenos, explosões, tiros inimigos e itens não mudam, e o custo ficou em cerca de 0,02 ms.
   - **Novas opções de teste:** `--regress-front-weapon` e `--regress-front-power` (311–312) montam o armamento no `--regress-script`.
   - **Falso alarme:** o agente viu rodadas em paralelo divergirem, mas o driver de medição dele não fixava `--regress-seed` e caía em `time(NULL)`. Os casos da suíte fixam a semente.
-- **Em andamento:** a suíte de regressão em paralelo (`regressspeed`, Codex). O Orca 1.4.215/216 não reconhece o Codex v0.158 como pronto, então a tarefa foi injetada num terminal aberto à mão.
+- **Regressão em paralelo (`68cde70`)**, a pedido do usuário.
+  - **Como roda:** `tools/regress.sh -j N` (ou `REGRESS_JOBS`) usa por padrão o número de CPUs. Cada caso roda num worker com buffer próprio, e a saída sai na ordem de declaração. Os casos pesados começam primeiro, e o script é portável para Bash 3.2 e MSYS2.
+  - **Tempo:** a suíte caiu de ~245–293 s para ~67–93 s no Mac de 6 núcleos.
+  - **O que não mudou:** os casos e os baselines. As saídas são byte a byte idênticas, inclusive sob carga de CPU.
+  - **CI:** verde nos três sistemas usando os núcleos do runner.
+  - **Como foi feito:** primeiro worker Codex (`gpt-6-sol`). O Orca 1.4.215/216 não reconhece o Codex v0.158 como pronto (`agent_readiness` expira), então a tarefa foi injetada num terminal aberto à mão com `dispatch --inject`.
+- **Overlay de performance do Steam Deck:** o usuário viu o overlay (MangoHud) não aparecer no build Linux. O código de vídeo é equivalente ao do Deadly Dave (SDL3 3.4.16 estático, renderizador padrão), e depois o overlay voltou a aparecer sem mudança nenhuma. Uma tarefa de log do renderizador (Codex `gpt-6-luna`) foi abortada a pedido do usuário.
