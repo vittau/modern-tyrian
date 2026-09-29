@@ -6,6 +6,7 @@
 # the harness reads or compares, and for the shell scripts and Makefile that
 # drive it.
 test/regress/**  text eol=lf
+test/regress-2000/**  text eol=lf
 tools/*.sh       text eol=lf
 *.sh             text eol=lf
 Makefile         text eol=lf
