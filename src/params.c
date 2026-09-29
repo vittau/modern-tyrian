@@ -60,6 +60,8 @@ const Options *JE_paramOptions(void)
 		
 		{ 't', 't', "data",              true },
 		{ PARAM_VARIANT, 0, "variant",    true },
+		{ PARAM_REGRESS_USER_ROOT, 0, "regress-user-root", true },
+		{ PARAM_REGRESS_USER_FILES, 0, "regress-user-files", false },
 		
 		{ 'n', 'n', "net",               true },
 		{ 256, 0,   "net-player-name",   true }, // TODO: no short codes because there should
@@ -171,6 +173,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --bloom=LEVEL                Modern bloom override: off, low or high");
 			logInfo("  --lighting=LEVEL             Modern bloom + lighting: off, low or high (default low)");
 			logInfo("  --variant=2.1|2000           Select variant for automation/testing (2000 unavailable)");
+			logInfo("  --regress-user-root=DIR      Enable user files only in DIR for a regress run");
+			logInfo("  --regress-user-files         Load/save configs and saves, then exit (requires DIR)");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
@@ -255,6 +259,8 @@ void JE_paramCheck(int argc, char *argv[])
 		case 't':
 			// Already selected by gameBootstrapParse(), before user files.
 		case PARAM_VARIANT:
+		case PARAM_REGRESS_USER_ROOT:
+		case PARAM_REGRESS_USER_FILES:
 			break;
 			
 		case 'n':

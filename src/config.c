@@ -889,7 +889,7 @@ void loadSaves(void)
 {
 	bool invalid = false;
 
-	File file = userFileOpen(tyrianSaveFilename, "rb");
+	File file = userFileOpenKind(USER_FILE_VARIANT_SAVE, tyrianSaveFilename, "rb");
 	if (file.error)
 	{
 		logWarn("Failed to open '%s': %s", tyrianSaveFilename, fileGetError(&file));
@@ -988,7 +988,7 @@ static void encryptSaveData(Uint8 *data);
 
 void saveSaves(void)
 {
-	if (!userFilesEnabled())
+	if (!userSavesWritable())
 		return;
 
 	Uint8 data[SAVE_FILE_SIZE + 4];
@@ -1031,7 +1031,7 @@ void saveSaves(void)
 
 	encryptSaveData(data);
 
-	File file = userFileOpen(tyrianSaveFilename, "wb");
+	File file = userFileOpenKind(USER_FILE_VARIANT_SAVE, tyrianSaveFilename, "wb");
 	if (file.error)
 	{
 		logError("Failed to open '%s': %s", tyrianSaveFilename, fileGetError(&file));

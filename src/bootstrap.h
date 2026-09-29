@@ -29,6 +29,8 @@ typedef struct
 	GameVariant variant;
 	const char *data_directory;
 	bool regress, selftest;
+	const char *regress_user_root;
+	bool regress_user_files;
 } GameBootstrapOptions;
 
 bool gameBootstrapParse(int argc, char *argv[], GameBootstrapOptions *out,
