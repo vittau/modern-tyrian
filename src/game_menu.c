@@ -1819,8 +1819,9 @@ void draw_ship_illustration(void)
 		                      ? ships[player[0].items.ship].bigshipgraphic - 1
 		                      : 31;
 
-		const int ship_x[6] = { 31, 0, 0, 0, 35, 31 },
-		          ship_y[6] = { 36, 0, 0, 0, 33, 35 };
+		// Big graphics 27..45 (Tyrian 2000 adds 45 and 46: Dragon and Pretzel Pete).
+		const int ship_x[19] = { 31, 0, 0, 0, 35, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36, 30 },
+		          ship_y[19] = { 36, 0, 0, 0, 33, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33, 30 };
 
 		const int x = ship_x[sprite_id - 27],
 		          y = ship_y[sprite_id - 27];
@@ -1844,53 +1845,63 @@ void draw_ship_illustration(void)
 		blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, sprite_id);
 	}
 
-	const int weapon_sprites[43] =
+	// Tyrian 2000 has ports up to 60; entries above 42 are its own.
+	const int weapon_sprites[60] =
 	{
 		-1,  0,  1,  2,  3,  4,  5,  6,  7,  8,
 		 9, 10, 11, 21,  5, 13, -1, 14, 15,  0,
 		14,  9,  8,  2, 15,  0, 13,  0,  8,  8,
 		11,  1,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  2,  1
+		 0,  2,  1,  0,  0,  1,  1,  1
 	};
 
 	// front weapon
-	if (player[0].items.weapon[FRONT_WEAPON].id > 0)
+	if (player[0].items.weapon[FRONT_WEAPON].id > 0 && player[0].items.weapon[FRONT_WEAPON].id < COUNTOF(weapon_sprites))
 	{
-		const int front_weapon_xy_list[43] =
+		const int front_weapon_xy_list[60] =
 		{
 			 -1,  4,  9,  3,  8,  2,  5, 10,  1, -1,
 			 -1, -1, -1,  7,  8, -1, -1,  0, -1,  4,
 			  0, -1, -1,  3, -1,  4, -1,  4, -1, -1,
 			 -1,  9,  0,  0,  0,  0,  0,  0,  0,  0,
-			  0,  3,  9
+			  0,  3,  9,  4,  4,  9,  9,  9
 		};
 
 		const int front_weapon_x[12] = { 59, 66, 66, 54, 61, 51, 58, 51, 61, 52, 53, 58 };
 		const int front_weapon_y[12] = { 38, 53, 41, 36, 48, 35, 41, 35, 53, 41, 39, 31 };
-		const int x = front_weapon_x[front_weapon_xy_list[player[0].items.weapon[FRONT_WEAPON].id]],
-		          y = front_weapon_y[front_weapon_xy_list[player[0].items.weapon[FRONT_WEAPON].id]];
+		// A port with no place on the illustration (-1) is not drawn.
+		const int front_xy = front_weapon_xy_list[player[0].items.weapon[FRONT_WEAPON].id];
+		if (front_xy >= 0)
+		{
+			const int x = front_weapon_x[front_xy],
+			          y = front_weapon_y[front_xy];
 
-		blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[FRONT_WEAPON].id]);  // ship illustration: front weapon
+			blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[FRONT_WEAPON].id]);  // ship illustration: front weapon
+		}
 	}
 
 	// rear weapon
-	if (player[0].items.weapon[REAR_WEAPON].id > 0)
+	if (player[0].items.weapon[REAR_WEAPON].id > 0 && player[0].items.weapon[REAR_WEAPON].id < COUNTOF(weapon_sprites))
 	{
-		const int rear_weapon_xy_list[43] =
+		const int rear_weapon_xy_list[60] =
 		{
 			-1, -1, -1, -1, -1, -1, -1, -1, -1,  0,
 			 1,  2,  3, -1,  4,  5, -1, -1,  6, -1,
 			-1,  1,  0, -1,  6, -1,  5, -1,  0,  0,
 			 3,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-			 0, -1, -1
+			 0, -1, -1, -1, -1, -1, -1, -1
 		};
 
 		const int rear_weapon_x[7] = { 41, 27,  49,  43, 51, 39, 41 };
 		const int rear_weapon_y[7] = { 92, 92, 113, 102, 97, 96, 76 };
-		const int x = rear_weapon_x[rear_weapon_xy_list[player[0].items.weapon[REAR_WEAPON].id]],
-		          y = rear_weapon_y[rear_weapon_xy_list[player[0].items.weapon[REAR_WEAPON].id]];
+		const int rear_xy = rear_weapon_xy_list[player[0].items.weapon[REAR_WEAPON].id];
+		if (rear_xy >= 0)
+		{
+			const int x = rear_weapon_x[rear_xy],
+			          y = rear_weapon_y[rear_xy];
 
-		blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[REAR_WEAPON].id]);
+			blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[REAR_WEAPON].id]);
+		}
 	}
 
 	// sidekicks
@@ -2063,7 +2074,9 @@ void JE_drawItem(JE_byte itemType, JE_word itemNum, JE_word x, JE_word y)
 			}
 			else
 			{
-				blit_sprite2x2(VGAScreen, x, y, spriteSheet9, ships[itemNum].shipgraphic);
+				unsigned int shipGrIndex;
+				Sprite2_array *const shipSheet = shipGraphicSheet(ships[itemNum].shipgraphic, &shipGrIndex);
+				blit_sprite2x2(VGAScreen, x, y, *shipSheet, shipGrIndex);
 			}
 		}
 		else if (tempW > 0)
@@ -3281,8 +3294,19 @@ void JE_drawShipSpecs(SDL_Surface * screen, SDL_Surface * temp_screen)
 			temp_x = 31;
 			temp_y = 35;
 			break;
+		case 45:  // Tyrian 2000
+			temp_x = 36;
+			temp_y = 33;
+			break;
+		case 46:  // Tyrian 2000
+			temp_x = 30;
+			temp_y = 30;
+			break;
 		default:
 			assert(0);
+			temp_x = 35;
+			temp_y = 33;
+			break;
 	}
 	temp_x -= 30;
 

@@ -18,6 +18,8 @@
  */
 #include "game_data.h"
 
+#include "game_schema.h"
+#include "logging.h"
 #include "opentyr.h"
 
 #include <SDL3/SDL.h>
@@ -37,6 +39,21 @@ struct GameDataProvider
 };
 
 static GameDataProvider *currentProvider = NULL;
+
+// What identifies and completes a Tyrian 2000 installation.  Nothing here is
+// taken from the 2.1 directory: an incomplete 2000 root is an error, never
+// filled in per file from the 2.1 data.
+static const char *const files2000[] =
+{
+	"tyrian.shp", "tyrian.hdt", "tyrian.pic", "palette.dat", "tyrian.snd", "voices.snd",
+	"music.mus", "tyrian.cdt", "estsc.shp",
+	"tyrian1.lvl", "tyrian2.lvl", "tyrian3.lvl", "tyrian4.lvl", "tyrian5.lvl",
+	"levels1.dat", "levels2.dat", "levels3.dat", "levels4.dat", "levels5.dat",
+	"cubetxt1.dat", "cubetxt2.dat", "cubetxt3.dat", "cubetxt4.dat", "cubetxt5.dat"
+};
+
+#define MESSAGE_NOT_FOUND_21 "The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files."
+#define MESSAGE_NOT_FOUND_2000 "The Tyrian 2000 data files were not found.  Tyrian 2000 requires its own data files; use --data=<directory> or TYRIAN2000_DATA."
 
 static GameDataStatus dataError(GameDataProvider *provider, GameDataError *error,
                                 GameDataStatus status, const char *filename, const char *detail)
@@ -80,8 +97,10 @@ GameDataStatus gameDataLocate(const GameVariantDef *variant, const GameDataSearc
                              GameDataProvider **out, GameDataError *error)
 {
 	*out = NULL;
-	if (variant == NULL || variant->id != VARIANT_TYRIAN21)
-		return dataError(NULL, error, GAME_DATA_UNAVAILABLE, "", "Tyrian 2000 is not available yet.");
+	if (variant == NULL || (variant->id != VARIANT_TYRIAN21 && variant->id != VARIANT_TYRIAN2000))
+		return dataError(NULL, error, GAME_DATA_UNAVAILABLE, "", "The game variant is not available.");
+	const bool is2000 = variant->id == VARIANT_TYRIAN2000;
+	const char *notFound = is2000 ? MESSAGE_NOT_FOUND_2000 : MESSAGE_NOT_FOUND_21;
 
 	GameDataProvider *provider = calloc(1, sizeof *provider);
 	if (provider == NULL)
@@ -96,10 +115,46 @@ GameDataStatus gameDataLocate(const GameVariantDef *variant, const GameDataSearc
 			return dataError(provider, error, GAME_DATA_IO_ERROR, "", "Could not allocate data directory.");
 		if (gameDataExists(provider, "tyrian1.lvl"))
 			return dataError(provider, error, GAME_DATA_OK, "", "");
-		return dataError(provider, error, GAME_DATA_NOT_FOUND, "tyrian1.lvl", "The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
+		return dataError(provider, error, GAME_DATA_NOT_FOUND, "tyrian1.lvl", notFound);
 	}
 
-	// Match the legacy executable/package, compiled system path, cwd order.
+	if (is2000)
+	{
+		// The default search: TYRIAN2000_DATA, then a tyrian2000 directory beside
+		// the executable or in the working directory.  Never ./data, which holds
+		// the Tyrian 2.1 files.
+		const char *basePath = SDL_GetBasePath();
+		char *baseData = NULL;
+		if (basePath != NULL)
+		{
+			size_t size = strlen(basePath) + sizeof "tyrian2000";
+			baseData = malloc(size);
+			if (baseData != NULL)
+				snprintf(baseData, size, "%styrian2000", basePath);
+		}
+		const char *directories[] = { search->installed_directory, getenv("TYRIAN2000_DATA"), baseData, "tyrian2000" };
+		GameDataStatus status = GAME_DATA_NOT_FOUND;
+		for (size_t i = 0; i < COUNTOF(directories); ++i)
+		{
+			if (directories[i] == NULL || directories[i][0] == '\0')
+				continue;
+			if (!setDirectory(provider, directories[i]))
+			{
+				status = GAME_DATA_IO_ERROR;
+				break;
+			}
+			if (gameDataExists(provider, "tyrian1.lvl"))
+			{
+				status = GAME_DATA_OK;
+				break;
+			}
+		}
+		free(baseData);
+		return dataError(provider, error, status, status == GAME_DATA_OK ? "" : "tyrian1.lvl",
+		                 status == GAME_DATA_OK ? "" : notFound);
+	}
+
+	// Tyrian 2.1: match the legacy executable/package, compiled system path, cwd order.
 	const char *basePath = SDL_GetBasePath();
 	char *baseData = NULL;
 	if (basePath != NULL)
@@ -138,16 +193,82 @@ GameDataStatus gameDataLocate(const GameVariantDef *variant, const GameDataSearc
 	                 status == GAME_DATA_OK ? "" : "The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
 }
 
+// Reads the leading u16 count of a data file, or reports why it cannot.
+static GameDataStatus readCount(GameDataProvider *provider, GameDataError *error,
+                                const char *filename, uint16_t *count)
+{
+	File file = gameDataOpen(provider, filename);
+	if (file.error)
+		return dataError(provider, error, file.errnum == ENOENT ? GAME_DATA_MISSING_FILE : GAME_DATA_IO_ERROR,
+		                 filename, "A required Tyrian 2000 data file could not be opened.");
+	*count = fileReadU16(&file);
+	bool failed = file.error;
+	fileClose(&file);
+	if (failed)
+		return dataError(provider, error, GAME_DATA_IO_ERROR, filename, "A Tyrian 2000 data file header could not be read.");
+	return GAME_DATA_OK;
+}
+
+// A Tyrian 2000 installation: the shape file must be the 13-bank one, every
+// file the engine reads must be present, and the counted containers must match
+// the schema.  The exact size and checksum of the canonical archive are the
+// regression suite's job (test/regress-2000/data-manifest.txt); a manually
+// installed set may legitimately differ.
+static GameDataStatus validate2000(GameDataProvider *provider, GameDataError *error)
+{
+	const GameDataSchema *schema = provider->variant->data_schema;
+
+	uint16_t count;
+	GameDataStatus status = readCount(provider, error, "tyrian.shp", &count);
+	if (status != GAME_DATA_OK)
+		return status;
+	if (count == 12)
+		return dataError(provider, error, GAME_DATA_WRONG_VARIANT, "tyrian.shp", "The Tyrian v2.0/v2.1 data files were found.  Tyrian 2000 requires the Tyrian 2000 data files.");
+	if (count == 11)
+		return dataError(provider, error, GAME_DATA_WRONG_VARIANT, "tyrian.shp", "The Tyrian v1.0/v1.1 data files were found.  Tyrian 2000 requires the Tyrian 2000 data files.");
+	if (count != schema->main_shape_banks)
+		return dataError(provider, error, GAME_DATA_BAD_SIZE, "tyrian.shp", "The Tyrian 2000 shape data file has an unexpected number of banks.");
+
+	for (size_t i = 0; i < COUNTOF(files2000); ++i)
+	{
+		if (!gameDataExists(provider, files2000[i]))
+			return dataError(provider, error, GAME_DATA_MISSING_FILE, files2000[i], "A required Tyrian 2000 data file is missing.");
+	}
+
+	status = readCount(provider, error, "tyrian.pic", &count);
+	if (status != GAME_DATA_OK)
+		return status;
+	if (count != schema->picture_count)
+		return dataError(provider, error, GAME_DATA_BAD_SIZE, "tyrian.pic", "The Tyrian 2000 picture file has an unexpected number of pictures.");
+
+	status = readCount(provider, error, "tyrian.snd", &count);
+	if (status != GAME_DATA_OK)
+		return status;
+	if (count != schema->sfx_count)
+		return dataError(provider, error, GAME_DATA_BAD_SIZE, "tyrian.snd", "The Tyrian 2000 sound file has an unexpected number of effects.");
+
+	File palettes = gameDataOpen(provider, "palette.dat");
+	long paletteBytes = palettes.error ? -1 : fileGetLength(&palettes);
+	fileClose(&palettes);
+	if (paletteBytes != (long)schema->palette_count * 256 * 3)
+		return dataError(provider, error, GAME_DATA_BAD_SIZE, "palette.dat", "The Tyrian 2000 palette file has an unexpected size.");
+
+	return dataError(provider, error, GAME_DATA_OK, "", "");
+}
+
 GameDataStatus gameDataValidate(GameDataProvider *provider, GameDataError *error)
 {
 	if (provider == NULL)
-		return dataError(NULL, error, GAME_DATA_NOT_FOUND, "", "The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
+		return dataError(NULL, error, GAME_DATA_NOT_FOUND, "", MESSAGE_NOT_FOUND_21);
 	if (provider->status != GAME_DATA_OK)
 	{
 		if (error != NULL)
 			*error = provider->error;
 		return provider->status;
 	}
+
+	if (provider->variant->id == VARIANT_TYRIAN2000)
+		return validate2000(provider, error);
 
 	// Compatible 2.0/2.1 profile, not the harness's strict canonical manifest.
 	// Episodes, custom ships and Christmas resources retain their old checks.
@@ -233,6 +354,30 @@ void gameDataClose(GameDataProvider *provider)
 GameDataProvider *gameDataCurrent(void)
 {
 	return currentProvider;
+}
+
+static bool dataPrepared = false;
+
+bool gameDataPrepare(void)
+{
+	if (dataPrepared)
+		return true;
+
+	GameDataError data_error;
+	findDataFiles();
+	GameDataStatus data_status = gameDataValidate(gameDataCurrent(), &data_error);
+	logInfo("Game variant: %s; data root: %s; validation: %s%s%s.",
+	        gameVariantCurrent()->log_label, gameDataDirectory(gameDataCurrent()),
+	        gameDataStatusName(data_status), data_error.filename[0] != '\0' ? "; file: " : "",
+	        data_error.filename);
+	if (data_status != GAME_DATA_OK)
+	{
+		logFatal("%s", data_error.detail);
+		return false;
+	}
+
+	dataPrepared = true;
+	return true;
 }
 
 bool findDataFiles(void)

@@ -20,9 +20,6 @@
 
 #include "opentyr.h"
 
-const JE_byte pcxpal[PCX_NUM] = /* [1..PCXnum] */
-{ 0, 7, 5, 8, 10, 5, 18, 19, 19, 20, 21, 22, 5};
-
 /*FACEMAX*/
 const JE_byte facepal[12] = /* [1..12] */
 { 1, 2, 3, 4, 6, 9, 11, 12, 16, 13, 14, 15};

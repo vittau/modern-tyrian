@@ -63,7 +63,7 @@ static void write_sfx_baseline(void)
 {
 	FILE *const out = regress_output_file();
 
-	for (size_t i = 0; i < SOUND_COUNT; ++i)
+	for (size_t i = 0; i < gameSoundCount(); ++i)
 	{
 		const size_t length_bytes = soundSampleCount[i] * sizeof (Sint16);
 		const Uint64 hash = regress_fnv1a(soundSamples[i], length_bytes);

@@ -500,7 +500,7 @@ static void hud_draw_name(const HudPanel *p, int pi, int y, bool reserve_corner)
 	if (isNetworkGame)
 		snprintf(raw, sizeof raw, "%s", JE_getName(pi + 1));
 	else
-		snprintf(raw, sizeof raw, "%s", miscText[(pi == 0) ? 49 - 1 : 50 - 1]);
+		snprintf(raw, sizeof raw, "%s", helpLabelText(pi == 0 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2));
 
 	const int max_w = p->w - 2 * HUD_MARGIN -
 	                  ((reserve_corner && player[pi].items.special > 0) ? 13 : 0);
@@ -777,7 +777,7 @@ static bool hud_timer_inline(int panel_w)
 {
 	const int avail = panel_w - 2 * HUD_MARGIN;
 
-	return JE_textWidth(miscText[66], TINY_FONT) + HUD_TIMER_GAP +
+	return JE_textWidth(helpLabelText(GAME_LABEL_TIMER), TINY_FONT) + HUD_TIMER_GAP +
 	       JE_textWidth("655.3", SMALL_FONT_SHAPES) <= avail;
 }
 
@@ -931,7 +931,7 @@ static void hud_preserve_tempw(void)
 		if (isNetworkGame)
 			snprintf(stemp, sizeof stemp, "%s", JE_getName(temp + 1));
 		else
-			snprintf(stemp, sizeof stemp, "%s", miscText[(temp == 0) ? 49 - 1 : 50 - 1]);
+			snprintf(stemp, sizeof stemp, "%s", helpLabelText(temp == 0 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2));
 
 		tempW = (temp == 0) ? 28 : (285 - JE_textWidth(stemp, TINY_FONT));
 	}

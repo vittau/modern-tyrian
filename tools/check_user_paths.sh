@@ -91,6 +91,85 @@ for size in 0 2501 2503 4722; do
 	[ ! -e "$ROOT/tyrian21/tyrian.sav.tmp" ]
 done
 
+# --- Tyrian 2000 save codec (no game data, no original save) -----------------
+#
+# A 2000 save is the 2,502-byte encrypted prefix of a 2.1 save followed by 2,220
+# bytes of unencrypted score boards.  The fixture is the prefix the game just
+# generated plus a suffix built here from code-owned bytes.  It lives in the
+# tyrian2000/ namespace, which 2.1 never reads or writes and 2000 never migrates.
+byte() { printf "\\$(printf '%03o' "$1")"; }
+le32() { byte $(($1 & 255)); byte $((($1 >> 8) & 255)); byte $((($1 >> 16) & 255)); byte $((($1 >> 24) & 255)); }
+name29() {
+	printf '%s' "$1"
+	if [ "${#1}" -lt 29 ]; then head -c $((29 - ${#1})) /dev/zero; fi
+}
+build_suffix() {
+	# $1: length byte of the first Timed Battle name, $2: its difficulty.
+	local board entry
+	for board in 0 1 2 3 4 5 6 7 8 9; do
+		for entry in 0 1 2; do
+			le32 $((1000 * board + 100 * entry + 7))
+			# The first name fills the whole 29-byte field, so a length byte above
+			# 29 has no terminator to stop at.
+			if [ "$board$entry" = 00 ]; then byte "$1"; name29 ABCDEFGHIJKLMNOPQRSTUVWXYZABC; else byte 9; name29 "TIMED-$board-$entry"; fi
+			if [ "$board$entry" = 00 ]; then byte "$2"; else byte $((board % 10)); fi
+		done
+	done
+	for board in 0 1 2 3 4 5 6 7 8 9; do
+		for entry in 0 1 2; do
+			le32 $((5000 * board + 500 * entry + 11))
+			le32 $((0xDEADBE00 + board * 3 + entry))   # the unknown field, distinct per entry
+			byte 8
+			name29 "MAIN-$board-$entry"
+			byte $((entry + 1))
+		done
+	done
+}
+V2K="$SANDBOX/v2000"
+mkdir -p "$V2K/tyrian2000"
+cp "$OUT/generated.sav" "$OUT/v2000-prefix.sav"
+{ cat "$OUT/v2000-prefix.sav"; build_suffix 29 3; } > "$OUT/v2000-fixture.sav"
+[ "$(wc -c < "$OUT/v2000-fixture.sav")" -eq 4722 ]
+cp "$OUT/v2000-fixture.sav" "$V2K/tyrian2000/tyrian.sav"
+run_files v2000-roundtrip "$V2K" --variant=2000
+expect_no_log "'tyrian.sav' is invalid or missing" "$OUT/v2000-roundtrip.log"
+# Rewriting preserves the prefix, every score and the unknown fields exactly.
+cmp "$OUT/v2000-fixture.sav" "$V2K/tyrian2000/tyrian.sav"
+# 2000 never creates, reads or migrates the 2.1 namespace.
+[ ! -e "$V2K/tyrian21" ]
+# An over-long name length is clamped to the 29-byte field (and rewritten so).
+{ cat "$OUT/v2000-prefix.sav"; build_suffix 40 3; } > "$OUT/v2000-longname.sav"
+cp "$OUT/v2000-longname.sav" "$V2K/tyrian2000/tyrian.sav"
+run_files v2000-longname "$V2K" --variant=2000
+grep -Fq 'name length 40 is out of range; clamped' "$OUT/v2000-longname.log"
+{ cat "$OUT/v2000-prefix.sav"; build_suffix 29 3; } > "$OUT/v2000-clamped.sav"
+cmp "$OUT/v2000-clamped.sav" "$V2K/tyrian2000/tyrian.sav"
+# 2.1 in the same user root neither reads nor writes the 2000 save.
+cp "$V2K/tyrian2000/tyrian.sav" "$OUT/v2000-before.sav"
+run_files v2000-then-21 "$V2K" --variant=2.1
+cmp "$OUT/v2000-before.sav" "$V2K/tyrian2000/tyrian.sav"
+[ "$(wc -c < "$V2K/tyrian21/tyrian.sav")" -eq 2502 ]
+# Invalid 2000 saves (a 2.1-length file, a truncated suffix, a difficulty no board
+# can hold) are refused by the exact-length and field checks.  Defaults need the
+# 2000 strings, which are not available here, so the run stops before any write.
+{ cat "$OUT/v2000-prefix.sav"; } > "$OUT/v2000-short.sav"
+{ cat "$OUT/v2000-fixture.sav"; head -c 1 /dev/zero; } > "$OUT/v2000-long.sav"
+{ cat "$OUT/v2000-prefix.sav"; build_suffix 29 99; } > "$OUT/v2000-baddiff.sav"
+head -c 4721 "$OUT/v2000-fixture.sav" > "$OUT/v2000-trunc.sav"
+for bad in short long baddiff trunc; do
+	rm -rf "$V2K"
+	mkdir -p "$V2K/tyrian2000"
+	cp "$OUT/v2000-$bad.sav" "$V2K/tyrian2000/tyrian.sav"
+	status=0
+	run_files "v2000-$bad" "$V2K" --variant=2000 || status=$?
+	[ "$status" -eq 1 ]
+	grep -Fq "'tyrian.sav' is invalid or missing" "$OUT/v2000-$bad.log"
+	grep -Fq 'Tyrian 2000 requires its own data files' "$OUT/v2000-$bad.log"
+	cmp "$OUT/v2000-$bad.sav" "$V2K/tyrian2000/tyrian.sav"
+done
+grep -Fq "must be 4722 bytes" "$OUT/v2000-short.log"
+rm -rf "$V2K"
+
 # A blocked namespace works on Windows too, regardless of chmod/ACL semantics.
 ROOT="$SANDBOX/blocked"
 mkdir -p "$ROOT"
@@ -211,4 +290,4 @@ for args in root-only files-only selftest-root empty-root flag-argument; do
 	[ ! -e "$SANDBOX/invalid" ]
 done
 rm -rf "$SANDBOX"
-echo 'PASS user-paths: migration, originals, repeat, failures/retry, save roundtrip, shared configs, demos, platform/portable roots, regress/selftest isolation'
+echo 'PASS user-paths: migration, originals, repeat, failures/retry, save roundtrip, 2000 save codec, shared configs, demos, platform/portable roots, regress/selftest isolation'

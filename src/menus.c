@@ -28,30 +28,25 @@
 #include "opentyr.h"
 #include "palette.h"
 #include "picload.h"
+#include "game_schema.h"
 #include "sprite.h"
 #include "video.h"
 
 char episode_name[6][31];
 char difficulty_name[7][21];
-char gameplay_name[5][26];
+char gameplay_name[GAMEPLAY_NAME_COUNT][26];
 
 bool gameplaySelect(void)
 {
-	enum MenuItemIndex
-	{
-		MENU_ITEM_1_PLAYER_FULL_GAME = 0,
-		MENU_ITEM_1_PLAYER_ARCADE,
-		MENU_ITEM_2_PLAYER_ARCADE,
-		MENU_ITEM_NETWORK,
-	};
-
 	if (shopSpriteSheet.data == NULL)
 		JE_loadCompShapes(&shopSpriteSheet, '1');  // need mouse pointer sprites
 
 	bool restart = true;
 
-	const size_t menuItemsCount = COUNTOF(gameplay_name) - 1;
-	size_t selectedIndex = MENU_ITEM_1_PLAYER_FULL_GAME;
+	// The entries and what they do come from the variant's string schema.
+	const GameStringSchema *strings = gameStrings();
+	const size_t menuItemsCount = strings->gameplay_name - 1;
+	size_t selectedIndex = 0;
 
 	const int xCenter = 320 / 2;
 	const int yMenuHeader = 20;
@@ -85,7 +80,9 @@ bool gameplaySelect(void)
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
-			const bool disabled = i == MENU_ITEM_NETWORK;
+			// Network play and, until Phase 3b, Timed Battle are not selectable.
+			const bool disabled = strings->gameplay_choices[i] == GAMEPLAY_NETWORK ||
+			                      strings->gameplay_choices[i] == GAMEPLAY_TIMED_BATTLE;
 
 			drawFontHvShadow(VGAScreen, x, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 		}
@@ -193,27 +190,27 @@ bool gameplaySelect(void)
 
 		if (action)
 		{
-			switch (selectedIndex)
+			const GameplayChoice choice = (GameplayChoice)strings->gameplay_choices[selectedIndex];
+			switch (choice)
 			{
-			case MENU_ITEM_1_PLAYER_FULL_GAME:
-			case MENU_ITEM_1_PLAYER_ARCADE:
-			case MENU_ITEM_2_PLAYER_ARCADE:
+			case GAMEPLAY_FULL_GAME:
+			case GAMEPLAY_ARCADE:
+			case GAMEPLAY_ARCADE_2P:
 			{
 				JE_playSampleNum(S_SELECT);
 
 				fade_black(10);
 
-				onePlayerAction = selectedIndex == MENU_ITEM_1_PLAYER_ARCADE;
-				twoPlayerMode = selectedIndex == MENU_ITEM_2_PLAYER_ARCADE;
+				onePlayerAction = choice == GAMEPLAY_ARCADE;
+				twoPlayerMode = choice == GAMEPLAY_ARCADE_2P;
 				return true;
 			}
-			case MENU_ITEM_NETWORK:
+			case GAMEPLAY_TIMED_BATTLE:  // Phase 3b: Timed Battle selection and rules
+			case GAMEPLAY_NETWORK:
 			{
 				JE_playSampleNum(S_SPRING);
 				break;
 			}
-			default:
-				break;
 			}
 		}
 
@@ -233,7 +230,7 @@ bool episodeSelect(void)
 
 	bool restart = true;
 
-	const size_t menuItemsCount = EPISODE_AVAILABLE;
+	const size_t menuItemsCount = (size_t)EPISODE_AVAILABLE;
 	size_t selectedIndex = 0;
 
 	const int xCenter = 320 / 2;
@@ -242,7 +239,7 @@ bool episodeSelect(void)
 	const int yMenuItems = 50;
 	const int dyMenuItems = 30;
 	const int hMenuItem = 13;
-	int wMenuItem[EPISODE_AVAILABLE] = { 0 };
+	int wMenuItem[EPISODE_MAX] = { 0 };
 
 	for (; ; )
 	{

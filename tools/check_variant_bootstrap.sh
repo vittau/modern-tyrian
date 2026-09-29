@@ -28,9 +28,6 @@ expect_failure() {
 	fi
 }
 
-# No regress flag: early rejection must precede even Deck or explicit logging.
-expect_failure variant-unavailable 'Tyrian 2000 is not available yet.' \
-	--log-file="$SANDBOX/cwd/should-not-exist.log" --variant=2000
 expect_failure variant-unknown "Unknown game variant 'bogus'." --variant=bogus
 expect_failure variant-conflict 'Conflicting --variant options.' --variant=2.1 --variant=2000
 
@@ -51,7 +48,8 @@ run_isolated --variant 2.1 -st/does-not-exist --dat "$DATA_DIR" --regress-demo=1
 	--regress-detail=2 --regress-frames=30 --regress-out="$OUT/aliases.hashes" > "$OUT/aliases.log" 2>&1
 cmp "$OUT/default.hashes" "$OUT/aliases.hashes"
 
-mkdir -p "$OUT/empty-data" "$OUT/wrong-data" "$OUT/partial-data"
+mkdir -p "$OUT/empty-data" "$OUT/wrong-data" "$OUT/partial-data" "$OUT/wrong-data-2000" \
+	"$OUT/partial-data-2000" "$OUT/nofallback-2000" "$SANDBOX/cwd/data"
 expect_failure data-explicit-empty 'The Tyrian data files were not found.' \
 	--data="$OUT/empty-data" --regress-demo=1 --regress-out="$OUT/unexpected.hashes"
 # Code-owned shape-count header, not a file copied from Tyrian 2000.
@@ -64,7 +62,37 @@ grep -Fq 'validation: wrong-variant; file: tyrian.shp.' "$OUT/data-wrong-variant
 expect_failure data-no-fallback 'The Tyrian shape data file could not be opened.' \
 	--data="$OUT/partial-data" --regress-demo=1 --regress-out="$OUT/unexpected.hashes"
 
-if [ -n "$(find "$SANDBOX" -type f -print)" ]; then
+# Tyrian 2000 (--variant=2000): a root is validated as a whole installation, in
+# regress mode so that no user file can be touched.  All of these use code-owned
+# headers or the approved 2.1 data, never a Tyrian 2000 file.
+v2000_args=(--variant=2000 --regress-demo=1 --regress-out="$OUT/unexpected.hashes")
+# No --data, no TYRIAN2000_DATA: the default search must not fall back to the
+# 2.1 ./data directory of the working directory.
+: > "$SANDBOX/cwd/data/tyrian1.lvl"
+expect_failure v2000-no-data 'Tyrian 2000 requires its own data files' "${v2000_args[@]}"
+grep -Fq 'validation: not-found; file: tyrian1.lvl.' "$OUT/v2000-no-data.log"
+expect_failure v2000-empty 'Tyrian 2000 requires its own data files' \
+	--data="$OUT/empty-data" "${v2000_args[@]}"
+# Wrong variant, both ways.  2.1 data given as 2000:
+expect_failure v2000-given-21-data 'The Tyrian v2.0/v2.1 data files were found.  Tyrian 2000 requires the Tyrian 2000 data files.' \
+	--data="$DATA_DIR" "${v2000_args[@]}"
+grep -Fq 'validation: wrong-variant; file: tyrian.shp.' "$OUT/v2000-given-21-data.log"
+: > "$OUT/wrong-data-2000/tyrian1.lvl"
+printf '\014\000' > "$OUT/wrong-data-2000/tyrian.shp"
+expect_failure v2000-given-12-banks 'The Tyrian v2.0/v2.1 data files were found.  Tyrian 2000 requires the Tyrian 2000 data files.' \
+	--data="$OUT/wrong-data-2000" "${v2000_args[@]}"
+# ... and (above) a 13-bank header given as 2.1.  A 13-bank header without the
+# rest of the installation names the first missing file, never a 2.1 file.
+: > "$OUT/partial-data-2000/tyrian1.lvl"
+printf '\015\000' > "$OUT/partial-data-2000/tyrian.shp"
+expect_failure v2000-missing-file 'A required Tyrian 2000 data file is missing.' \
+	--data="$OUT/partial-data-2000" "${v2000_args[@]}"
+grep -Fq 'validation: missing-file; file: tyrian.hdt.' "$OUT/v2000-missing-file.log"
+: > "$OUT/nofallback-2000/tyrian1.lvl"
+expect_failure v2000-no-fallback 'A required Tyrian 2000 data file could not be opened.' \
+	--data="$OUT/nofallback-2000" "${v2000_args[@]}"
+
+if [ -n "$(find "$SANDBOX" -type f -print | grep -v '/cwd/data/tyrian1.lvl$')" ]; then
 	echo 'FAIL variant-bootstrap: a user file was created'
 	find "$SANDBOX" -type f -print
 	exit 1
@@ -74,5 +102,6 @@ if [ -n "$(find "$SANDBOX/home" "$SANDBOX/xdg" "$SANDBOX/appdata" -mindepth 1 -p
 	echo 'FAIL variant-bootstrap: a user directory was created'
 	exit 1
 fi
-rm -rf "$SANDBOX" "$OUT/empty-data" "$OUT/wrong-data" "$OUT/partial-data"
-echo 'PASS variant-bootstrap: early errors, 2.1 frame/state identity, single root, no user files'
+rm -rf "$SANDBOX" "$OUT/empty-data" "$OUT/wrong-data" "$OUT/partial-data" "$OUT/wrong-data-2000" \
+	"$OUT/partial-data-2000" "$OUT/nofallback-2000"
+echo 'PASS variant-bootstrap: early errors, 2.1 frame/state identity, single root, 2000 provider diagnostics both ways, no user files'

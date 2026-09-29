@@ -21,25 +21,34 @@
 
 #include "opentyr.h"
 #include "file.h"
+#include "game_schema.h"
 
 #include <SDL3/SDL.h>
 
-#define MENU_MAX 14
+#define MENU_MAX 15
 
 #define DESTRUCT_MODES 5
 
 extern const JE_byte menuHelp[MENU_MAX][11];   /* [1..14, 1..11] */
 
-#define HELPTEXT_MISCTEXT_COUNT 68
-#define HELPTEXT_MISCTEXTB_COUNT 5
-#define HELPTEXT_MISCTEXTB_SIZE 11
-#define HELPTEXT_MENUTEXT_SIZE 21
-#define HELPTEXT_MAINMENUHELP_COUNT 34
-#define HELPTEXT_NETWORKTEXT_COUNT 4
-#define HELPTEXT_NETWORKTEXT_SIZE 22
-#define HELPTEXT_SUPERSHIPS_COUNT 11
-#define HELPTEXT_SPECIALNAME_COUNT 9
-#define HELPTEXT_SHIPINFO_COUNT 13
+// Capacities: the largest of the Tyrian 2.1 and Tyrian 2000 sections.  How many
+// strings are read from tyrian.hdt is the selected GameStringSchema's business.
+#define HELPTEXT_MISCTEXT_COUNT 72
+#define HELPTEXT_MISCTEXTB_COUNT 8
+#define HELPTEXT_MISCTEXTB_SIZE 12
+#define HELPTEXT_MENUTEXT_SIZE 29
+#define HELPTEXT_MAINMENUHELP_COUNT 37
+#define HELPTEXT_NETWORKTEXT_COUNT 5
+#define HELPTEXT_NETWORKTEXT_SIZE 33
+#define HELPTEXT_SUPERSHIPS_COUNT 13
+#define HELPTEXT_SPECIALNAME_COUNT 11
+#define HELPTEXT_SHIPINFO_COUNT 20
+#define HELPTEXT_TIMED_BATTLE_COUNT 4
+#define HELPTEXT_LICENSING_COUNT 3
+#define HELPTEXT_HIGH_SCORE_NAMES_COUNT 39
+#define HELPTEXT_TEAM_NAMES_COUNT 10
+#define HELPTEXT_ORDERING_COUNT 6
+#define HELPTEXT_SUPER_TYRIAN_COUNT 6
 
 extern char helpTxt[39][231];
 extern char pName[21][16];
@@ -63,12 +72,24 @@ extern char destructHelp[25][22];
 extern char weaponNames[17][17];
 extern char destructModeName[DESTRUCT_MODES][13];
 extern char shipInfo[HELPTEXT_SHIPINFO_COUNT][2][256];
+extern char timedBattleName[HELPTEXT_TIMED_BATTLE_COUNT][23];
+extern char licensingInfo[HELPTEXT_LICENSING_COUNT][46];
+extern char hdtHighScoreNames[HELPTEXT_HIGH_SCORE_NAMES_COUNT][23];
+extern char hdtTeamNames[HELPTEXT_TEAM_NAMES_COUNT][25];
+extern char orderingInfo[HELPTEXT_ORDERING_COUNT][32];
+extern char superTyrianText[HELPTEXT_SUPER_TYRIAN_COUNT][64];
 extern char menuInt[MENU_MAX+1][11][18];
+
+// The misc text a semantic label stands for (see GameLabel, game_schema.h).
+const char *helpLabelText(GameLabel label);
 
 void readEncryptedString(File *file, char *dst, size_t size);
 
 void JE_helpBox(SDL_Surface *screen, int x, int y, const char *message, JE_byte boxWidth, JE_byte verticalHeight, JE_byte color, JE_byte brightness, JE_byte shadeType);
 void JE_HBox(SDL_Surface *screen, int x, int y, JE_byte messageNum, JE_byte boxWidth, JE_byte verticalHeight, JE_byte color, JE_byte brightness);
 void JE_loadHelpText(void);
+// Loads the help text unless it was already loaded (locating and validating the
+// data first if needed), for callers that need strings before startup gets there.
+void helpTextEnsureLoaded(void);
 
 #endif /* HELPTEXT_H */

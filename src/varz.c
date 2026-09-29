@@ -319,7 +319,7 @@ void JE_getShipInfo(void)
 	JE_boolean extraShip, extraShip2;
 
 	shipGrPtr = &spriteSheet9;
-	shipGr2ptr = &spriteSheet9;
+	shipGr2ptr = &spriteSheet9;  // player 2 never uses ships[]: extra ships (>90) or the Dragonwing
 
 	powerAdd  = powerSys[player[0].items.generator].power;
 
@@ -332,7 +332,10 @@ void JE_getShipInfo(void)
 	}
 	else
 	{
-		shipGr = ships[player[0].items.ship].shipgraphic;
+		// Graphic IDs above the variant's base live in the added ship bank.
+		unsigned int shipGrIndex;
+		shipGrPtr = shipGraphicSheet(ships[player[0].items.ship].shipgraphic, &shipGrIndex);
+		shipGr = shipGrIndex;
 		player[0].armor = ships[player[0].items.ship].dmg;
 	}
 

@@ -18,12 +18,13 @@
  */
 #include "lvlmast.h"
 
+#include "game_schema.h"
 #include "opentyr.h"
 
-const JE_char shapeFile[34] = /* [1..34] */
+JE_char enemyShapeFileChar(unsigned int table)
 {
-	'2', '4', '7', '8', 'A', 'B', 'C', 'D', 'E', 'F',
-	'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
-	'Q', 'R', 'S', 'T', 'U', '5', '#', 'V', '0', '@',  // [25] should be '&' rather than '5'
-	'3', '^', '5', '9'
-};
+	const GameDataSchema *schema = gameSchema();
+	if (table < 1 || table > schema->enemy_shape_file_count)
+		return '\0';
+	return schema->enemy_shape_files[table - 1];
+}

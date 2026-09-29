@@ -90,6 +90,26 @@ typedef struct
 
 typedef JE_SaveFileType JE_SaveFilesType[SAVE_FILES_NUM]; /* [1..savefilesnum] */
 
+// Tyrian 2000 appends unencrypted high-score boards to tyrian.sav: 10 Timed
+// Battle boards, then 10 main-game boards (one per episode and player count),
+// each with three entries.  Tyrian 2.1 has none.
+#define VARIANT_SCORE_BOARDS 20
+#define VARIANT_SCORE_TIMED_BOARDS 10
+#define VARIANT_SCORE_ENTRIES 3
+#define VARIANT_SCORE_NAME_MAX 29
+
+typedef struct
+{
+	JE_longint score;
+	// Main-game entries carry an unknown 4-byte field between score and name;
+	// it is kept as read and written back (Timed Battle entries have none).
+	Uint32     unknown;
+	char       playerName[VARIANT_SCORE_NAME_MAX + 1];
+	JE_byte    difficulty;
+} VariantHighScore;
+
+extern VariantHighScore variantHighScores[VARIANT_SCORE_BOARDS][VARIANT_SCORE_ENTRIES];
+
 extern const KeySettings defaultKeySettings;
 extern JE_boolean smoothies[9];
 extern JE_byte starShowVGASpecialCode;

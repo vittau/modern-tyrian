@@ -22,6 +22,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct GameDataSchema;
+struct GameStringSchema;
+
 typedef enum
 {
 	VARIANT_TYRIAN21,
@@ -36,7 +39,9 @@ typedef struct
 	const char *log_label;
 	const char *save_namespace;
 	uint8_t episode_count, demo_count;
-	// Schema, UI and rule tables arrive in Phase 3.
+	const struct GameDataSchema *data_schema;
+	const struct GameStringSchema *string_schema;
+	// UI and rule tables arrive in Phase 3b/3c.
 } GameVariantDef;
 
 typedef enum

@@ -62,4 +62,9 @@ void gameDataClose(GameDataProvider *provider);
 // Selected by findDataFiles(); all legacy data-file helpers use this provider.
 GameDataProvider *gameDataCurrent(void);
 
+// Locates and validates the data of the selected variant once, logging the
+// result; on failure logs the reason (fatal) and returns false.  Calling it
+// again after success does nothing.
+bool gameDataPrepare(void);
+
 #endif // GAME_DATA_H
