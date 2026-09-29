@@ -290,6 +290,7 @@ As mesmas regras do plano geral valem aqui:
 - [ ] Tela 16:9 (§5.4) no pipeline moderno, com teclado, gamepad e navegação.
 - [ ] Estado dos dados, "Install" quando necessário e o painel da última escolha pré-selecionado.
 - [ ] Steam Deck: sempre começa no launcher, como nos outros sistemas.
+- [ ] Imagens dos painéis do Tyrian 2.1 e do Tyrian 2000 geradas por um worker **Codex GPT-6 Luna (high)**, por decisão do usuário (2026-09-29). As imagens são arte original, sem copiar a arte, os sprites ou o logotipo do jogo; entram no git como assets do projeto, com a origem registrada.
 
 **Resultado:** a experiência de início é simples.
 
@@ -515,4 +516,4 @@ As mesmas regras do plano geral valem aqui:
   - **3b:** eventos do T2K, substituição de inimigos e regras (sidekicks com carga, rear "None", twiddles), como hooks.
   - **3c:** conflitos com os menus e o HUD do Modern.
 - **Workers desta sessão:** Claude Sonnet 5.5 high, a pedido do usuário.
-
+- **Decisão do usuário (launcher):** as imagens do Tyrian e do Tyrian 2000 no launcher vão ser geradas por um worker Codex GPT-6 Luna high, e só elas; os outros workers da sessão continuam Sonnet 5.5.
