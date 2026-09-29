@@ -1201,6 +1201,10 @@ int main(int argc, char *argv[])
 		// The --regress-frames cap ends the run from the first presented frame.
 		JE_initPlayerData();
 
+		// Regress-only loadout override (--regress-front-weapon/--regress-front-power)
+		// so a chosen weapon can be captured firing headless.
+		regress_apply_loadout();
+
 		JE_initEpisode((JE_byte)regress_scenario_episode);
 		initial_episode_num = (JE_byte)regress_scenario_episode;
 		episodeNum = (JE_byte)regress_scenario_episode;

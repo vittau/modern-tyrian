@@ -82,6 +82,25 @@ enum
 	DL_TAG_MAX
 };
 
+// The tag byte packs the class in its low 3 bits and a 5-bit quantised
+// per-sprite emissive-footprint code (bright pixels) in the high bits.  The
+// pass uses it to cap the light one big player-shot sprite emits (a high-power
+// Mega Cannon would otherwise flood the field); a small sprite is below the
+// cap and unchanged.  Footprint 0 is the default: no scaling (superpixels,
+// VFX, and any sprite with too few bright pixels to matter).
+#define DL_TAG_CLASS_MASK  0x07
+#define DL_TAG_FOOT_SHIFT  3
+#define DL_TAG_FOOT_STEPS  32
+#define DL_TAG_FOOT_PER_STEP 8  // bright pixels represented by one footprint step
+
+static inline Uint8 dl_tag_pack(int cls, unsigned int bright_pixels)
+{
+	unsigned int step = bright_pixels / DL_TAG_FOOT_PER_STEP;
+	if (step > DL_TAG_FOOT_STEPS - 1)
+		step = DL_TAG_FOOT_STEPS - 1;
+	return (Uint8)((cls & DL_TAG_CLASS_MASK) | (step << DL_TAG_FOOT_SHIFT));
+}
+
 // Which framebuffer-reading filter to replay.  The filters are pure w.r.t.
 // gameplay state; only their source/destination surfaces matter.
 enum

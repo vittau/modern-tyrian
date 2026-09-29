@@ -82,6 +82,18 @@ extern int regress_stick_x, regress_stick_y;  // raw axis values (-32767..32767)
 extern const char *regress_stick_log_path;    // NULL = no per-tick log
 extern int regress_reverse_y;             // non-zero = force the reverse-controls smoothie on
 
+// --regress-front-weapon=N / --regress-front-power=N: override player 1's front
+// weapon id and power level in a --regress-script run so a specific weapon can
+// be captured headless (used with the -c/--constant autofire cheat).  -1 = leave
+// the built-in loadout; inert outside regress mode.
+extern int regress_front_weapon;          // -1 = not overridden
+extern int regress_front_power;           // -1 = not overridden
+
+// Applies the --regress-front-weapon/--regress-front-power overrides to player
+// 1's item set.  Called after JE_initPlayerData() on the --regress-script path;
+// a no-op when neither override was requested.
+void regress_apply_loadout(void);
+
 bool regress_stick_active(void);
 
 // Called once per player-1 tick from JE_playerMovement; writes the log line when
