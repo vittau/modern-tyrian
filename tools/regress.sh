@@ -524,6 +524,13 @@ for s in "${SCREENS[@]}"; do
 done
 
 pairs=$((pairs + 1))
+run_case "modern-screen-shield-16x9" \
+	--regress-screen=shield --regress-modern --regress-aspect=16:9
+pairs=$((pairs + 1))
+run_case "modern-screen-shield-21x9" \
+	--regress-screen=shield --regress-modern --regress-aspect=21:9
+
+pairs=$((pairs + 1))
 run_case "modern-screen-title-21x9" \
 	--regress-screen=title --regress-modern --regress-aspect=21:9
 pairs=$((pairs + 1))

@@ -162,6 +162,14 @@ void regress_screen_run(void)
 		JE_itemScreenStartAt(MENU_UPGRADE_SUB, 3);
 		JE_itemScreen();
 	}
+	else if (strcmp(name, "shield") == 0)
+	{
+		// Category 5 is "shield".  Its purchase list reaches x=310, which puts the
+		// pic-1 widening split on the title box's right bevel (column 311), so this
+		// guards the header rows of the widened box.
+		JE_itemScreenStartAt(MENU_UPGRADE_SUB, 5);
+		JE_itemScreen();
+	}
 	else if (strcmp(name, "options") == 0)
 	{
 		JE_itemScreenStartAt(MENU_OPTIONS, 0);

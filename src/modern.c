@@ -225,6 +225,17 @@ static int modern_cursor_w = 0, modern_cursor_h = 0;
 // split.  Above this row every element must lie left of the split.
 #define MODERN_PIC1_HELP_Y 184
 
+// The pic-1 title box (rows 3..31, x 156..315) is baked into the picture.  Its
+// interior is flat up to column 310; columns 311..315 are the box's right bevel
+// (a light line, then a dark stripe and the border), which differs from the
+// interior on rows 8..28.  When the split lands on column 311 (a screen whose
+// panel content reaches x=310) repeating that column on the header rows would
+// draw the bevel's light line as a flat block across the widened box, so those
+// rows repeat the last interior column instead.  Rows 0..HEADER_Y1 also cover
+// the box's top/bottom borders, where columns 310 and 311 are identical.
+#define MODERN_PIC1_HEADER_Y1 33
+#define MODERN_PIC1_HEADER_INNER_MAX 310
+
 // The pic-2 credits line baked into rows 192..198 in palette indices 35..39.
 // Vert- crops those rows, so they are re-composited at 1x when still intact.
 #define MODERN_PIC2_CREDIT_Y0 192
@@ -1528,11 +1539,16 @@ static void modern_compose_widen(ModernFrame *frame, int split, int extra)
 		}
 		else
 		{
+			// The inserted band repeats one backdrop column.  The title box
+			// rows repeat its last interior column instead of the right bevel.
+			const int band_x = (y <= MODERN_PIC1_HEADER_Y1)
+				? MIN(split, MODERN_PIC1_HEADER_INNER_MAX) : split;
+
 			for (int x = 0; x < w; ++x)
 			{
 				const int sx = modern_remap_x[x];
 				const bool band = (x >= split && x < split + extra);
-				row[x] = rgb_palette[band ? p[sx] : s[sx]];
+				row[x] = rgb_palette[band ? p[band_x] : s[sx]];
 			}
 		}
 	}
