@@ -20,9 +20,13 @@
 #
 #   tools/regress.sh              build, run all cases, compare
 #   tools/regress.sh --update     regenerate the baselines from the current tree
+#   tools/regress.sh -j 3         run up to three cases at once (default: CPUs)
+#   make regress REGRESS_JOBS=1  run serially
 #
 # The Tyrian data directory comes from $TYRIAN_DATA, defaulting to ./data.  If
 # the data is missing, ./get_data.sh fetches the freeware Tyrian 2.1 release.
+# Case helpers are also dispatched through a shell-escaped command array.
+# shellcheck disable=SC2329
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,18 +38,48 @@ REPLAY_CHECK=0
 INTERP_CHECK=0
 SMOOTH_CHECK=0
 PARALLAX_CHECK=0
-if [ "${1:-}" = "--update" ]; then
-	UPDATE=1
-elif [ "${1:-}" = "--update-manifest" ]; then
-	UPDATE_MANIFEST=1
-elif [ "${1:-}" = "--replay-check" ]; then
-	REPLAY_CHECK=1
-elif [ "${1:-}" = "--interp-check" ]; then
-	INTERP_CHECK=1
-elif [ "${1:-}" = "--smoothness-check" ]; then
-	SMOOTH_CHECK=1
-elif [ "${1:-}" = "--parallax-check" ]; then
-	PARALLAX_CHECK=1
+# Bash 3.2 / MSYS2: no wait -n, associative arrays or GNU-only CPU query.
+default_jobs() {
+	local count
+	count=$(nproc 2>/dev/null) || count=$(sysctl -n hw.ncpu 2>/dev/null) || count=${NUMBER_OF_PROCESSORS:-1}
+	case "$count" in ''|*[!0-9]*|0) count=1 ;; esac
+	printf '%s\n' "$count"
+}
+
+JOBS=${REGRESS_JOBS:-$(default_jobs)}
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--update) UPDATE=1 ;;
+		--update-manifest) UPDATE_MANIFEST=1 ;;
+		--replay-check) REPLAY_CHECK=1 ;;
+		--interp-check) INTERP_CHECK=1 ;;
+		--smoothness-check) SMOOTH_CHECK=1 ;;
+		--parallax-check) PARALLAX_CHECK=1 ;;
+		-j|--jobs)
+			if [ "$#" -lt 2 ]; then
+				echo "ERROR: $1 requires a positive integer" >&2
+				exit 2
+			fi
+			JOBS=$2
+			shift ;;
+		--jobs=*) JOBS=${1#*=} ;;
+		-j[0-9]*) JOBS=${1#-j} ;;
+		-h|--help)
+			echo "Usage: tools/regress.sh [-j N|--jobs N] [--update|--update-manifest|--replay-check|--interp-check|--smoothness-check|--parallax-check]"
+			echo "Jobs default to REGRESS_JOBS or the number of CPUs."
+			exit 0 ;;
+		*) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+	esac
+	shift
+done
+case "$JOBS" in
+	''|*[!0-9]*|0) echo "ERROR: jobs must be a positive integer" >&2; exit 2 ;;
+esac
+# Strip leading zeroes so Bash arithmetic cannot interpret an octal number.
+while [ "${JOBS#0}" != "$JOBS" ]; do JOBS=${JOBS#0}; done
+if [ -z "$JOBS" ] || [ "${#JOBS}" -gt 9 ]; then
+	echo "ERROR: jobs must be a positive integer (at most nine digits)" >&2
+	exit 2
 fi
 
 DATA_DIR="${TYRIAN_DATA:-$ROOT/data}"
@@ -161,6 +195,7 @@ if [ "$UPDATE_MANIFEST" -eq 1 ]; then
 			echo "missing: $name" >&2
 			continue
 		fi
+		# shellcheck disable=SC2046
 		set -- $(cksum "$DATA_DIR/$name")
 		printf '%s %s %s\n' "$2" "$1" "$name" >> "$tmp"
 	done < "$MANIFEST"
@@ -189,6 +224,7 @@ while read -r size crc name; do
 		continue
 	fi
 
+	# shellcheck disable=SC2046
 	set -- $(cksum "$DATA_DIR/$name")
 	got_crc=$1
 	got_size=$2
@@ -227,6 +263,151 @@ total_start=$(now)
 failures=0
 pairs=0
 
+# printf removes wc padding without launching a separate tr process.
+line_count() {
+	local lines
+	lines=$(wc -l < "$1")
+	printf '%d' "$lines"
+}
+
+# A worker owns its engine child, including on an interrupted suite run.
+run_binary() {
+	"$BIN" "$@" &
+	local binary_pid=$! rc
+	trap 'kill "$binary_pid" 2>/dev/null; wait "$binary_pid" 2>/dev/null; exit 130' INT TERM
+	wait "$binary_pid"
+	rc=$?
+	trap - INT TERM
+	return "$rc"
+}
+
+# Declaration order is separate from execution order. Arguments are escaped by
+# Bash itself, so labels/paths containing spaces remain a single argument.
+case_commands=()
+case_labels=()
+case_order=()
+case_count=0
+active_pids=('')
+active_cases=()
+queue_dir=$(mktemp -d "$ACTUAL_DIR/.queue.XXXXXX") || exit 1
+
+cleanup_queue() {
+	local pid
+	for pid in "${active_pids[@]}"; do
+		[ -z "$pid" ] || kill "$pid" 2>/dev/null
+	done
+	for pid in "${active_pids[@]}"; do
+		[ -z "$pid" ] || wait "$pid" 2>/dev/null
+	done
+	rm -rf "$queue_dir"
+}
+trap cleanup_queue EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Estimate relative work from the unchanged frame streams and render paths.
+# Profiling puts Modern/SuperWild demos and audio first; cheap screen cases go
+# last. This affects scheduling only, never the cases or their printed order.
+case_cost() {
+	local kind=$1 label=$2 baseline=$2 frames=1200 factor=1 arg
+	case "$kind" in
+		run_replay_case|run_interp_case|run_gameplay_case|run_smoothness_case|run_parallax_case) baseline=$3 ;;
+		run_parallax_level) frames=$3 ;;
+	esac
+	if [ -f "$BASELINE_DIR/$baseline.txt" ]; then
+		frames=$(line_count "$BASELINE_DIR/$baseline.txt")
+	fi
+	for arg in "$@"; do
+		case "$arg" in
+			--regress-frames=*) frames=${arg#*=} ;;
+			--regress-modern) factor=$((factor * 3)) ;;
+			--regress-detail=6) factor=$((factor * 2)) ;;
+		esac
+	done
+	case "$kind" in
+		run_interp_case|run_smoothness_case|run_parallax_case) factor=$((factor * 2)) ;;
+	esac
+	# Audio hashes whole sound/music streams, not framebuffer records.
+	if [ "$label" = audio ]; then
+		printf '30000'
+	else
+		printf '%s' "$((frames * factor))"
+	fi
+}
+
+queue_case() {
+	local command cost
+	printf -v command '%q ' "$@"
+	case_commands[case_count]=$command
+	case_labels[case_count]=$2
+	cost=$(case_cost "$@")
+	printf '%s %s\n' "$cost" "$case_count" >> "$queue_dir/order"
+	case_count=$((case_count + 1))
+}
+
+case_worker() {
+	local index=$1
+	failures=0
+	CASE_WORKER=1
+	# Only strings made by printf %q above are evaluated, never game/log data.
+	eval "${case_commands[$index]}"
+	printf '%s\n' "$failures" > "$queue_dir/$index.result"
+}
+
+run_queued_cases() {
+	local next=0 finished=0 printed=0 slot index pid status case_failures
+	local progressed order_index=0
+	if [ "$JOBS" -gt 1 ]; then
+		# Stable tie-break by declaration index; Bash 3.2 has no wait -n.
+		while read -r _ index; do
+			case_order[order_index]=$index
+			order_index=$((order_index + 1))
+		done < <(LC_ALL=C sort -k1,1nr -k2,2n "$queue_dir/order")
+	else
+		for ((index=0; index<case_count; index++)); do case_order[index]=$index; done
+	fi
+	# There is no benefit in creating more worker slots than cases.
+	[ "$JOBS" -le "$case_count" ] || JOBS=$case_count
+	while [ "$finished" -lt "$case_count" ]; do
+		progressed=0
+		for ((slot=0; slot<JOBS; slot++)); do
+			pid=${active_pids[$slot]:-}
+			if [ -n "$pid" ]; then
+				index=${active_cases[$slot]}
+				if [ -f "$queue_dir/$index.result" ] || ! kill -0 "$pid" 2>/dev/null; then
+					wait "$pid" 2>> "$queue_dir/$index.output"
+					status=$?
+					if [ "$status" -eq 0 ] && [ -f "$queue_dir/$index.result" ]; then
+						read -r case_failures < "$queue_dir/$index.result"
+					else
+						echo "FAIL ${case_labels[$index]}: worker failed ($(exit_status_description "$status"))" >> "$queue_dir/$index.output"
+						case_failures=1
+					fi
+					failures=$((failures + case_failures))
+					: > "$queue_dir/$index.done"
+					active_pids[slot]=''
+					finished=$((finished + 1))
+					progressed=1
+				fi
+			fi
+			if [ -z "${active_pids[$slot]:-}" ] && [ "$next" -lt "$case_count" ]; then
+				index=${case_order[$next]}
+				case_worker "$index" > "$queue_dir/$index.output" 2>&1 &
+				active_pids[slot]=$!
+				active_cases[slot]=$index
+				next=$((next + 1))
+				progressed=1
+			fi
+		done
+		# Emit whole case buffers only when all earlier declarations printed.
+		while [ "$printed" -lt "$case_count" ] && [ -f "$queue_dir/$printed.done" ]; do
+			cat "$queue_dir/$printed.output"
+			printed=$((printed + 1))
+		done
+		[ "$progressed" -ne 0 ] || sleep 0.05
+	done
+}
+
 # Describe a process exit status.  The shell reports a process killed by a
 # signal as 128 + N, so a crash is distinguished from a plain non-zero exit.
 exit_status_description() {
@@ -264,6 +445,10 @@ dump_failure_log() {
 # run_case LABEL "$@" -- run the binary and compare/update one baseline.
 # The output file is derived from LABEL.
 run_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_case "$@"
+		return
+	fi
 	local label=$1
 	shift
 	local out="$ACTUAL_DIR/$label.txt"
@@ -273,7 +458,7 @@ run_case() {
 
 	start=$(now)
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" "$@" \
+		run_binary --data="$DATA_DIR" --regress-out="$out" "$@" \
 		>"$log" 2>&1
 	rc=$?
 	elapsed=$(awk "BEGIN { printf \"%.2f\", $(now) - $start }")
@@ -302,7 +487,7 @@ run_case() {
 		return
 	fi
 
-	lines=$(wc -l < "$out" | tr -d ' ')
+	lines=$(line_count "$out")
 
 	if [ "$UPDATE" -eq 1 ]; then
 		cp "$out" "$baseline"
@@ -625,6 +810,10 @@ pairs=$((pairs + 1))
 # See src/regress.c (regress_state_hash).
 
 run_state_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_state_case "$@"
+		return
+	fi
 	local label=$1
 	shift
 	local out="$ACTUAL_DIR/$label.txt"
@@ -632,7 +821,7 @@ run_state_case() {
 	local baseline="$BASELINE_DIR/$label.txt"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-state-out="$out" "$@" \
+		run_binary --data="$DATA_DIR" --regress-state-out="$out" "$@" \
 		>"$log" 2>&1
 	rc=$?
 
@@ -643,7 +832,7 @@ run_state_case() {
 		return
 	fi
 
-	lines=$(wc -l < "$out" | tr -d ' ')
+	lines=$(line_count "$out")
 
 	if [ "$UPDATE" -eq 1 ]; then
 		cp "$out" "$baseline"
@@ -689,6 +878,10 @@ pairs=$((pairs + 1))
 # normal pass; the full sweep is `tools/regress.sh --replay-check`.
 
 run_replay_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_replay_case "$@"
+		return
+	fi
 	local label=$1 baseline_label=$2
 	shift 2
 	local out="$ACTUAL_DIR/$label.txt"
@@ -696,7 +889,7 @@ run_replay_case() {
 	local baseline="$BASELINE_DIR/$baseline_label.txt"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-replay-check "$@" \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-replay-check "$@" \
 		>"$log" 2>&1
 	rc=$?
 
@@ -715,7 +908,7 @@ run_replay_case() {
 	fi
 
 	if cmp -s "$baseline" "$out"; then
-		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, replay identical"
+		echo "PASS $label: $(line_count "$out") lines, replay identical"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
 		dump_failure_log "$log"
@@ -728,6 +921,10 @@ run_replay_case() {
 # exits non-zero on any mismatch) and, because recording only observes, the
 # frame-hash stream must still equal the Classic baseline.
 run_interp_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_interp_case "$@"
+		return
+	fi
 	local label=$1 baseline_label=$2
 	shift 2
 	local out="$ACTUAL_DIR/$label.txt"
@@ -735,7 +932,7 @@ run_interp_case() {
 	local baseline="$BASELINE_DIR/$baseline_label.txt"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-interp-check "$@" \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-interp-check "$@" \
 		>"$log" 2>&1
 	rc=$?
 
@@ -754,7 +951,7 @@ run_interp_case() {
 	fi
 
 	if cmp -s "$baseline" "$out"; then
-		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, interp alpha=1 identical"
+		echo "PASS $label: $(line_count "$out") lines, interp alpha=1 identical"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
 		dump_failure_log "$log"
@@ -767,6 +964,10 @@ run_interp_case() {
 # run also emits the Modern canvas hash stream, which must still equal the
 # Modern baseline for the same case.
 run_gameplay_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_gameplay_case "$@"
+		return
+	fi
 	local label=$1 baseline_label=$2
 	shift 2
 	local out="$ACTUAL_DIR/$label.txt"
@@ -774,7 +975,7 @@ run_gameplay_case() {
 	local baseline="$BASELINE_DIR/$baseline_label.txt"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-gameplay-check "$@" \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-gameplay-check "$@" \
 		>"$log" 2>&1
 	rc=$?
 
@@ -793,7 +994,7 @@ run_gameplay_case() {
 	fi
 
 	if cmp -s "$baseline" "$out"; then
-		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, sidebar dropped"
+		echo "PASS $label: $(line_count "$out") lines, sidebar dropped"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
 		dump_failure_log "$log"
@@ -806,6 +1007,10 @@ run_gameplay_case() {
 # (the run exits non-zero on any non-monotonic motion) and that the frame-hash
 # stream still equals the Classic baseline.
 run_smoothness_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_smoothness_case "$@"
+		return
+	fi
 	local label=$1 baseline_label=$2
 	shift 2
 	local out="$ACTUAL_DIR/$label.txt"
@@ -813,7 +1018,7 @@ run_smoothness_case() {
 	local baseline="$BASELINE_DIR/$baseline_label.txt"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-interp-smoothness "$@" \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-interp-smoothness "$@" \
 		>"$log" 2>&1
 	rc=$?
 
@@ -832,7 +1037,7 @@ run_smoothness_case() {
 	fi
 
 	if cmp -s "$baseline" "$out"; then
-		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, motion monotonic"
+		echo "PASS $label: $(line_count "$out") lines, motion monotonic"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
 		dump_failure_log "$log"
@@ -845,6 +1050,10 @@ run_smoothness_case() {
 # per-tick motion is the same with smooth motion on or off.  The run also emits
 # the frame-hash stream, which must still equal the Classic baseline.
 run_parallax_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_parallax_case "$@"
+		return
+	fi
 	local label=$1 baseline_label=$2
 	shift 2
 	local out="$ACTUAL_DIR/$label.txt"
@@ -852,7 +1061,7 @@ run_parallax_case() {
 	local baseline="$BASELINE_DIR/$baseline_label.txt"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-parallax-check "$@" \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-parallax-check "$@" \
 		>"$log" 2>&1
 	rc=$?
 
@@ -870,7 +1079,7 @@ run_parallax_case() {
 	fi
 
 	if cmp -s "$baseline" "$out"; then
-		echo "PASS $label: $(wc -l < "$out" | tr -d ' ') lines, per-tick motion preserved"
+		echo "PASS $label: $(line_count "$out") lines, per-tick motion preserved"
 	else
 		echo "FAIL $label: frame hashes differ from $baseline_label"
 		failures=$((failures + 1))
@@ -881,12 +1090,16 @@ run_parallax_case() {
 # have no frame baseline, so this only asserts the check's exit code and prints
 # its summary.
 run_parallax_level() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_parallax_level "$@"
+		return
+	fi
 	local label=$1 frames=$2 lvl=$3
 	local out="$ACTUAL_DIR/$label.txt"
 	local log="$ACTUAL_DIR/$label.log"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-parallax-check \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-parallax-check \
 		--regress-level="$lvl" --regress-frames="$frames" \
 		>"$log" 2>&1
 	rc=$?
@@ -906,13 +1119,17 @@ run_parallax_level() {
 # to stay between the two ticks (the run exits non-zero otherwise).  Check-only:
 # the interpolated canvas is not compared against a baseline.
 run_smooth_effects_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_smooth_effects_case "$@"
+		return
+	fi
 	local label=$1
 	shift 1
 	local out="$ACTUAL_DIR/$label.txt"
 	local log="$ACTUAL_DIR/$label.log"
 
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --data="$DATA_DIR" --regress-out="$out" --regress-smooth-effects-check \
+		run_binary --data="$DATA_DIR" --regress-out="$out" --regress-smooth-effects-check \
 		--regress-modern --regress-aspect=16:9 "$@" \
 		>"$log" 2>&1
 	rc=$?
@@ -1024,6 +1241,7 @@ if [ "$INTERP_CHECK" -eq 1 ]; then
 	done
 
 	for spec in "${SCENARIOS[@]}"; do
+		# shellcheck disable=SC2086
 		set -- $spec
 		sname=$1
 		slvl=$2
@@ -1034,6 +1252,8 @@ if [ "$INTERP_CHECK" -eq 1 ]; then
 				--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
 		done
 	done
+
+	run_queued_cases
 
 	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 	if [ "$failures" -eq 0 ]; then
@@ -1055,6 +1275,7 @@ if [ "$SMOOTH_CHECK" -eq 1 ]; then
 	done
 
 	for spec in "${SCENARIOS[@]}"; do
+		# shellcheck disable=SC2086
 		set -- $spec
 		sname=$1
 		slvl=$2
@@ -1065,6 +1286,8 @@ if [ "$SMOOTH_CHECK" -eq 1 ]; then
 				--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
 		done
 	done
+
+	run_queued_cases
 
 	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 	if [ "$failures" -eq 0 ]; then
@@ -1086,6 +1309,7 @@ if [ "$PARALLAX_CHECK" -eq 1 ]; then
 	done
 
 	for spec in "${SCENARIOS[@]}"; do
+		# shellcheck disable=SC2086
 		set -- $spec
 		sname=$1
 		slvl=$2
@@ -1100,6 +1324,8 @@ if [ "$PARALLAX_CHECK" -eq 1 ]; then
 	# The reported ASTEROID levels (check-only: no baseline).
 	run_parallax_level "parallax-scenario-asteroid" 1200 "1:1"
 	run_parallax_level "parallax-scenario-asteroid2" 1200 "1:2"
+
+	run_queued_cases
 
 	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 	if [ "$failures" -eq 0 ]; then
@@ -1120,6 +1346,7 @@ if [ "$REPLAY_CHECK" -eq 1 ]; then
 	done
 
 	for spec in "${SCENARIOS[@]}"; do
+		# shellcheck disable=SC2086
 		set -- $spec
 		sname=$1
 		slvl=$2
@@ -1130,6 +1357,8 @@ if [ "$REPLAY_CHECK" -eq 1 ]; then
 				--regress-level="$slvl" --regress-detail="$m" --regress-frames="$sframes"
 		done
 	done
+
+	run_queued_cases
 
 	total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 	if [ "$failures" -eq 0 ]; then
@@ -1144,6 +1373,8 @@ fi
 
 pairs=$((pairs + 1))
 run_case "audio" --regress-audio
+
+run_queued_cases
 
 total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 

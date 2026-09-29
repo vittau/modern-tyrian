@@ -505,6 +505,12 @@ suite:
 make regress
 ```
 
+Cases run in parallel using the available CPU count, with results printed in
+case declaration order. Set `make regress REGRESS_JOBS=3` to limit concurrency,
+or `REGRESS_JOBS=1` to run serially. Direct invocations accept
+`tools/regress.sh -j 3` / `--jobs 3`; these can also accompany `--update` and the
+full proof sweeps.
+
 `./get_data.sh` fetches the official freeware Tyrian 2.1 release into `./data`,
 which is the default data directory; `make regress` verifies that copy against
 the committed baselines. To run against another copy of the data, point
