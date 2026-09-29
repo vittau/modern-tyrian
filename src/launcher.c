@@ -1315,7 +1315,7 @@ int launcherRegressMain(int argc, char *argv[])
 	}
 
 	const char *out_path = regressArg(argc, argv, "--regress-out");
-	FILE *out = out_path != NULL ? fopen(out_path, "w") : stdout;
+	FILE *out = out_path != NULL ? fopen(out_path, "wb") : stdout;
 	if (out == NULL)
 	{
 		logError("Failed to open '%s'.", out_path);
