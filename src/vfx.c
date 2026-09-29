@@ -22,6 +22,7 @@
 #include "modern_bloom.h"
 #include "tyrian2.h"
 #include "varz.h"
+#include "vfx_ambient.h"
 
 #include <SDL3/SDL.h>
 
@@ -310,6 +311,10 @@ void vfx_reset(void)
 	vfx_particle_count = 0;
 	vfx_event_count = 0;
 	vfx_rng = 0x9E3779B9u;
+
+	// The ambient atmosphere belongs to the level too: clear it and reseed its
+	// own RNG so a new level never inherits the previous one's particles.
+	vfx_ambient_reset();
 }
 
 // Number of particles a base count maps to at the current level/intensity.
@@ -588,6 +593,10 @@ static void vfx_ev_player_death(const VfxEvent *e)
 
 void vfx_tick_end(void)
 {
+	// Ambient runs on its own arrays/target and re-reads the level style each
+	// tick; it clears itself when VFX are disabled, even on the early return.
+	vfx_ambient_tick();
+
 	if (!vfx_enabled())
 	{
 		if (vfx_particle_count != 0 || vfx_event_count != 0)
@@ -861,6 +870,9 @@ void vfx_render_playfield(SDL_Surface *surface, Uint32 alpha_fx16)
 
 	Uint8 *base = surface->pixels;
 	const int pitch = surface->pitch;
+
+	// Ambient first, so the gameplay VFX (sparks, smoke, flashes) draw over it.
+	vfx_ambient_render(surface, alpha_fx16);
 
 	for (int i = 0; i < vfx_particle_count; ++i)
 	{

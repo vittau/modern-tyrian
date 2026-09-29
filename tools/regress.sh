@@ -473,6 +473,33 @@ run_case "vfx-scenario-flip-d$MODERN_DETAIL" \
 	--regress-level=4:12 --regress-detail="$MODERN_DETAIL" --regress-frames=3600 --regress-modern --regress-aspect=16:9 --regress-vfx=low
 pairs=$((pairs + 1))
 
+# --- ambient atmosphere (Fase 2 VFX) -----------------------------------------
+#
+# Ambient particles ride the same Effects level as the VFX (off/low/high), so
+# they run wherever VFX run.  One short Modern 16:9 case per style pins the
+# level that selects it from the game's own read-only state (see
+# src/vfx_ambient.c): E1:L4 is a starless ground level (dust), E1:L1 keeps the
+# starfield (space), E4:L6 has lava (embers), E4:L9 water (mist) and E4:L8 the
+# iced blur (snow).  Mixing low and high exercises both densities.  These own
+# their baselines; the two vfx-* cases above change because ambient is now part
+# of the same Effects layer.
+
+run_case "ambient-dust-d$MODERN_DETAIL" \
+	--regress-level=1:4 --regress-detail="$MODERN_DETAIL" --regress-frames=600 --regress-modern --regress-aspect=16:9 --regress-vfx=high
+pairs=$((pairs + 1))
+run_case "ambient-space-d$MODERN_DETAIL" \
+	--regress-level=1:1 --regress-detail="$MODERN_DETAIL" --regress-frames=600 --regress-modern --regress-aspect=16:9 --regress-vfx=low
+pairs=$((pairs + 1))
+run_case "ambient-embers-d$MODERN_DETAIL" \
+	--regress-level=4:6 --regress-detail="$MODERN_DETAIL" --regress-frames=600 --regress-modern --regress-aspect=16:9 --regress-vfx=high
+pairs=$((pairs + 1))
+run_case "ambient-mist-d$MODERN_DETAIL" \
+	--regress-level=4:9 --regress-detail="$MODERN_DETAIL" --regress-frames=600 --regress-modern --regress-aspect=16:9 --regress-vfx=high
+pairs=$((pairs + 1))
+run_case "ambient-snow-d$MODERN_DETAIL" \
+	--regress-level=4:8 --regress-detail="$MODERN_DETAIL" --regress-frames=600 --regress-modern --regress-aspect=16:9 --regress-vfx=low
+pairs=$((pairs + 1))
+
 # --- non-gameplay screens -----------------------------------------------------
 #
 # --regress-screen renders one non-gameplay screen in a deterministic state and
