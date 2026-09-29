@@ -2,7 +2,7 @@
 
 Plano e diário da integração do **Tyrian 2000** ao Modern Tyrian, mantendo o **Tyrian 2.1 Freeware** exatamente como está. Nasceu do briefing do usuário de 2026-09-29. O plano geral de modernização continua em `MODERNIZATION_PLAN.md`, e este documento cobre só a trilha do 2000.
 
-**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. Fase 2a (variante, provider e `--variant=`) integrada; a 2b (namespaces e migração) é a próxima.
+**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. Fase 2 concluída (2a: variante, provider e `--variant=`; 2b: saves por variante e migração). A Fase 3 espera a aprovação dos documentos.
 
 ---
 
@@ -246,10 +246,10 @@ As mesmas regras do plano geral valem aqui:
 ### Fase 2 — `GameVariant` e provider (só no 2.1)
 - [x] `GameVariant` e a estrutura por variante (§5.1), com o 2.1 como única implementação.
 - [x] `GameDataProvider` (§5.2). O 2.1 carrega os dados por ele.
-- [ ] Namespaces de usuário com migração transparente dos saves e configs atuais (§5.3), provada por teste.
+- [x] Namespaces de usuário com migração transparente do save atual (§5.3), provada por teste. As configs ficam compartilhadas na raiz.
 - [x] Log de variante e validação (§5.6).
 - [x] `--variant=` (parse antes de tudo, em `src/bootstrap.c`). O hook do launcher fica para a Fase 6.
-- [ ] **Trava:** os 164 casos passam sem mudar nenhum baseline.
+- [x] **Trava:** os 164 casos passam sem mudar nenhum baseline.
 
 **Resultado:** a arquitetura suporta duas versões, e o 2.1 fica byte a byte igual.
 
@@ -477,4 +477,32 @@ As mesmas regras do plano geral valem aqui:
   - `gameVariantSelect` devolve um status em vez de `bool`;
   - um `--data` repetido continua valendo a última ocorrência, como antes;
   - a reordenação do startup para o launcher fica para a 2b e a Fase 6.
+
+### 2026-09-29 — Fase 2b: saves por variante e migração (`dec73ff`)
+- **Worker:** Codex `gpt-6-sol` high, ~15 min, com uma pergunta respondida: publicar a cópia com `link` + `unlink` no POSIX e `rename` no Windows e em FAT/exFAT.
+- **Layout:**
+  - na raiz do usuário ficam o que é compartilhado, `opentyrian.cfg`, `tyrian.cfg` (28 bytes: detalhe, gamma, teclas, joystick, volumes), `newsh$.shp` e o log;
+  - em `tyrian21/` ficam `tyrian.sav` e as demos gravadas (`demorec.N`);
+  - `tyrian2000/` está reservado.
+- **Desvio consciente do `integration.md`:** o `tyrian.cfg` também fica compartilhado, porque só guarda apresentação e controles (decisão 4 de §12).
+- **API:** `userFileOpenKind`/`userFileExistsKind`, com um tipo compartilhado, save ou demo, em `src/file.c`. `userFileOpen` segue apontando para a raiz.
+- **Migração** (só 2.1, antes de `loadSaves`, nunca em regress/selftest):
+  - copia o `tyrian.sav` da raiz somente se tiver exatamente 2.502 bytes;
+  - grava num temporário exclusivo e publica sem sobrescrever;
+  - nunca mexe no original nem num destino existente;
+  - de qualquer outro tamanho, pula com aviso;
+  - se a cópia falhar, a sessão lê o save da raiz só para leitura e não grava save nenhum, então nunca aparece um save em branco escondendo o antigo.
+- **Testes:** `tools/check_user_paths.sh`, dentro do `make regress`, em sandbox com as opções de regress `--regress-user-root`/`--regress-user-files`. Cobre:
+  - migração byte a byte;
+  - repetição;
+  - destino existente;
+  - tamanhos errados;
+  - falhas e nova tentativa;
+  - round trip do save;
+  - configs na raiz;
+  - demos;
+  - raízes portable e XDG;
+  - isolamento de regress e selftest.
+- **Trava:** os 164 casos passam sem mudar baseline (61 s no tree integrado).
+- **Para quem atualiza da v0.2.x:** a primeira abertura copia o save. Um binário antigo continua usando o save da raiz, e o progresso passa a divergir entre os dois.
 
