@@ -97,7 +97,6 @@
 #define ST_NAME_HI_Y      34
 #define ST_NAME_Y         6
 #define ST_NOSPECIAL_UP   14
-#define ST_SEP_Y          90
 #define ST_VIT_LABEL_Y    94
 #define ST_GEN_Y          164
 #define ST_CHEAT_Y        174
@@ -469,12 +468,6 @@ static void hud_draw_vitals(const HudPanel *p, int pi, int label_y, int bar_h)
 	}
 }
 
-static void hud_draw_separator(const HudPanel *p, int y)
-{
-	HUD_ASSERT_FIT(p->surface, y, 1);
-	fill_rectangle_xy(p->surface, HUD_MARGIN, y, p->w - HUD_MARGIN - 1, y, HUD_SEP_COLOR);
-}
-
 // ---------------------------------------------------------------------------
 // Individual elements.
 // ---------------------------------------------------------------------------
@@ -738,7 +731,7 @@ static void hud_draw_status_panel(const HudPanel *p)
 {
 	// Adaptive upper block: the special icon reserves a 28-row slot, otherwise
 	// the name starts near the top.  When no special is held the whole block is
-	// 28 rows shorter, so the lower block (separator, vitals, generator, cheat)
+	// 28 rows shorter, so the lower block (vitals, generator, cheat)
 	// slides up by the same amount to keep the panel balanced instead of leaving
 	// a hole under the score.
 	const bool special = (player[0].items.special > 0);
@@ -770,8 +763,6 @@ static void hud_draw_status_panel(const HudPanel *p)
 	y += 11;
 
 	hud_draw_bombs(p, 0, y);
-
-	hud_draw_separator(p, ST_SEP_Y - drop);
 
 	// Shield, armor and power reserve: three vertical bars, bottom-up.  The
 	// generator name and cheat notice keep their bottom slots so the freed
