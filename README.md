@@ -540,6 +540,20 @@ Windows (x86_64 and arm64) after each build, and the full
 `make regress-replay`/`make regress-interp` sweeps run in the manually triggered
 `regress-full` workflow.
 
+The same jobs then run the Tyrian 2000 suite (`make regress-2000`, baselines in
+`test/regress-2000/`). Its data is never stored, cached or published: each run
+downloads the archive from the author's site with
+`tools/fetch_t2000_data.sh "$RUNNER_TEMP/tyrian2000"`, which checks its exact
+size and SHA-256, extracts it safely outside the checkout, verifies
+`test/regress-2000/data-manifest.txt` and only then renames it into place. A
+failed download or check fails the job, and the release packages contain only
+the Tyrian 2.1 data. To run the suite by hand:
+
+```bash
+tools/fetch_t2000_data.sh /path/outside/the/checkout/tyrian2000
+make regress-2000 TYRIAN2000_DATA=/path/outside/the/checkout/tyrian2000
+```
+
 ## <img src="docs/readme/h-credits.svg" alt="Credits and licence" width="100%">
 
 - **Tyrian** was developed by **Eclipse Software** (Jason Emery and

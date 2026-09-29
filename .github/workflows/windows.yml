@@ -81,6 +81,41 @@ jobs:
           name: regression-actual-windows-${{ matrix.arch }}
           path: test/regress/actual
           if-no-files-found: ignore
+      - name: Fetch Tyrian 2000 data (download, verify, no cache)
+        # Downloaded from the author's site in EVERY run and verified (size,
+        # SHA-256, safe extraction, runtime manifest) by the script, into the
+        # runner's temp dir, outside the checkout.  Never cached (a public
+        # repo's Actions cache is readable from fork PRs), never uploaded and
+        # never staged by the Package steps below.  A failed download or check
+        # fails the job: it is not a skipped suite.
+        if: github.event_name != 'release'
+        run: |
+          T2000_DIR="$(cygpath -u "$RUNNER_TEMP")/tyrian2000"
+          tools/fetch_t2000_data.sh "$T2000_DIR"
+      - name: Regression suite (Tyrian 2000)
+        if: github.event_name != 'release'
+        env:
+          REGRESS_SKIP_BUILD: "1"   # same binary the 2.1 suite just ran
+        run: |
+          T2000_DIR="$(cygpath -u "$RUNNER_TEMP")/tyrian2000"
+          make regress-2000 TYRIAN2000_DATA="$T2000_DIR"
+      - name: Upload Tyrian 2000 regression output on failure
+        # Only the code-owned hash files and the engine logs (top level of
+        # actual/; no globstar).  NOT the .sav (it holds the HDT default names),
+        # screenshots, audio dumps or anything under save-*/.
+        if: failure() && github.event_name != 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-2000-actual-windows-${{ matrix.arch }}
+          path: |
+            test/regress-2000/actual/*.txt
+            test/regress-2000/actual/*.log
+          if-no-files-found: ignore
+      - name: Guard - no Tyrian 2000 data in the tree
+        # Also part of `make regress`, but that is skipped on release events and
+        # runs before the Tyrian 2000 data was ever on the runner.  Cheap, so run
+        # it right before anything is packaged, on every event.
+        run: tools/check_no_t2000_data.sh
       - name: Package (exe + DLLs + game data)
         run: |
           mkdir -p dist/opentyrian/licenses
