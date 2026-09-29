@@ -87,6 +87,12 @@ fi
 rm -rf "$ACTUAL_DIR"
 mkdir -p "$ACTUAL_DIR"
 
+# The installer cases use synthetic data and stub curl, even in this suite.
+if ! "$ROOT/tools/check_installer.sh" "$BIN" "" "$ACTUAL_DIR/installer"; then
+	echo "ERROR: Tyrian 2000 installer checks failed"
+	exit 1
+fi
+
 now() {
 	if command -v perl >/dev/null 2>&1; then perl -MTime::HiRes=time -e 'printf "%.3f", time'; else date +%s; fi
 }

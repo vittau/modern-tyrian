@@ -272,6 +272,11 @@ if ! "$ROOT/tools/check_game_rules.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/rules-21"
 	exit 1
 fi
 
+if ! "$ROOT/tools/check_installer.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/installer"; then
+	echo "ERROR: Tyrian 2000 installer checks failed"
+	exit 1
+fi
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'

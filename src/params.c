@@ -64,6 +64,8 @@ const Options *JE_paramOptions(void)
 		{ PARAM_VARIANT, 0, "variant",    true },
 		{ PARAM_REGRESS_USER_ROOT, 0, "regress-user-root", true },
 		{ PARAM_REGRESS_USER_FILES, 0, "regress-user-files", false },
+		{ PARAM_INSTALL_2000, 0, "install-2000", true },
+		{ PARAM_INSTALL_2000_SPEC, 0, "install-2000-spec", true },
 		
 		{ 'n', 'n', "net",               true },
 		{ 256, 0,   "net-player-name",   true }, // TODO: no short codes because there should
@@ -178,6 +180,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --variant=2.1|2000           Select variant for automation/testing (2000 unavailable)");
 			logInfo("  --regress-user-root=DIR      Enable user files only in DIR for a regress run");
 			logInfo("  --regress-user-files         Load/save configs and saves, then exit (requires DIR)");
+			logInfo("  --install-2000=WHAT          Install the Tyrian 2000 data headless and exit (0 ok, 1 failed):");
+			logInfo("                               download, a tyrian2000.zip, a folder, or detect");
+			logInfo("  --install-2000-spec=FILE     Test only: synthetic archive size/SHA-256/manifest for --install-2000");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
@@ -265,6 +270,9 @@ void JE_paramCheck(int argc, char *argv[])
 		case PARAM_VARIANT:
 		case PARAM_REGRESS_USER_ROOT:
 		case PARAM_REGRESS_USER_FILES:
+		// Run by main() before video init (installerRunCli).
+		case PARAM_INSTALL_2000:
+		case PARAM_INSTALL_2000_SPEC:
 			break;
 			
 		case 'n':

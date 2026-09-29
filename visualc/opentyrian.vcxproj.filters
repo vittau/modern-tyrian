@@ -53,6 +53,15 @@
     <ClCompile Include="..\src\game_data.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\installer.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\installer_hash.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\third_party\miniz\miniz.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\game_schema.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -268,6 +277,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\game_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\installer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\installer_hash.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\installer_manifest.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\third_party\miniz\miniz.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\game_schema.h">

@@ -19,6 +19,7 @@
 #include "game_data.h"
 
 #include "game_schema.h"
+#include "installer.h"
 #include "logging.h"
 #include "opentyr.h"
 
@@ -120,9 +121,12 @@ GameDataStatus gameDataLocate(const GameVariantDef *variant, const GameDataSearc
 
 	if (is2000)
 	{
-		// The default search: TYRIAN2000_DATA, then a tyrian2000 directory beside
-		// the executable or in the working directory.  Never ./data, which holds
-		// the Tyrian 2.1 files.
+		// The default search: TYRIAN2000_DATA, the installer's per-user location,
+		// then a tyrian2000 directory beside the executable or in the working
+		// directory.  Never ./data, which holds the Tyrian 2.1 files.
+		char installed[INSTALLER_PATH_MAX];
+		if (!installerInstallDirectory(installed, sizeof installed))
+			installed[0] = '\0';
 		const char *basePath = SDL_GetBasePath();
 		char *baseData = NULL;
 		if (basePath != NULL)
@@ -132,7 +136,7 @@ GameDataStatus gameDataLocate(const GameVariantDef *variant, const GameDataSearc
 			if (baseData != NULL)
 				snprintf(baseData, size, "%styrian2000", basePath);
 		}
-		const char *directories[] = { search->installed_directory, getenv("TYRIAN2000_DATA"), baseData, "tyrian2000" };
+		const char *directories[] = { search->installed_directory, getenv("TYRIAN2000_DATA"), installed, baseData, "tyrian2000" };
 		GameDataStatus status = GAME_DATA_NOT_FOUND;
 		for (size_t i = 0; i < COUNTOF(directories); ++i)
 		{
