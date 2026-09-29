@@ -975,6 +975,7 @@ void setupMenu(void)
 
 int main(int argc, char *argv[])
 {
+	userFilesDisable();
 	GameBootstrapOptions bootstrap;
 	char bootstrap_error[256];
 	if (!gameBootstrapParse(argc, argv, &bootstrap, bootstrap_error, sizeof bootstrap_error))
@@ -990,8 +991,14 @@ int main(int argc, char *argv[])
 	customDataDirPath = bootstrap.data_directory;
 	bool regress = bootstrap.regress;
 	bool selftest = bootstrap.selftest;
-	if (regress || selftest)
-		userFilesDisable();
+	if ((!regress && !selftest) || bootstrap.regress_user_root != NULL)
+	{
+		if (!userFilesEnable(bootstrap.regress_user_root))
+		{
+			logError("Failed to select user-file root.");
+			return EXIT_FAILURE;
+		}
+	}
 
 #ifndef NDEBUG
 	SDL_SetLogPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
@@ -1057,15 +1064,29 @@ int main(int argc, char *argv[])
 			logWarn("Failed to open '%s' for logging.", log_path);
 	}
 
-	if (!regress && !selftest)
+	if (userFilesEnabled())
 	{
 		loadConfiguration();
+		userPathsMigrateLegacy21();
 		loadSaves();
 	}
 
 	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
+
+	if (bootstrap.regress_user_files)
+	{
+		// Exercise the real serializers without data, video or gameplay.
+		saveConfiguration();
+		saveSaves();
+		if (recordDemo)
+		{
+			beginRecordDemo();
+			endRecordDemo();
+		}
+		return EXIT_SUCCESS;
+	}
 
 	// A --presentation on the command line overrides opentyrian.cfg, so
 	// re-derive the effective detail after parsing it; loadConfiguration()

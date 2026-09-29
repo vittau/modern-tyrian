@@ -28,12 +28,28 @@
 static bool bootstrapOption(int value, const char *arg, GameBootstrapOptions *out,
                             char *error, size_t error_size)
 {
-	if (value != 't' && value != PARAM_VARIANT)
+	if (value == PARAM_REGRESS_USER_FILES)
+	{
+		out->regress_user_files = true;
+		out->regress = true;
+		return true;
+	}
+	if (value != 't' && value != PARAM_VARIANT && value != PARAM_REGRESS_USER_ROOT)
 		return true;
 	if (arg == NULL)
 	{
-		snprintf(error, error_size, "Option --%s requires an argument.", value == 't' ? "data" : "variant");
+		snprintf(error, error_size, "Option --%s requires an argument.", value == 't' ? "data" : value == PARAM_VARIANT ? "variant" : "regress-user-root");
 		return false;
+	}
+	if (value == PARAM_REGRESS_USER_ROOT)
+	{
+		if (arg[0] == '\0')
+		{
+			snprintf(error, error_size, "--regress-user-root requires a nonempty sandbox directory.");
+			return false;
+		}
+		out->regress_user_root = arg;
+		return true;
 	}
 	if (value == 't')
 	{
@@ -61,7 +77,7 @@ bool gameBootstrapParse(int argc, char *argv[], GameBootstrapOptions *out,
                         char *error, size_t error_size)
 {
 	*out = (GameBootstrapOptions) { false, VARIANT_TYRIAN21, NULL,
-	                              regress_scan_args(argc, argv), gamepad_selftest_scan_args(argc, argv) };
+	                              regress_scan_args(argc, argv), gamepad_selftest_scan_args(argc, argv), NULL, false };
 	error[0] = '\0';
 	const Options *options = JE_paramOptions();
 	for (int i = 1; i < argc; ++i)
@@ -93,6 +109,15 @@ bool gameBootstrapParse(int argc, char *argv[], GameBootstrapOptions *out,
 			if (match == NULL || ambiguous)
 				continue;
 			const char *value = equals != NULL ? equals + 1 : NULL;
+			if (!match->has_arg && value != NULL)
+			{
+				if (match->value == PARAM_REGRESS_USER_FILES)
+				{
+					snprintf(error, error_size, "--regress-user-files does not accept an argument.");
+					return false;
+				}
+				continue;
+			}
 			if (match->has_arg && value == NULL && i + 1 < argc)
 				value = argv[++i];
 			if (!bootstrapOption(match->value, value, out, error, error_size))
@@ -121,6 +146,12 @@ bool gameBootstrapParse(int argc, char *argv[], GameBootstrapOptions *out,
 				break;
 			}
 		}
+	}
+	if ((out->regress_user_root != NULL && (!out->regress || out->selftest)) ||
+	    (out->regress_user_files && out->regress_user_root == NULL))
+	{
+		snprintf(error, error_size, "User-file regression requires --regress-user-root and a regress mode, without selftest.");
+		return false;
 	}
 	return true;
 }

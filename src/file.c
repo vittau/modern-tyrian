@@ -16,23 +16,32 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "file.h"
 
 #include "game_data.h"
+#include "game_variant.h"
+#include "logging.h"
 #include "opentyr.h"
 
 #include <SDL3/SDL.h>
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
 #include <direct.h>
+#include <io.h>
 #else
-#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 const char *customDataDirPath = NULL;
@@ -80,6 +89,8 @@ enum
 
 static char *userDirPath = NULL;
 static size_t userDirPathLen = 0;
+static bool userFilesDisabled = false;
+static bool legacySaveReadOnly = false;
 
 static bool fileExists(const char *path)
 {
@@ -199,6 +210,8 @@ static void determineUserDirPath(void)
 
 const char *userDirGet(void)
 {
+	if (userFilesDisabled)
+		return "";
 	if (userDirPath == NULL)
 		determineUserDirPath();
 
@@ -207,6 +220,8 @@ const char *userDirGet(void)
 
 bool userDirPrepare(void)
 {
+	if (userFilesDisabled)
+		return false;
 	if (userDirPath == NULL)
 		determineUserDirPath();
 
@@ -224,8 +239,6 @@ bool userDirPrepare(void)
 	return true;
 }
 
-static bool userFilesDisabled = false;
-
 void userFilesDisable(void)
 {
 	userFilesDisabled = true;
@@ -236,26 +249,231 @@ bool userFilesEnabled(void)
 	return !userFilesDisabled;
 }
 
+bool userFilesEnable(const char *root)
+{
+	if (root != NULL)
+	{
+		if (root[0] == '\0')
+			return false;
+		char *path = malloc(strlen(root) + 1);
+		if (path == NULL)
+			return false;
+		strcpy(path, root);
+		if (userDirPathLen != 0)
+			free(userDirPath);
+		userDirPath = path;
+		userDirPathLen = strlen(path);
+	}
+	userFilesDisabled = false;
+	legacySaveReadOnly = false;
+	return true;
+}
+
+static char *userFilePath(UserFileKind kind, const char *filename)
+{
+	const char *root = userDirGet();
+	if (root[0] == '\0')
+		root = ".";
+	const char *space = kind == USER_FILE_SHARED ? "" : gameVariantCurrent()->save_namespace;
+	size_t size = strlen(root) + strlen(space) + strlen(filename) + 3;
+	char *path = malloc(size);
+	if (path != NULL)
+		snprintf(path, size, "%s/%s%s%s", root, space, space[0] != '\0' ? "/" : "", filename);
+	return path;
+}
+
+static void userNamespacePrepare(void)
+{
+	if (!userFilesEnabled())
+		return;
+	(void)userDirPrepare();
+	char *path = userFilePath(USER_FILE_SHARED, gameVariantCurrent()->save_namespace);
+	if (path != NULL)
+	{
+#ifdef _WIN32
+		(void)_mkdir(path);
+#else
+		(void)mkdir(path, 0700);
+#endif
+		free(path);
+	}
+}
+
+bool userSavesWritable(void)
+{
+	return userFilesEnabled() && !legacySaveReadOnly;
+}
+
+File userFileOpenKind(UserFileKind kind, const char *filename, const char *mode)
+{
+	if (!userFilesEnabled())
+		return (File) { NULL, EACCES, true };
+	bool legacy_read = kind == USER_FILE_VARIANT_SAVE && legacySaveReadOnly;
+	if (legacy_read)
+	{
+		if (strcmp(mode, "rb") != 0)
+			return (File) { NULL, EACCES, true };
+		kind = USER_FILE_SHARED;
+	}
+	if (kind == USER_FILE_SHARED)
+		(void)userDirPrepare();
+	else
+		userNamespacePrepare();
+	char *path = userFilePath(kind, filename);
+	if (path == NULL)
+		return (File) { NULL, ENOMEM, true };
+	File file = fileOpen(path, mode);
+	free(path);
+	// A failure before inspecting the source must not expose a 2000 prefix.
+	if (legacy_read && !file.error && fileGetLength(&file) != 2502)
+	{
+		fileClose(&file);
+		file.errnum = EINVAL;
+		file.error = true;
+	}
+	return file;
+}
+
 File userFileOpen(const char *filename, const char *mode)
 {
-	if (userFilesDisabled)
+	return userFileOpenKind(USER_FILE_SHARED, filename, mode);
+}
+
+bool userFileExistsKind(UserFileKind kind, const char *filename)
+{
+	File file = userFileOpenKind(kind, filename, "rb");
+	bool exists = !file.error;
+	fileClose(&file);
+	return exists;
+}
+
+static File fileCreateExclusive(const char *path)
+{
+#ifdef _WIN32
+	int fd = _open(path, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
+#else
+	int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
+	if (fd < 0)
+		return (File) { NULL, errno, true };
+#ifdef _WIN32
+	FILE *f = _fdopen(fd, "wb");
+#else
+	FILE *f = fdopen(fd, "wb");
+#endif
+	if (f == NULL)
 	{
-		File file = { NULL, EACCES, true };
-		return file;
+		int error = errno;
+#ifdef _WIN32
+		_close(fd);
+#else
+		close(fd);
+#endif
+		(void)remove(path);
+		return (File) { NULL, error, true };
+	}
+	return (File) { f, 0, false };
+}
+
+static int publishLegacySave(const char *temp, const char *destination)
+{
+#ifndef _WIN32
+	// Atomic no-clobber publication, even when two starts race to migrate.
+	if (link(temp, destination) == 0)
+		return 0;
+	int error = errno;
+	if (error != EPERM && error != EXDEV && error != ENOTSUP && error != EOPNOTSUPP)
+		return error;
+	// FAT/exFAT has no hard links. Recheck before the portable rename fallback.
+#endif
+	struct stat info;
+	if (stat(destination, &info) == 0)
+		return EEXIST;
+	if (errno != ENOENT)
+		return errno;
+	return rename(temp, destination) == 0 ? 0 : errno;
+}
+
+void userPathsMigrateLegacy21(void)
+{
+	if (!userFilesEnabled() || gameVariantCurrent()->id != VARIANT_TYRIAN21)
+		return;
+
+	char *destination = userFilePath(USER_FILE_VARIANT_SAVE, "tyrian.sav");
+	char *temp = userFilePath(USER_FILE_VARIANT_SAVE, "tyrian.sav.tmp");
+	int error = 0;
+	struct stat info;
+	if (destination == NULL || temp == NULL)
+		error = ENOMEM;
+	else if (stat(destination, &info) == 0)
+	{
+		logInfo("Save migration: nothing to migrate (tyrian21/tyrian.sav already exists).");
+		goto done;
+	}
+	else if (errno != ENOENT)
+		error = errno;
+	if (error != 0)
+		goto failed;
+
+	File source = userFileOpen("tyrian.sav", "rb");
+	if (source.error)
+	{
+		error = source.errnum;
+		if (error == ENOENT)
+		{
+			logInfo("Save migration: nothing to migrate (no root tyrian.sav).");
+			goto done;
+		}
+		goto failed;
+	}
+	long length = fileGetLength(&source);
+	if (!source.error && length != 2502)
+	{
+		fileClose(&source);
+		logWarn("Save migration: skipped root tyrian.sav (length %ld, expected 2502).", length);
+		goto done;
+	}
+	Uint8 data[2502];
+	fileReadExactly(&source, data, sizeof data);
+	fileClose(&source);
+	if (source.error)
+	{
+		error = source.errnum;
+		goto failed;
 	}
 
-	if (!userDirPrepare())
-		return fileOpen(filename, mode);
+	userNamespacePrepare();
+	File copy = fileCreateExclusive(temp);
+	if (copy.error)
+	{
+		error = copy.errnum;
+		goto failed;
+	}
+	fileWrite(&copy, data, sizeof data);
+	fileFlush(&copy);
+	fileClose(&copy);
+	if (copy.error)
+		error = copy.errnum;
+	else
+		error = publishLegacySave(temp, destination);
+	(void)remove(temp);
+	if (error == EEXIST)
+	{
+		logInfo("Save migration: nothing to migrate (another start created the destination).");
+		goto done;
+	}
+	if (error != 0 || copy.error)
+		goto failed;
+	logInfo("Save migration: migrated root tyrian.sav to tyrian21/tyrian.sav; original kept.");
+	goto done;
 
-	size_t pathSize = userDirPathLen + 1 + strlen(filename) + 1;
-	char *path = malloc(pathSize);
-	snprintf(path, pathSize, "%s/%s", userDirPath, filename);
-
-	File file = fileOpen(path, mode);
-
-	free(path);
-
-	return file;
+failed:
+	legacySaveReadOnly = true;
+	logWarn("Save migration: skipped (%s); using root save read-only, saving disabled for this session.",
+	        error != 0 ? strerror(error) : "copy failed");
+done:
+	free(temp);
+	free(destination);
 }
 
 void fileSetPosition(File *file, long position)

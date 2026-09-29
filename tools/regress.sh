@@ -256,6 +256,11 @@ if ! "$ROOT/tools/check_variant_bootstrap.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/va
 	exit 1
 fi
 
+if ! "$ROOT/tools/check_user_paths.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/user-paths"; then
+	echo "ERROR: user-path/migration checks failed"
+	exit 1
+fi
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'

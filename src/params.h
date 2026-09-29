@@ -24,7 +24,12 @@
 
 extern JE_boolean richMode, constantPlay, constantDie;
 
-enum { PARAM_VARIANT = 313 };
+enum
+{
+	PARAM_VARIANT = 313,
+	PARAM_REGRESS_USER_ROOT = 314,
+	PARAM_REGRESS_USER_FILES = 315
+};
 
 const Options *JE_paramOptions(void);
 void JE_paramCheck(int argc, char *argv[]);
