@@ -191,7 +191,17 @@ O 2.1 passa a usar o provider explicitamente, sem mudar de comportamento.
 - **Configurações compartilhadas:** as de apresentação (Modern/Classic, escala, controle) podem ser comuns. A decisão está em §12.
 
 ### 5.4 Launcher
-- **Formato:** tela 16:9 desenhada no pipeline moderno, em arte procedural (§7 do plano geral: nada desenhado à mão), com dois painéis:
+- **Formato:** tela 16:9 desenhada no pipeline moderno, com dois painéis de arte pintada. Por decisão do usuário (2026-09-29), é exceção à regra de arte procedural do §7 do plano geral: as imagens são geradas por um worker Codex GPT-6 Luna.
+- **Referência visual do usuário (2026-09-29)**, guardada fora do git em `.worker-reports/launcher/reference-mockup.png`:
+  - dois painéis lado a lado, com o 2.1 em azul (planeta, nave com propulsores azuis, estação) e o 2000 em laranja e vermelho (asteroides, nave-mãe, propulsores laranja);
+  - o título grande no topo de cada painel;
+  - uma caixa com três itens com ícone e uma frase curta;
+  - um botão "PLAY" com legenda e brilho na cor do painel;
+  - a barra inferior com Options, About e Exit.
+- **Ajustes à referência:**
+  - sem "Arena Multiplayer" (abaixo);
+  - o título em letreiro próprio, não uma cópia do logotipo original nem "™";
+  - a arte pintada tem resolução alta, então o launcher precisa desenhá-la na resolução da janela (não no canvas de 320×200 alargado) e continuar legível no Steam Deck (1280×800).
   - **esquerda, TYRIAN 2.1 FREEWARE:** Episodes 1–4 e a experiência original;
   - **direita, TYRIAN 2000:** Episodes 1–5, naves e armas novas, Timed Battle e conteúdo expandido.
 - **Controles:** `←/→` escolhe a variante, `Enter/A` confirma, `Esc/B` sai. Funciona com teclado e gamepad (Steam Deck incluso).
@@ -517,3 +527,4 @@ As mesmas regras do plano geral valem aqui:
   - **3c:** conflitos com os menus e o HUD do Modern.
 - **Workers desta sessão:** Claude Sonnet 5.5 high, a pedido do usuário.
 - **Decisão do usuário (launcher):** as imagens do Tyrian e do Tyrian 2000 no launcher vão ser geradas por um worker Codex GPT-6 Luna high, e só elas; os outros workers da sessão continuam Sonnet 5.5.
+- **Referência visual do launcher** enviada pelo usuário e registrada em §5.4, com os ajustes: sem arena, título sem cópia do logotipo, arte na resolução da janela.
