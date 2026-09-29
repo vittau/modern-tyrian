@@ -198,7 +198,8 @@ O 2.1 passa a usar o provider explicitamente, sem mudar de comportamento.
   - uma caixa com três itens com ícone e uma frase curta;
   - um botão "PLAY" com legenda e brilho na cor do painel;
   - a barra inferior com Options, About e Exit.
-- **Ajustes à referência:**
+- **A referência mostra a ideia geral, não um estilo a copiar à risca** (usuário, 2026-09-29). O worker tem liberdade no estilo das imagens, desde que mantenha a estrutura.
+- **Ajustes à referência (aprovados pelo usuário):**
   - sem "Arena Multiplayer" (abaixo);
   - o título em letreiro próprio, não uma cópia do logotipo original nem "™";
   - a arte pintada tem resolução alta, então o launcher precisa desenhá-la na resolução da janela (não no canvas de 320×200 alargado) e continuar legível no Steam Deck (1280×800).
