@@ -1,4 +1,4 @@
-/* 
+/*
  * OpenTyrian: A modern cross-platform port of Tyrian
  * Copyright (C) The OpenTyrian Development Team
  *
@@ -16,17 +16,22 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-#ifndef PARAMS_H
-#define PARAMS_H
+#ifndef BOOTSTRAP_H
+#define BOOTSTRAP_H
 
-#include "opentyr.h"
-#include "arg_parse.h"
+#include "game_variant.h"
 
-extern JE_boolean richMode, constantPlay, constantDie;
+#include <stddef.h>
 
-enum { PARAM_VARIANT = 313 };
+typedef struct
+{
+	bool variant_explicit;
+	GameVariant variant;
+	const char *data_directory;
+	bool regress, selftest;
+} GameBootstrapOptions;
 
-const Options *JE_paramOptions(void);
-void JE_paramCheck(int argc, char *argv[]);
+bool gameBootstrapParse(int argc, char *argv[], GameBootstrapOptions *out,
+                        char *error, size_t error_size);
 
-#endif /* PARAMS_H */
+#endif // BOOTSTRAP_H

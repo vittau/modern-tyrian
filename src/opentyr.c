@@ -18,6 +18,7 @@
  */
 #include "opentyr.h"
 
+#include "bootstrap.h"
 #include "config.h"
 #include "demo.h"
 #include "destruct.h"
@@ -26,6 +27,7 @@
 #include "file.h"
 #include "font.h"
 #include "fonthand.h"
+#include "game_data.h"
 #include "gamepad_selftest.h"
 #include "helptext.h"
 #include "interp.h"
@@ -973,6 +975,24 @@ void setupMenu(void)
 
 int main(int argc, char *argv[])
 {
+	GameBootstrapOptions bootstrap;
+	char bootstrap_error[256];
+	if (!gameBootstrapParse(argc, argv, &bootstrap, bootstrap_error, sizeof bootstrap_error))
+	{
+		logError("%s", bootstrap_error);
+		return EXIT_FAILURE;
+	}
+	if (gameVariantSelect(bootstrap.variant) != GAME_VARIANT_OK)
+	{
+		logError("%s is not available yet.", gameVariantGet(bootstrap.variant)->display_name);
+		return EXIT_FAILURE;
+	}
+	customDataDirPath = bootstrap.data_directory;
+	bool regress = bootstrap.regress;
+	bool selftest = bootstrap.selftest;
+	if (regress || selftest)
+		userFilesDisable();
+
 #ifndef NDEBUG
 	SDL_SetLogPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
 #endif
@@ -988,13 +1008,6 @@ int main(int argc, char *argv[])
 	logInfo("This is free software, and you are welcome to redistribute it");
 	logInfo("under certain conditions.  See the file COPYING for details.");
 	logInfo("%s", "");
-
-	// Detect regress/selftest mode before SDL_Init(): the regress hint below
-	// must be set before SDL_Init(), and detecting the mode before loading the
-	// configuration lets the user's config and save files be skipped.
-	// JE_paramCheck() below does the real parsing.
-	bool regress = regress_scan_args(argc, argv);
-	bool selftest = gamepad_selftest_scan_args(argc, argv);
 
 	// macOS: a regress run must not become (or be brought to) the foreground,
 	// or a stray osascript/System Events keystroke or a cursor warp from the
@@ -1049,13 +1062,6 @@ int main(int argc, char *argv[])
 		loadConfiguration();
 		loadSaves();
 	}
-	else
-	{
-		// Never write the player's files either: a --regress-script run reaches
-		// the level-start autosave, which would store the blank save table over
-		// the player's saved games.
-		userFilesDisable();
-	}
 
 	xmas = xmas_time();  // arg handler may override
 
@@ -1091,24 +1097,16 @@ int main(int argc, char *argv[])
 		logInfo("Modern lighting: bloom %s, lighting %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality]);
 	}
 
-	if (!findDataFiles())
+	GameDataError data_error;
+	findDataFiles();
+	GameDataStatus data_status = gameDataValidate(gameDataCurrent(), &data_error);
+	logInfo("Game variant: %s; data root: %s; validation: %s%s%s.",
+	        gameVariantCurrent()->log_label, gameDataDirectory(gameDataCurrent()),
+	        gameDataStatusName(data_status), data_error.filename[0] != '\0' ? "; file: " : "",
+	        data_error.filename);
+	if (data_status != GAME_DATA_OK)
 	{
-		logFatal("The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
-		return EXIT_FAILURE;
-	}
-
-	File file = dataFileOpen("tyrian.shp", "rb");
-	Uint16 temp = fileReadU16(&file);
-	fileClose(&file);
-
-	if (temp == 11)
-	{
-		logFatal("The Tyrian v1.0/v1.1 data files were found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
-		return EXIT_FAILURE;
-	}
-	else if (temp == 13)
-	{
-		logFatal("The Tyrian 2000 data files were found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
+		logFatal("%s", data_error.detail);
 		return EXIT_FAILURE;
 	}
 

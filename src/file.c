@@ -18,12 +18,12 @@
  */
 #include "file.h"
 
+#include "game_data.h"
 #include "opentyr.h"
 
 #include <SDL3/SDL.h>
 
 #include <assert.h>
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,9 +78,6 @@ enum
 	ERRNUM_EOF = -1,
 };
 
-static const char *dataDirPath = NULL;
-static size_t dataDirPathLen = 0;
-
 static char *userDirPath = NULL;
 static size_t userDirPathLen = 0;
 
@@ -97,61 +94,6 @@ static File fileOpen(const char *path, const char *mode)
 	errno = 0;  // fopen might not set errno
 	FILE *f = fopen(path, mode);
 	return (File) { f, errno, f == NULL };
-}
-
-bool findDataFiles(void)
-{
-	dataDirPath = NULL;
-	dataDirPathLen = 0;
-
-	const char *filename = "tyrian1.lvl";
-
-	if (customDataDirPath != NULL)
-	{
-		dataDirPath = customDataDirPath;
-		dataDirPathLen = strlen(dataDirPath);
-
-		return dataFileExists(filename);
-	}
-
-	// A "data" directory next to the executable (or inside the app bundle's
-	// Resources on macOS), so a self-contained distribution runs from any cwd.
-	static char *baseDataDirPath = NULL;
-	if (baseDataDirPath == NULL)
-	{
-		const char *basePath = SDL_GetBasePath();
-		if (basePath != NULL)
-		{
-			size_t baseDataDirPathSize = strlen(basePath) + strlen("data") + 1;
-			baseDataDirPath = malloc(baseDataDirPathSize);
-			snprintf(baseDataDirPath, baseDataDirPathSize, "%sdata", basePath);
-		}
-	}
-
-	const char *dataDirPaths[] =
-	{
-		baseDataDirPath,
-#ifdef TYRIAN_DIR
-		TYRIAN_DIR,
-#endif
-	};
-
-	for (size_t i = 0; i < COUNTOF(dataDirPaths); ++i)
-	{
-		if (dataDirPaths[i] == NULL)
-			continue;
-
-		dataDirPath = dataDirPaths[i];
-		dataDirPathLen = strlen(dataDirPath);
-
-		if (dataFileExists(filename))
-			return true;
-	}
-
-	dataDirPath = "";
-	dataDirPathLen = 0;
-
-	return fileExists(filename);
 }
 
 bool dataFileExists(const char *filename)
@@ -178,26 +120,11 @@ bool userFileExists(const char *filename)
 
 File dataFileOpen(const char *filename, const char *mode)
 {
-	if (dataDirPath == NULL)
+	if (strcmp(mode, "rb") != 0)
+		return (File) { NULL, EACCES, true };
+	if (gameDataCurrent() == NULL)
 		findDataFiles();
-
-#ifndef NDEBUG
-	for (size_t i = 0; filename[i] != '\0'; ++i)
-		assert(!isupper(filename[i]));
-#endif
-
-	if (dataDirPathLen == 0)
-		return fileOpen(filename, mode);
-
-	size_t pathSize = dataDirPathLen + 1 + strlen(filename) + 1;
-	char *path = malloc(pathSize);
-	snprintf(path, pathSize, "%s/%s", dataDirPath, filename);
-
-	File file = fileOpen(path, mode);
-
-	free(path);
-
-	return file;
+	return gameDataOpen(gameDataCurrent(), filename);
 }
 
 static void determineUserDirPath(void)

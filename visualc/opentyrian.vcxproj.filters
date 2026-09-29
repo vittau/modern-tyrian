@@ -45,6 +45,15 @@
     <ClCompile Include="..\src\episodes.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\bootstrap.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_data.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_variant.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\file.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -237,6 +246,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\episodes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\bootstrap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_variant.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\file.h">

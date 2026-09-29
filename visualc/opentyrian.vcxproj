@@ -122,6 +122,9 @@
     <ClCompile Include="..\src\drawlist.c" />
     <ClCompile Include="..\src\editship.c" />
     <ClCompile Include="..\src\episodes.c" />
+    <ClCompile Include="..\src\bootstrap.c" />
+    <ClCompile Include="..\src\game_data.c" />
+    <ClCompile Include="..\src\game_variant.c" />
     <ClCompile Include="..\src\file.c" />
     <ClCompile Include="..\src\font.c" />
     <ClCompile Include="..\src\fonthand.c" />
@@ -188,6 +191,9 @@
     <ClInclude Include="..\src\drawlist.h" />
     <ClInclude Include="..\src\editship.h" />
     <ClInclude Include="..\src\episodes.h" />
+    <ClInclude Include="..\src\bootstrap.h" />
+    <ClInclude Include="..\src\game_data.h" />
+    <ClInclude Include="..\src\game_variant.h" />
     <ClInclude Include="..\src\file.h" />
     <ClInclude Include="..\src\font.h" />
     <ClInclude Include="..\src\fonthand.h" />

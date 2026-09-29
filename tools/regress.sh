@@ -251,6 +251,11 @@ mkdir -p "$BASELINE_DIR"
 rm -rf "$ACTUAL_DIR"
 mkdir -p "$ACTUAL_DIR"
 
+if ! "$ROOT/tools/check_variant_bootstrap.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/variant-bootstrap"; then
+	echo "ERROR: variant/bootstrap checks failed"
+	exit 1
+fi
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'
