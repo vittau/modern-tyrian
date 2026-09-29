@@ -565,3 +565,13 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 - **Partículas de ambiente (`ambient`):** brasas na lava, neve no gelo, névoa na água e no desfoque, poeira fina no espaço e poeira no resto (62 fases amostradas). Só clareiam ou mesclam de leve, não emitem luz, usam RNG próprio e seguem o Effects (Low esparso, High um pouco mais). Estão bem discretas, e o usuário vai avaliar jogando.
 - **Luz com a cor do objeto (`lightcol`):** a auditoria confirmou que a luz vinha dos miolos brancos (tiro azul inimigo: 94–98% da energia no bloco de fogo). Agora cada pixel marcado leva a cor representativa do objeto (o tom saturado da família de matiz dominante do sprite), que tinge a luz e o bloom. Intensidade praticamente igual e custo inalterado (~0,47 ms no High).
 - A regressão ficou com 156 casos.
+
+### 2026-09-29 — HUD sem divisor, cabeçalho pic-1 e troca de agentes
+- **Divisor preto acima das barras removido (`fa23d6d`)**, a pedido do usuário.
+- **Agentes:** a cota do OpenCode Go do usuário acabou no meio de três tarefas (Mega Cannon, cabeçalho pic-1, barras mais altas). As tentativas foram encerradas fechando os terminais, e as mesmas tarefas foram reabertas com `--retry-of`, nos mesmos worktrees, com Claude Sonnet 5.5 (esforço alto). Em seguida o usuário definiu o **Codex como worker padrão**: `gpt-6-sol` (esforço alto) na maioria das tarefas e `gpt-6-luna` (esforço alto) nas bem simples.
+- **Cabeçalho das telas pic-1 alargadas (`993ace9`).**
+  - **Causa:** quando o conteúdo do painel chega a x=310 (compra de Shield, diálogo de Quit), o ponto de alargamento cai na coluna 311. Essa coluna é o bisel direito claro da caixa de título, e a faixa inserida o repetia como um bloco chapado.
+  - **Correção:** as linhas do cabeçalho (y ≤ 33) repetem a última coluna interior (310). O mapeamento do mouse não muda, e o Classic continua idêntico.
+  - **Arte original:** o segmento escuro no topo da caixa (y=6, x 285–293) já está na pic 1 e não foi alterado.
+  - **Regressão:** ganhou a tela `--regress-screen=shield` e ficou com 158 casos.
+- **Em andamento:** luz do Mega Cannon no power 6 (`megacannon`) e barras de vida 50% mais altas (`tallbars`).
