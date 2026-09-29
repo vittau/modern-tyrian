@@ -506,3 +506,4 @@ As mesmas regras do plano geral valem aqui:
 - **Trava:** os 164 casos passam sem mudar baseline (61 s no tree integrado).
 - **Para quem atualiza da v0.2.x:** a primeira abertura copia o save. Um binário antigo continua usando o save da raiz, e o progresso passa a divergir entre os dois.
 
+- **Correção no Windows (`d313c43`):** o `stat` abaixo de um arquivo devolve `ENOENT` no Windows e `ENOTDIR` no POSIX. Com isso, um arquivo chamado `tyrian21` não ligava o modo só-leitura. Agora a migração checa explicitamente a raiz e a pasta do namespace, e o `check_user_paths.sh` diz o passo que falhou. Worker: Claude Sonnet 5.5 high (`worker-start` normal), a pedido do usuário para esta sessão. CI verde nos três sistemas; o Linux arm64 precisou de uma nova execução porque o runner travou 45 min na compilação.
