@@ -602,3 +602,6 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **Corte na borda:** glyphs de fonte que cruzam a borda da superfície agora são cortados em vez de dar a volta.
   - **Regressão:** ganhou as telas `joystick-multi` e `keyboard-long` e ficou com 164 casos, em ~56 s em paralelo.
   - **Worker:** Codex `gpt-6-sol`.
+
+### 2026-09-29 — Trilha Tyrian 2000
+- O usuário passou um briefing para integrar o Tyrian 2000 (launcher, instalador de dados, saves separados, renderer moderno nas duas variantes). O plano e o diário dessa trilha ficam em `MODERNIZATION_PLAN_2000.md`.
