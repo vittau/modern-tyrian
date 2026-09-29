@@ -326,9 +326,10 @@ has either effect, and regression mode pins both off unless
 0.4 ms/frame at 16:9 `high` on the reference machine.
 
 The procedural VFX (`vfx`, or `--vfx`) add muzzle flashes, smoke, sparks,
-shockwave rings and impact debris, plus ambient motion, on the 320×200 grid.
-They are purely visual: they never call the game's RNG or change game state,
-and they are off in Classic.
+shockwave rings and impact debris, plus a level-appropriate ambient atmosphere
+(dust, mist, embers or snow, read from the level's own filters), on the 320×200
+grid. They are purely visual: they never call the game's RNG or change game
+state, and they are off in Classic.
 
 </details>
 
