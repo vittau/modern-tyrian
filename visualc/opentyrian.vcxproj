@@ -135,6 +135,8 @@
     <ClCompile Include="..\src\interp.c" />
     <ClCompile Include="..\src\joystick.c" />
     <ClCompile Include="..\src\jukebox.c" />
+    <ClCompile Include="..\src\launcher.c" />
+    <ClCompile Include="$(IntDir)launcher_art.c" />
     <ClCompile Include="..\src\keyboard.c" />
     <ClCompile Include="..\src\lds_play.c" />
     <ClCompile Include="..\src\logging.c" />
@@ -205,6 +207,8 @@
     <ClInclude Include="..\src\interp.h" />
     <ClInclude Include="..\src\joystick.h" />
     <ClInclude Include="..\src\jukebox.h" />
+    <ClInclude Include="..\src\launcher.h" />
+    <ClInclude Include="..\src\launcher_art.h" />
     <ClInclude Include="..\src\keyboard.h" />
     <ClInclude Include="..\src\lds_play.h" />
     <ClInclude Include="..\src\logging.h" />
@@ -266,6 +270,15 @@
   <PropertyGroup>
     <BuildDependsOn>CopyPropsTemplates;EnsureSDLExists;$(BuildDependsOn)</BuildDependsOn>
   </PropertyGroup>
+  <ItemGroup>
+    <LauncherArt Include="$(ProjectDir)..\assets\launcher\*.png" />
+  </ItemGroup>
+  <Target Name="EmbedLauncherArt" BeforeTargets="ClCompile"
+          Inputs="@(LauncherArt);$(ProjectDir)embed_assets.ps1"
+          Outputs="$(IntDir)launcher_art.c">
+    <MakeDir Directories="$(IntDir)" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)embed_assets.ps1&quot; -Output &quot;$(IntDir)launcher_art.c&quot;" />
+  </Target>
   <Target Name="CopyPropsTemplates">
     <Copy SourceFiles="opentyrian.props.template" DestinationFiles="opentyrian.props" Condition="!Exists('opentyrian.props')" />
     <Copy SourceFiles="sdl_paths.props.template" DestinationFiles="sdl_paths.props" Condition="!Exists('sdl_paths.props')" />

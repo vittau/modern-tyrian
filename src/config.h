@@ -110,6 +110,9 @@ typedef struct
 
 extern VariantHighScore variantHighScores[VARIANT_SCORE_BOARDS][VARIANT_SCORE_ENTRIES];
 
+// GameVariant last started from the launcher (opentyrian.cfg), or -1.
+extern int launcherLastVariant;
+
 extern const KeySettings defaultKeySettings;
 extern JE_boolean smoothies[9];
 extern JE_byte starShowVGASpecialCode;

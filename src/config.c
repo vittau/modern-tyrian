@@ -262,6 +262,11 @@ static Uint8 dosKeySettings[8] = { 0 };  // FKA keySettings
 
 static const char *const opentyrianConfigFilename = "opentyrian.cfg";
 
+// The variant the player last started from the launcher, preselected the next
+// time it opens.  -1 until the launcher has chosen one or the config names it,
+// so a config that never saw the launcher keeps no launcher section.
+int launcherLastVariant = -1;
+
 static void loadOpenTyrianConfig(void)
 {
 	// defaults
@@ -393,6 +398,16 @@ static void loadOpenTyrianConfig(void)
 			starfield_set_speed_percent(starfield_percent);
 	}
 
+	section = config_find_section(config, "launcher", NULL);
+	if (section != NULL)
+	{
+		const char *variant_name;
+		GameVariant variant;
+		if (config_get_string_option(section, "last_variant", &variant_name) &&
+		    gameVariantParse(variant_name, &variant))
+			launcherLastVariant = (int)variant;
+	}
+
 	section = config_find_section(config, "keyboard", NULL);
 	if (section != NULL)
 	{
@@ -434,6 +449,15 @@ static void saveOpenTyrianConfig(void)
 	config_set_int_option(section, "starfield_speed_percent", starfield_speed_percent);
 
 	config_set_string_option(section, "lighting", modern_quality_names[modern_lighting_quality]);
+
+	if (launcherLastVariant >= 0)
+	{
+		section = config_find_or_add_section(config, "launcher", NULL);
+		if (section == NULL)
+			exit(EXIT_FAILURE);  // out of memory
+
+		config_set_string_option(section, "last_variant", gameVariantGet((GameVariant)launcherLastVariant)->cli_name);
+	}
 
 	section = config_find_or_add_section(config, "keyboard", NULL);
 	if (section == NULL)

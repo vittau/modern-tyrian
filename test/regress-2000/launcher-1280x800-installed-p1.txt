@@ -1,0 +1,1 @@
+launcher 1280x800,installed,1 frame=04231853b9aad21b

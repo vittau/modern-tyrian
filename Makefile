@@ -59,6 +59,19 @@ SRCS := $(wildcard src/*.c)
 OBJS := $(SRCS:src/%.c=obj/%.o)
 DEPS := $(SRCS:src/%.c=obj/%.d)
 
+# The launcher art (assets/launcher/*.png) is embedded in the binary: a C source
+# is generated from the PNGs at build time and compiled like any other file.
+LAUNCHER_ART_FILES := assets/launcher/panel-tyrian21.png \
+                      assets/launcher/panel-tyrian2000.png \
+                      assets/launcher/title-tyrian21.png \
+                      assets/launcher/title-tyrian2000.png
+LAUNCHER_ART_SYMBOLS := launcher_art_panel21=assets/launcher/panel-tyrian21.png \
+                        launcher_art_panel2000=assets/launcher/panel-tyrian2000.png \
+                        launcher_art_title21=assets/launcher/title-tyrian21.png \
+                        launcher_art_title2000=assets/launcher/title-tyrian2000.png
+OBJS += obj/launcher_art.o
+DEPS += obj/launcher_art.d
+
 ###
 
 ifeq ($(WITH_NETWORK), auto)
@@ -188,6 +201,7 @@ uninstall :
 clean :
 	rm -f $(OBJS)
 	rm -f $(DEPS)
+	rm -f obj/launcher_art.c
 	rm -f $(RES)
 	rm -f $(TARGET)
 
@@ -224,6 +238,13 @@ $(TARGET) : $(OBJS) $(RES)
 
 obj/%.o : src/%.c
 	@mkdir -p "$(dir $@)"
+	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -c -o $@ $<
+
+obj/launcher_art.c : $(LAUNCHER_ART_FILES) tools/embed_assets.sh
+	@mkdir -p "$(dir $@)"
+	sh tools/embed_assets.sh $@ $(LAUNCHER_ART_SYMBOLS)
+
+obj/launcher_art.o : obj/launcher_art.c
 	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -c -o $@ $<
 
 obj/resources.o : visualc/resources.rc visualc/tyrian.ico
