@@ -60,6 +60,64 @@ struct cube_struct
 /*** Globals ***/
 static int joystick_config = 0; // which joystick is being configured in menu
 
+// DARKEN draws the foreground at x+1 and its shadow at x+2.  Text width
+// includes the final spacing pixel, so this keeps both at or left of x=310.
+#define MENU_VALUE_WIDTH (310 - 236)
+
+static const char *keyboard_assignment_label(SDL_Scancode key, char *buffer, size_t size)
+{
+	const char *name = SDL_GetScancodeName(key);
+	if (JE_textWidth(name, TINY_FONT) <= MENU_VALUE_WIDTH)
+		return name;
+	// Keep the key's identity even for SDL's longest keypad/international names.
+	// Common modifiers have familiar, short names; SC identifies a scancode.
+	if (strncmp(name, "Left ", 5) == 0 || strncmp(name, "Right ", 6) == 0)
+		snprintf(buffer, size, "%c %s", name[0], name + (name[0] == 'L' ? 5 : 6));
+	else if (strncmp(name, "Keypad ", 7) == 0)
+		snprintf(buffer, size, "KP %s", name + 7);
+	else
+		snprintf(buffer, size, "%s", name);
+	if (JE_textWidth(buffer, TINY_FONT) > MENU_VALUE_WIDTH)
+		snprintf(buffer, size, "SC %d", key);
+	return buffer;
+}
+
+static void joystick_assignment_label(char *buffer, size_t size, const Joystick_assignment *assignments)
+{
+	joystick_assignments_to_string(buffer, size, assignments);
+	if (JE_textWidth(buffer, TINY_FONT) <= MENU_VALUE_WIDTH)
+		return;
+
+	const size_t slots = COUNTOF(joystick[0].assignment[0]);
+	char labels[COUNTOF(joystick[0].assignment[0])][32];
+	size_t count = 0;
+	for (size_t i = 0; i < slots; ++i)
+		if (assignments[i].type != NONE)
+			joystick_assignment_short_label(labels[count++], sizeof labels[0], &assignments[i]);
+
+	// Prefer every compact label.  If that still overflows, count the hidden
+	// mappings explicitly, preserving as many complete labels as will fit.
+	for (size_t shown = count; shown > 0; --shown)
+	{
+		buffer[0] = '\0';
+		for (size_t i = 0; i < shown; ++i)
+		{
+			size_t used = strlen(buffer);
+			snprintf(buffer + used, size - used, "%s%s", i ? "/" : "", labels[i]);
+		}
+		if (shown < count)
+		{
+			size_t used = strlen(buffer);
+			snprintf(buffer + used, size - used, " +%u", (unsigned)(count - shown));
+		}
+		if (JE_textWidth(buffer, TINY_FONT) <= MENU_VALUE_WIDTH)
+			return;
+	}
+	// Pathological raw indices from hand-edited configs can exceed even one
+	// label's width.  Show the total rather than a misleading partial index.
+	snprintf(buffer, size, "%u MAPPINGS", (unsigned)count);
+}
+
 static JE_word yLoc;
 static JE_shortint yChg;
 static int newPal, curPal, oldPal;
@@ -489,7 +547,8 @@ void JE_itemScreen(void)
 				if (x < 10) /* 10 = reset to defaults, 11 = done */
 				{
 					temp2 = (x == curSel[curMenu]) ? 252 : 250;
-					JE_textShade(VGAScreen, 236, 38 + (x - 2)*12, SDL_GetScancodeName(keySettings[x-2]), temp2 / 16, temp2 % 16 - 8, DARKEN);
+					char label[64];
+					JE_textShade(VGAScreen, 236, 38 + (x - 2)*12, keyboard_assignment_label(keySettings[x-2], label, sizeof label), temp2 / 16, temp2 % 16 - 8, DARKEN);
 				}
 			}
 
@@ -528,7 +587,7 @@ void JE_itemScreen(void)
 
 				temp = (i == curSel[curMenu] - 2u) ? 252 : 250;
 
-				char value[48] = "";
+				char value[128] = "";
 				if (joysticks == 0 && i < 14) // no joysticks, everything disabled
 				{
 					sprintf(value, "-");
@@ -554,7 +613,7 @@ void JE_itemScreen(void)
 				}
 				else if (i < 14) // assignments
 				{
-					joystick_assignments_to_string(value, sizeof(value), joystick[joystick_config].assignment[i - 4]);
+					joystick_assignment_label(value, sizeof(value), joystick[joystick_config].assignment[i - 4]);
 				}
 
 				JE_textShade(VGAScreen, 236, 38 + i * 8, value, temp / 16, temp % 16 - 8, DARKEN);
@@ -2849,7 +2908,8 @@ void JE_menuFunction(JE_byte select)
 		{
 			temp2 = 254;
 			int tempY = 38 + (curSelect - 2) * 12;
-			JE_textShade(VGAScreen, 236, tempY, SDL_GetScancodeName(keySettings[curSelect-2]), (temp2 / 16), (temp2 % 16) - 8, DARKEN);
+			char label[64];
+			JE_textShade(VGAScreen, 236, tempY, keyboard_assignment_label(keySettings[curSelect-2], label, sizeof label), (temp2 / 16), (temp2 % 16) - 8, DARKEN);
 			JE_showVGA();
 
 			col = 248;

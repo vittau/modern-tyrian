@@ -143,6 +143,7 @@ bool load_joystick_assignments(Config* config, int j);
 bool save_joystick_assignments(Config* config, int j);
 
 void joystick_assignments_to_string(char *buffer, size_t buffer_len, const Joystick_assignment *assignments);
+void joystick_assignment_short_label(char *buffer, size_t buffer_len, const Joystick_assignment *assignment);
 
 bool detect_joystick_assignment(int j, Joystick_assignment *assignment);
 bool joystick_assignment_cmp(const Joystick_assignment *, const Joystick_assignment *);

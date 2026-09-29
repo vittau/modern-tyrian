@@ -954,6 +954,46 @@ void joystick_assignments_to_string(char *buffer, size_t buffer_len, const Joyst
 	}
 }
 
+// Display-only abbreviations; the persisted assignment codes stay unchanged.
+void joystick_assignment_short_label(char *buffer, size_t buffer_len, const Joystick_assignment *assignment)
+{
+	static const char *const buttons[] = {
+		"A", "B", "X", "Y", "BACK", "GUIDE", "START", "LS", "RS",
+		"LB", "RB", "UP", "DOWN", "LEFT", "RIGHT"
+	};
+	static const char *const axes[] = { "LX", "LY", "RX", "RY", "LT", "RT" };
+	const int n = assignment->num;
+	const char sign = assignment->negative_axis ? '-' : '+';
+	switch (assignment->type)
+	{
+	case GAMEPAD_BUTTON:
+		if (n >= 0 && (size_t)n < COUNTOF(buttons))
+			snprintf(buffer, buffer_len, "%s", buttons[n]);
+		else
+			snprintf(buffer, buffer_len, "GB%d", n);
+		break;
+	case GAMEPAD_AXIS:
+		if (n >= 0 && (size_t)n < COUNTOF(axes))
+			snprintf(buffer, buffer_len, "%s%c", axes[n], sign);
+		else
+			snprintf(buffer, buffer_len, "GA%d%c", n, sign);
+		break;
+	case BUTTON:
+		snprintf(buffer, buffer_len, "B%u", (unsigned)n + 1u);
+		break;
+	case AXIS:
+		snprintf(buffer, buffer_len, "AX%u%c", (unsigned)n + 1u, sign);
+		break;
+	case HAT:
+		snprintf(buffer, buffer_len, "H%u%c%c", (unsigned)n + 1u, assignment->x_axis ? 'X' : 'Y', sign);
+		break;
+	case NONE:
+		if (buffer_len > 0)
+			buffer[0] = '\0';
+		break;
+	}
+}
+
 // reverse of assignment_to_code()
 void code_to_assignment(Joystick_assignment *assignment, const char *buffer)
 {
