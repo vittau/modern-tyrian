@@ -183,6 +183,14 @@ void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag);
 // when tagging is off / the surface is not tagged.  px_pitch/w/h optional.
 const Uint8 *drawlist_tag_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h);
 
+// Returns the parallel per-pixel object-light palette index buffer matching
+// `surface` (same geometry as the tag), or NULL when tagging is off.  Every
+// pixel a tagged blit draws holds the representative palette index of the
+// object's own colour (its dominant saturated shade); the lighting pass uses it
+// in place of the pixel's own, often white-hot, colour.  0 means "use the
+// pixel's own colour" (VFX, superpixels and clears).
+const Uint8 *drawlist_lightcol_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h);
+
 // --- recording hooks ----------------------------------------------------------
 //
 // Each hook is called from exactly one drawing primitive.  They are safe to call

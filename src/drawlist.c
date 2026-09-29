@@ -22,6 +22,7 @@
 #include "config.h"
 #include "logging.h"
 #include "modern_bloom.h"
+#include "palette.h"
 #include "player.h"
 #include "vga256d.h"
 #include "video.h"
@@ -297,6 +298,17 @@ static Uint8 dl_tag_vga2[DL_TAG_W * DL_TAG_H];
 static Uint8 dl_tag_scratch_game[DL_TAG_W * DL_TAG_H];
 static Uint8 dl_tag_scratch_vga2[DL_TAG_W * DL_TAG_H];
 
+// Parallel per-pixel object-light palette index.  Every pixel a tagged blit
+// draws also gets, here, the representative palette index of the *object's*
+// colour (its dominant saturated shade), so the lighting pass can light with
+// the colour of the thing that emits instead of the near-white hot core the
+// pixel itself may be.  0 means "no override: use the pixel's own colour";
+// the VFX and superpixel paths leave it 0.
+static Uint8 dl_lcol_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_lcol_vga2[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_lcol_scratch_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_lcol_scratch_vga2[DL_TAG_W * DL_TAG_H];
+
 static bool dl_tag_active = false;
 
 static Uint8 *dl_tag_for_surface(SDL_Surface *surface)
@@ -314,6 +326,226 @@ static Uint8 *dl_tag_for_surface(SDL_Surface *surface)
 	return NULL;
 }
 
+static Uint8 *dl_lcol_for_surface(SDL_Surface *surface)
+{
+	if (surface == NULL)
+		return NULL;
+	if (surface == game_screen)
+		return dl_lcol_game;
+	if (surface == VGAScreen2)
+		return dl_lcol_vga2;
+	if (surface == dl_scratch_game)
+		return dl_lcol_scratch_game;
+	if (surface == dl_scratch_vga2)
+		return dl_lcol_scratch_vga2;
+	return NULL;
+}
+
+// --- object light colour ------------------------------------------------------
+//
+// The representative palette index of an object's own colour: the brightest,
+// most saturated shade of the object's dominant hue family, so a white-hot
+// core does not wash the light white.  The palette is a hue x brightness grid
+// (index = hue * 16 + brightness), so "hue family" is the high nibble of the
+// source index.  Pixels are scored by (max - min) * max, which favours a
+// saturated body over a desaturated white core; a fully desaturated object
+// falls back to its brightest pixel.
+//
+// Only an index is stored: the lighting pass turns it into a colour through the
+// *active* palette, so palette fades follow automatically.  The computation is
+// cached per sprite (and palette, since the cache is cleared each tick with the
+// tag buffers) to keep the per-blit cost to one lookup for the repeated frames
+// of an animated shot.
+
+#define DL_REP_CACHE 512
+
+typedef struct
+{
+	const void *key;   // sprite data pointer
+	Uint32 key2;       // index + variant/params (distinguishes hue/value/filter)
+	Uint8 rep;
+	bool valid;
+} DlRepCache;
+
+static DlRepCache dl_rep_cache[DL_REP_CACHE];
+
+static void dl_rep_cache_clear(void)
+{
+	for (int i = 0; i < DL_REP_CACHE; ++i)
+		dl_rep_cache[i].valid = false;
+}
+
+// Single-threaded accumulators reused by every computation; fixed capacity, so
+// nothing is allocated per blit.
+static Uint32 dl_rep_block_score[16];  // score sum per hue family
+static Uint32 dl_rep_idx_score[256];   // best score per palette index
+static int dl_rep_idx_max[256];        // best max-channel per palette index
+
+static void dl_rep_reset(void)
+{
+	memset(dl_rep_block_score, 0, sizeof dl_rep_block_score);
+	memset(dl_rep_idx_score, 0, sizeof dl_rep_idx_score);
+	memset(dl_rep_idx_max, 0, sizeof dl_rep_idx_max);
+}
+
+static void dl_rep_accumulate(const SDL_Color *pal, unsigned int pi)
+{
+	const int r = pal[pi].r, g = pal[pi].g, b = pal[pi].b;
+	int mx = r > g ? r : g;
+	if (b > mx) mx = b;
+	int mn = r < g ? r : g;
+	if (b < mn) mn = b;
+
+	const Uint32 score = (Uint32)(mx - mn) * (Uint32)mx;
+	dl_rep_block_score[pi >> 4] += score;
+	if (score > dl_rep_idx_score[pi])
+		dl_rep_idx_score[pi] = score;
+	if (mx > dl_rep_idx_max[pi])
+		dl_rep_idx_max[pi] = mx;
+}
+
+static Uint8 dl_rep_result(void)
+{
+	// Dominant hue family, then the best shade inside it.
+	int best_block = -1;
+	Uint32 best_block_score = 0;
+	for (int h = 0; h < 16; ++h)
+	{
+		if (dl_rep_block_score[h] > best_block_score)
+		{
+			best_block_score = dl_rep_block_score[h];
+			best_block = h;
+		}
+	}
+
+	int best = 0;
+	if (best_block >= 0)
+	{
+		Uint32 best_score = 0;
+		int best_max = -1;
+		for (int b = 0; b < 16; ++b)
+		{
+			const int pi = best_block * 16 + b;
+			if (dl_rep_idx_score[pi] > best_score ||
+			    (dl_rep_idx_score[pi] == best_score && dl_rep_idx_max[pi] > best_max))
+			{
+				best_score = dl_rep_idx_score[pi];
+				best_max = dl_rep_idx_max[pi];
+				best = pi;
+			}
+		}
+	}
+	else
+	{
+		int best_max = -1;
+		for (int pi = 0; pi < 256; ++pi)
+		{
+			if (dl_rep_idx_max[pi] > best_max)
+			{
+				best_max = dl_rep_idx_max[pi];
+				best = pi;
+			}
+		}
+	}
+	return (Uint8)best;
+}
+
+static int dl_rep_cached(const void *data, Uint32 key2)
+{
+	const Uint32 slot = ((Uint32)(uintptr_t)data ^ (key2 * 2654435761u)) & (DL_REP_CACHE - 1);
+	const DlRepCache *e = &dl_rep_cache[slot];
+	if (e->valid && e->key == data && e->key2 == key2)
+		return e->rep;
+	return -1;
+}
+
+static void dl_rep_store(const void *data, Uint32 key2, Uint8 rep)
+{
+	const Uint32 slot = ((Uint32)(uintptr_t)data ^ (key2 * 2654435761u)) & (DL_REP_CACHE - 1);
+	DlRepCache *e = &dl_rep_cache[slot];
+	e->valid = true;
+	e->key = data;
+	e->key2 = key2;
+	e->rep = rep;
+}
+
+// Representative index of a compressed Sprite2 (the shots, explosions, enemies
+// and pickups).  `filter` mirrors blit_sprite2_filter's `filter | (index & 0xf)`.
+static Uint8 dl_sprite2_rep(Sprite2_array sprite2s, unsigned int index, int variant, Uint8 filter)
+{
+	const bool filtered = (variant == DL_SPRITE2_FILTER || variant == DL_SPRITE2_FILTER_CLIP);
+	const Uint32 key2 = ((Uint32)index & 0xfffu) | ((Uint32)(variant & 0xf) << 12) |
+	                    ((Uint32)filter << 16);
+	const int cached = dl_rep_cached(sprite2s.data, key2);
+	if (cached >= 0)
+		return (Uint8)cached;
+
+	const SDL_Color *pal = get_active_palette();
+	dl_rep_reset();
+
+	const Uint8 *d = sprite2s.data + SDL_Swap16LE(((Uint16 *)sprite2s.data)[index - 1]);
+	for (; *d != 0x0f; ++d)
+	{
+		unsigned int count = (*d & 0xf0) >> 4;
+		while (count--)
+		{
+			++d;
+			const unsigned int pi = filtered ? (filter | (*d & 0x0f)) : *d;
+			dl_rep_accumulate(pal, pi);
+		}
+	}
+
+	const Uint8 rep = dl_rep_result();
+	dl_rep_store(sprite2s.data, key2, rep);
+	return rep;
+}
+
+// Representative index of a 1-bit sprite_table sprite (the option/special-shot
+// shapes), applying the hue/value transform of the hv variants so the scored
+// index is the one the blit actually writes.
+static Uint8 dl_sprite_rep(unsigned int table, unsigned int index, int variant, Uint8 hue, Sint8 value)
+{
+	if (index >= sprite_table[table].count || !sprite_exists(table, index))
+		return 0;
+
+	const Sprite *const cur = sprite(table, index);
+	const Uint32 key2 = ((Uint32)index & 0xfffu) | ((Uint32)(variant & 0xf) << 12) |
+	                    ((Uint32)(hue & 0xf) << 16) | (((Uint32)(Uint8)value) << 20);
+	const int cached = dl_rep_cached(cur->data, key2);
+	if (cached >= 0)
+		return (Uint8)cached;
+
+	const SDL_Color *pal = get_active_palette();
+	dl_rep_reset();
+
+	const Uint8 *d = cur->data;
+	const Uint8 *const end = d + cur->size;
+	for (; d < end; ++d)
+	{
+		if (*d == 255)
+		{
+			++d;  // skip the count byte
+			continue;
+		}
+		if (*d == 254 || *d == 253)
+			continue;
+
+		unsigned int pi = *d;
+		if (variant == DL_SPRITE_HV || variant == DL_SPRITE_HV_UNSAFE)
+		{
+			Uint8 tv = (Uint8)((pi & 0x0f) + value);
+			if (tv > 0xf)
+				tv = (tv >= 0x1f) ? 0x0 : 0xf;
+			pi = (Uint8)((hue << 4) | tv);
+		}
+		dl_rep_accumulate(pal, pi);
+	}
+
+	const Uint8 rep = dl_rep_result();
+	dl_rep_store(cur->data, key2, rep);
+	return rep;
+}
+
 void drawlist_tag_begin(void)
 {
 	// Tagging only exists for the Modern lighting pass; Classic, lighting off
@@ -324,6 +556,12 @@ void drawlist_tag_begin(void)
 
 	memset(dl_tag_game, DL_TAG_NONE, sizeof dl_tag_game);
 	memset(dl_tag_vga2, DL_TAG_NONE, sizeof dl_tag_vga2);
+	memset(dl_lcol_game, 0, sizeof dl_lcol_game);
+	memset(dl_lcol_vga2, 0, sizeof dl_lcol_vga2);
+
+	// The object-light colour is picked from the active palette, so the small
+	// per-sprite cache must not survive a palette change.
+	dl_rep_cache_clear();
 }
 
 void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag)
@@ -336,6 +574,12 @@ void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag)
 	Uint8 *buf = dl_tag_for_surface(surface);
 	if (buf != NULL)
 		buf[(size_t)y * DL_TAG_W + (size_t)x] = (Uint8)tag;
+
+	// A directly drawn pixel (a superpixel) carries no object colour of its
+	// own: clear any representative left by a sprite it was drawn over.
+	Uint8 *lcol = dl_lcol_for_surface(surface);
+	if (lcol != NULL)
+		lcol[(size_t)y * DL_TAG_W + (size_t)x] = 0;
 }
 
 const Uint8 *drawlist_tag_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h)
@@ -344,6 +588,21 @@ const Uint8 *drawlist_tag_for_surface(SDL_Surface *surface, int *out_pitch, int 
 		return NULL;
 
 	Uint8 *buf = dl_tag_for_surface(surface);
+	if (buf == NULL)
+		return NULL;
+
+	if (out_pitch != NULL) *out_pitch = DL_TAG_W;
+	if (out_w != NULL) *out_w = DL_TAG_W;
+	if (out_h != NULL) *out_h = DL_TAG_H;
+	return buf;
+}
+
+const Uint8 *drawlist_lightcol_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h)
+{
+	if (!dl_tag_active)
+		return NULL;
+
+	Uint8 *buf = dl_lcol_for_surface(surface);
 	if (buf == NULL)
 		return NULL;
 
@@ -371,9 +630,10 @@ static Uint8 dl_tag_value(void)
 // Stamps a compressed Sprite2 exactly the way blit_sprite2* walk it (12 px
 // wide rows, nibble run lengths, `pitch` row advance).  `clip` mirrors the
 // blit_sprite2_clip/filter_clip walk, which uses explicit x/y instead of a
-// running pointer.
-static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, unsigned int index,
-                           Uint8 tag, bool clip)
+// running pointer.  `lcol` receives the object's representative light index
+// (`rep`) wherever `buf` receives the tag.
+static void dl_tag_sprite2(Uint8 *buf, Uint8 *lcol, int x, int y, Sprite2_array sprite2s,
+                           unsigned int index, Uint8 tag, bool clip, Uint8 rep)
 {
 	const Uint8 *data = sprite2s.data + SDL_Swap16LE(((Uint16 *)sprite2s.data)[index - 1]);
 
@@ -397,11 +657,15 @@ static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, uns
 			else if (y >= 0)
 			{
 				Uint8 *row = buf + (size_t)y * DL_TAG_W;
+				Uint8 *lrow = lcol + (size_t)y * DL_TAG_W;
 				do
 				{
 					++data;
 					if (x >= 0 && x < DL_TAG_W)
+					{
 						row[x] = tag;
+						lrow[x] = rep;
+					}
 					x += 1;
 				} while (--fill);
 			}
@@ -419,17 +683,20 @@ static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, uns
 	// skip the writes exactly like the blit; an unsigned size_t offset would
 	// instead wrap and is undefined behaviour.
 	Uint8 *pixels = buf + (ptrdiff_t)y * DL_TAG_W + x;
+	Uint8 *lpixels = lcol + (ptrdiff_t)y * DL_TAG_W + x;
 	const Uint8 * const ll = buf;
 	const Uint8 * const ul = buf + (size_t)DL_TAG_W * DL_TAG_H;
 
 	for (; *data != 0x0f; ++data)
 	{
 		pixels += *data & 0x0f;
+		lpixels += *data & 0x0f;
 		unsigned int count = (*data & 0xf0) >> 4;
 
 		if (count == 0)
 		{
 			pixels += DL_TAG_W - 12;
+			lpixels += DL_TAG_W - 12;
 		}
 		else
 		{
@@ -440,9 +707,13 @@ static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, uns
 				if (pixels >= ul)
 					return;
 				if (pixels >= ll)
+				{
 					*pixels = tag;
+					*lpixels = rep;
+				}
 
 				++pixels;
+				++lpixels;
 			}
 		}
 	}
@@ -450,7 +721,8 @@ static void dl_tag_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s, uns
 
 // Stamps a 1-bit sprite_table sprite the way blit_sprite and its variants walk
 // it (explicit `width` rows with a transparent/row opcode stream).
-static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned int index, Uint8 tag)
+static void dl_tag_sprite(Uint8 *buf, Uint8 *lcol, int x, int y, unsigned int table,
+                          unsigned int index, Uint8 tag, Uint8 rep)
 {
 	if (index >= sprite_table[table].count || !sprite_exists(table, index))
 		return;
@@ -465,6 +737,7 @@ static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned
 	// See dl_tag_sprite2(): a signed offset keeps a negative start position
 	// (sprite clipped at the top/left) out of undefined pointer arithmetic.
 	Uint8 *pixels = buf + (ptrdiff_t)y * DL_TAG_W + x;
+	Uint8 *lpixels = lcol + (ptrdiff_t)y * DL_TAG_W + x;
 	const Uint8 * const ll = buf;
 	const Uint8 * const ul = buf + (size_t)DL_TAG_W * DL_TAG_H;
 
@@ -475,16 +748,19 @@ static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned
 		case 255:
 			data++;
 			pixels += *data;
+			lpixels += *data;
 			x_offset += *data;
 			break;
 
 		case 254:
 			pixels += width - x_offset;
+			lpixels += width - x_offset;
 			x_offset = width;
 			break;
 
 		case 253:
 			pixels++;
+			lpixels++;
 			x_offset++;
 			break;
 
@@ -492,9 +768,13 @@ static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned
 			if (pixels >= ul)
 				return;
 			if (pixels >= ll)
+			{
 				*pixels = tag;
+				*lpixels = rep;
+			}
 
 			pixels++;
+			lpixels++;
 			x_offset++;
 			break;
 		}
@@ -502,6 +782,7 @@ static void dl_tag_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned
 		if (x_offset >= width)
 		{
 			pixels += DL_TAG_W - x_offset;
+			lpixels += DL_TAG_W - x_offset;
 			x_offset = 0;
 		}
 	}
@@ -593,8 +874,11 @@ void drawlist_record_fill_full(SDL_Surface *surface)
 	if (dl_tag_active)
 	{
 		Uint8 *tagbuf = dl_tag_for_surface(surface);
+		Uint8 *lcolbuf = dl_lcol_for_surface(surface);
 		if (tagbuf != NULL)
 			memset(tagbuf, DL_TAG_NONE, (size_t)DL_TAG_W * DL_TAG_H);
+		if (lcolbuf != NULL)
+			memset(lcolbuf, 0, (size_t)DL_TAG_W * DL_TAG_H);
 	}
 
 	if (!dl_recording)
@@ -618,12 +902,17 @@ void drawlist_record_fill_rect(SDL_Surface *surface, int x, int y, int x2, int y
 	if (dl_tag_active)
 	{
 		Uint8 *tagbuf = dl_tag_for_surface(surface);
+		Uint8 *lcolbuf = dl_lcol_for_surface(surface);
 		if (tagbuf != NULL)
 		{
 			const int cx0 = MAX(0, MIN(x, x2)), cx1 = MIN(DL_TAG_W - 1, MAX(x, x2));
 			const int cy0 = MAX(0, MIN(y, y2)), cy1 = MIN(DL_TAG_H - 1, MAX(y, y2));
 			for (int ty = cy0; ty <= cy1; ++ty)
+			{
 				memset(tagbuf + (size_t)ty * DL_TAG_W + cx0, DL_TAG_NONE, (size_t)(cx1 - cx0 + 1));
+				if (lcolbuf != NULL)
+					memset(lcolbuf + (size_t)ty * DL_TAG_W + cx0, 0, (size_t)(cx1 - cx0 + 1));
+			}
 		}
 	}
 
@@ -707,8 +996,15 @@ void drawlist_record_blit_sprite(SDL_Surface *surface, int x, int y,
 	if (dl_tag_active)
 	{
 		Uint8 *tagbuf = dl_tag_for_surface(surface);
-		if (tagbuf != NULL)
-			dl_tag_sprite(tagbuf, x, y, table, index, dl_tag_value());
+		Uint8 *lcolbuf = dl_lcol_for_surface(surface);
+		if (tagbuf != NULL && lcolbuf != NULL)
+		{
+			const Uint8 tag = dl_tag_value();
+			const Uint8 rep = (tag != DL_TAG_NONE)
+				? dl_sprite_rep(table, index, variant, hue, value)
+				: 0;
+			dl_tag_sprite(tagbuf, lcolbuf, x, y, table, index, tag, rep);
+		}
 	}
 
 	if (!dl_recording)
@@ -737,10 +1033,15 @@ void drawlist_record_blit_sprite2(SDL_Surface *surface, int x, int y,
 	if (dl_tag_active)
 	{
 		Uint8 *tagbuf = dl_tag_for_surface(surface);
-		if (tagbuf != NULL)
+		Uint8 *lcolbuf = dl_lcol_for_surface(surface);
+		if (tagbuf != NULL && lcolbuf != NULL)
 		{
 			const bool clip = (variant == DL_SPRITE2_CLIP || variant == DL_SPRITE2_FILTER_CLIP);
-			dl_tag_sprite2(tagbuf, x, y, sheet, index, dl_tag_value(), clip);
+			const Uint8 tag = dl_tag_value();
+			const Uint8 rep = (tag != DL_TAG_NONE)
+				? dl_sprite2_rep(sheet, index, variant, filter)
+				: 0;
+			dl_tag_sprite2(tagbuf, lcolbuf, x, y, sheet, index, tag, clip, rep);
 		}
 	}
 
@@ -1201,6 +1502,8 @@ bool drawlist_render_interpolated(Uint32 alpha_fx16)
 	{
 		memset(dl_tag_scratch_game, DL_TAG_NONE, sizeof dl_tag_scratch_game);
 		memset(dl_tag_scratch_vga2, DL_TAG_NONE, sizeof dl_tag_scratch_vga2);
+		memset(dl_lcol_scratch_game, 0, sizeof dl_lcol_scratch_game);
+		memset(dl_lcol_scratch_vga2, 0, sizeof dl_lcol_scratch_vga2);
 	}
 
 	dl_match_build(prev);
