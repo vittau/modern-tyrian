@@ -51,6 +51,7 @@ jobs:
       - name: Full replay-check sweep
         env:
           REGRESS_SKIP_BUILD: "1"
+        # Case workers default to the runner CPU count.
         run: make regress-replay
       - name: Full interpolation-check sweep
         env:
@@ -85,6 +86,7 @@ jobs:
       - name: Full replay-check sweep
         env:
           REGRESS_SKIP_BUILD: "1"
+        # Case workers default to the runner CPU count.
         run: make regress-replay
       - name: Full interpolation-check sweep
         env:

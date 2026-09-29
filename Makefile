@@ -193,23 +193,23 @@ clean :
 
 .PHONY : regress
 regress :
-	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh
+	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh
 
 .PHONY : regress-replay
 regress-replay :
-	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --replay-check
+	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh --replay-check
 
 .PHONY : regress-interp
 regress-interp :
-	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --interp-check
+	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh --interp-check
 
 .PHONY : regress-smooth
 regress-smooth :
-	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --smoothness-check
+	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh --smoothness-check
 
 .PHONY : regress-parallax
 regress-parallax :
-	TYRIAN_DATA="$(TYRIAN_DATA)" tools/regress.sh --parallax-check
+	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh --parallax-check
 
 $(TARGET) : $(OBJS) $(RES)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)

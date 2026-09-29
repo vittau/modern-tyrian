@@ -110,6 +110,7 @@ jobs:
         # manually triggered "Regression (full sweeps)" workflow.
         env:
           REGRESS_SKIP_BUILD: "1"   # make_linux.sh already built ./opentyrian
+        # Case workers default to the runner CPU count (REGRESS_JOBS overrides it).
         run: make regress
       - name: Upload regression output on failure
         if: failure()

@@ -72,6 +72,7 @@ jobs:
         # manually triggered "Regression (full sweeps)" workflow.
         env:
           REGRESS_SKIP_BUILD: "1"   # built just above with the release flags
+        # Case workers default to the runner CPU count (REGRESS_JOBS overrides it).
         run: make regress
       - name: Upload regression output on failure
         if: failure()
