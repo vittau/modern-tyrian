@@ -119,6 +119,7 @@ const Options *JE_paramOptions(void)
 		{ 301, 0,   "regress-smooth-effects-check", false },
 		{ 311, 0,   "regress-front-weapon", true },
 		{ 312, 0,   "regress-front-power",  true },
+		{ 350, 0,   "regress-loadout",  true },
 		
 		{ 305, 0,   "deadzone",          true },
 		
@@ -187,12 +188,16 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-snapshot=F:FILE    Save the presented image of frame F to FILE (BMP)");
 			logInfo("                               (repeatable; the Modern canvas with --regress-modern)");
 			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
+			logInfo("  --regress-loadout=widest     Equip the items with the widest names (HUD fit check)");
 			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
 			logInfo("  --regress-screen=NAME        Render one non-gameplay screen headless and exit");
-			logInfo("                               (title, episode-select, high-scores, game-menu, upgrade,");
-			logInfo("                               purchase, shield, options, cube-list, cube-reader, keyboard,");
+			logInfo("                               (title, episode-select, gameplay-select, high-scores,");
+			logInfo("                               game-menu, upgrade, purchase, shield, options,");
+			logInfo("                               options-limited, mouse, cube-list, cube-reader, keyboard,");
 			logInfo("                               joystick, load-save, solid, setup, nav-map, ship-specs,");
-			logInfo("                               jukebox, weapon-sim, credits)");
+			logInfo("                               jukebox, weapon-sim, credits); NAME:key=value,... sets");
+			logInfo("                               fixtures (ship, shipgraphic, front, rear, twomode, mode,");
+			logInfo("                               sel, cat, page)");
 			logInfo("  --regress-replay-check       Record each level frame's draw list and replay it (proof)");
 			logInfo("  --regress-interp-check       Render each level frame interpolated at alpha=1 and");
 			logInfo("                               compare it byte for byte with the real frame (proof)");
@@ -680,6 +685,15 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_front_power = power_level;
 			break;
 		}
+
+		case 350: // --regress-loadout=widest
+			if (strcmp(option.arg, "widest") != 0)
+			{
+				logError("%s: --regress-loadout must be widest", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_loadout_widest = 1;
+			break;
 
 		case 299: // --regress-menu=ingame|pause|help
 			if (strcmp(option.arg, "ingame") == 0)

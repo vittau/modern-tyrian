@@ -30,6 +30,7 @@
 #include "fonthand.h"
 #include "helptext.h"
 #include "joystick.h"
+#include "high_scores.h"
 #include "keyboard.h"
 #include "lds_play.h"
 #include "logging.h"
@@ -38,6 +39,7 @@
 #include "modern.h"
 #include "modern_hud.h"
 #include "mouse.h"
+#include "mouse_buttons.h"
 #include "mtrand.h"
 #include "musmast.h"
 #include "network.h"
@@ -1078,18 +1080,27 @@ void JE_sortHighScores(void)
 		JE_sort();
 		temp += 3;
 	}
+
+	highScoresSortSuffix();
 }
 
 void JE_highScoreScreen(void)
+{
+	JE_highScoreScreenAt(0);
+}
+
+// The screen opened on page `first_page` (the regression harness picks one).
+void JE_highScoreScreenAt(size_t first_page)
 {
 	if (shopSpriteSheet.data == NULL)
 		JE_loadCompShapes(&shopSpriteSheet, '1');  // need mouse pointer and arrow sprites
 
 	bool restart = true;
 
-	size_t episodeIndex = 0;
-	// Save file only has space for scores for 3 episodes.
-	const size_t episodeCount = 3;
+	size_t episodeIndex = first_page < highScorePageCount() ? first_page : 0;
+	// One page per episode that the variant's save has boards for (3 in 2.1's
+	// save, 5 in 2000's).
+	const size_t episodeCount = highScorePageCount();
 
 	const int xCenter = 320 / 2;
 	const int yMenuHeader = 3;
@@ -1130,12 +1141,12 @@ void JE_highScoreScreen(void)
 		{
 			const int y = 75 + 10 * i;
 
-			const JE_SaveFileType *const saveFile = &saveFiles[episodeIndex * 6 + i];
-			const int rank = MIN(saveFile->highScoreDiff, COUNTOF(difficultyNameB) - 1);
+			const HighScoreRow row = highScoreRow(episodeIndex, false, i);
+			const int rank = MIN(row.difficulty, COUNTOF(difficultyNameB) - 1);
 
-			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, saveFile->highScore1);
+			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, row.score);
 			JE_textShade(VGAScreen, 20, y, buffer, 15, 0, FULL_SHADE);
-			JE_textShade(VGAScreen, 110, y, saveFile->highScoreName, 15, 2, FULL_SHADE);
+			JE_textShade(VGAScreen, 110, y, row.name, 15, 2, FULL_SHADE);
 			JE_textShade(VGAScreen, 250, y, difficultyNameB[rank], 15, rank + (rank == 0 ? 0 : -1), FULL_SHADE);
 		}
 
@@ -1147,12 +1158,12 @@ void JE_highScoreScreen(void)
 		{
 			const int y = 135 + 10 * i;
 
-			const JE_SaveFileType *const saveFile = &saveFiles[episodeIndex * 6 + 3 + i];
-			const int rank = MIN(saveFile->highScoreDiff, COUNTOF(difficultyNameB) - 1);
+			const HighScoreRow row = highScoreRow(episodeIndex, true, i);
+			const int rank = MIN(row.difficulty, COUNTOF(difficultyNameB) - 1);
 
-			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, saveFile->highScore1);
+			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, row.score);
 			JE_textShade(VGAScreen, 20, y, buffer, 15, 0, FULL_SHADE);
-			JE_textShade(VGAScreen, 110, y, saveFile->highScoreName, 15, 2, FULL_SHADE);
+			JE_textShade(VGAScreen, 110, y, row.name, 15, 2, FULL_SHADE);
 			JE_textShade(VGAScreen, 250, y, difficultyNameB[rank], 15, rank + (rank == 0 ? 0 : -1), FULL_SHADE);
 		}
 
@@ -3637,9 +3648,7 @@ redo:
 				/* mouse input */
 				if ((inputDevice == 0 || inputDevice == 2) && has_mouse)
 				{
-					button[0] |= (mouseButtonsDown & SDL_BUTTON_LMASK) != 0;
-					button[1] |= (mouseButtonsDown & SDL_BUTTON_RMASK) != 0;
-					button[2] |= (mouseButtonsDown & (mouse_has_three_buttons ? SDL_BUTTON_MMASK : SDL_BUTTON_RMASK)) != 0;
+					mouse_buttons_to_player(mouseButtonsDown, button);
 
 					Sint32 mouseXR;
 					Sint32 mouseYR;

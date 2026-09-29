@@ -99,6 +99,7 @@ typedef enum
 	GAME_LABEL_PLAYER_1,
 	GAME_LABEL_PLAYER_2,
 	GAME_LABEL_TIMER,
+	GAME_LABEL_REAR_MODE_HINT,  // Tyrian 2000 preview hint
 	GAME_LABEL_COUNT
 } GameLabel;
 
@@ -107,10 +108,72 @@ typedef enum
 {
 	GAMEPLAY_FULL_GAME,
 	GAMEPLAY_ARCADE,
-	GAMEPLAY_TIMED_BATTLE,  // Tyrian 2000 only; the mode itself is Phase 3b
+	GAMEPLAY_TIMED_BATTLE,  // Tyrian 2000 only; the mode itself is Phase 4
 	GAMEPLAY_ARCADE_2P,
 	GAMEPLAY_NETWORK
 } GameplayChoice;
+
+// Menu topology.  The item screen (game_menu.c) is one state machine for every
+// variant; what differs is how many rows each menu has and where each row of the
+// options menus sits.  Rows are the menu's selection numbers: the first entry is
+// row 2 (row 1 is the title), the same numbering as curSel[] and the help rows.
+typedef struct GameOptionsRows
+{
+	uint8_t load, save;        // 0: the menu has no such row
+	uint8_t joystick, keyboard, mouse;
+	uint8_t music, sound;      // volume rows; their bars sit at y = 6 + 16 * row
+	uint8_t done;              // the last row, back to the previous menu
+} GameOptionsRows;
+
+// Number of help-line rows per menu (see menuHelp in the fork: one help string
+// number per entry, 0 for none).
+#define GAME_MENU_HELP_ROWS 11
+#define GAME_MENU_COUNT 15
+
+typedef struct GameUiTables
+{
+	// Rows per menu (the loaders' string counts: title plus entries), the menu
+	// that Esc goes back to (1-based, 0: quit request) and the height in pixels
+	// of one mouse-selection row.
+	uint8_t menu_choices[GAME_MENU_COUNT];
+	uint8_t menu_esc[GAME_MENU_COUNT];
+	uint8_t mouse_row_height[GAME_MENU_COUNT];
+
+	// One help string number (mainMenuHelp, 1-based) per row of the simple menus.
+	uint8_t menu_help[GAME_MENU_COUNT][GAME_MENU_HELP_ROWS];
+
+	// Where the options menus keep their rows: the full options menu and the
+	// limited one (no save/load) that network games use.
+	GameOptionsRows options, limited_options;
+	uint8_t mouse_menu;              // 1: the options menus lead to a mouse settings menu
+	// What the left, right and middle mouse buttons do until the player changes
+	// them (MouseAction values).  Tyrian 2.1 keeps its historical mapping.
+	uint8_t default_mouse_actions[3];
+
+	// Front "None" may be given power in the upgrade screen (Tyrian 2000).  The
+	// rear port is never upgradeable without a weapon in either variant.
+	bool front_none_takes_power;
+
+	// The weapon preview shows the rear weapon mode as two lights beside it, and
+	// alternates its power line with a mode hint for weapons that have two modes
+	// (Tyrian 2000).  Purely presentation: 2.1 keeps its screens.
+	bool rear_mode_preview;
+
+	// The title screen's extra mark (a planet-shape sprite, 0 for none).  It
+	// starts at (x, y_start) under the logo at y 62; while the logo rises by 2 per
+	// step from y 60 the mark sinks by 1 per step from y_60 to its resting place.
+	uint16_t title_mark_sprite;
+	int16_t title_mark_x, title_mark_y_start, title_mark_y_60;
+
+	// Episode rows share these positions with their mouse hit boxes.
+	uint8_t episode_row_y, episode_row_step;
+} GameUiTables;
+
+// The mark's y for a logo at logo_y (62 is the frame before the logo rises).
+static inline int gameTitleMarkY(const GameUiTables *ui, int logo_y)
+{
+	return logo_y >= 62 ? ui->title_mark_y_start : ui->title_mark_y_60 + (60 - logo_y) / 2;
+}
 
 // Sections of tyrian.hdt: encrypted Pascal strings, each section is a marker
 // record, its strings and a marker record.  Counts are the serialised counts.
@@ -142,6 +205,9 @@ typedef struct GameStringSchema
 
 	// Semantic label -> misc text index (zero based).
 	uint16_t label_misc_text[GAME_LABEL_COUNT];
+
+	// Menu topology and screen policy of the variant.
+	const GameUiTables *ui;
 } GameStringSchema;
 
 extern const GameDataSchema gameDataSchema21, gameDataSchema2000;
@@ -150,6 +216,7 @@ extern const GameStringSchema gameStringSchema21, gameStringSchema2000;
 // The schemas of the selected variant.
 const GameDataSchema *gameSchema(void);
 const GameStringSchema *gameStrings(void);
+const GameUiTables *gameUi(void);
 
 // Sound IDs are 1-based slots in soundSamples[].  Effects come first, so the
 // voices (index 0..8, the order of voices.snd) shift with the effect count.

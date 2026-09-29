@@ -3342,6 +3342,15 @@ void networkStartScreen(void)
 }
 #endif /* WITH_NETWORK */
 
+// The variant's mark under the title logo (Tyrian 2000: the "2000"), which sinks
+// as the logo rises.  logo_y is the logo's current y.
+static void draw_title_mark(int logo_y)
+{
+	const GameUiTables *ui = gameUi();
+	if (ui->title_mark_sprite != 0)
+		blit_sprite(VGAScreenSeg, ui->title_mark_x, gameTitleMarkY(ui, logo_y), PLANET_SHAPES, ui->title_mark_sprite);
+}
+
 bool titleScreen(void)
 {
 	enum MenuItemIndex
@@ -3387,6 +3396,7 @@ bool titleScreen(void)
 				memcpy(VGAScreen2->pixels, VGAScreen->pixels, VGAScreen2->pitch * VGAScreen2->h);
 
 				blit_sprite(VGAScreenSeg, 11, 62, PLANET_SHAPES, 146); // tyrian logo
+				draw_title_mark(62);
 
 				fade_palette(colors, 10, 0, 255 - 16);
 
@@ -3397,6 +3407,7 @@ bool titleScreen(void)
 					memcpy(VGAScreen->pixels, VGAScreen2->pixels, VGAScreen->pitch * VGAScreen->h);
 
 					blit_sprite(VGAScreenSeg, 11, y, PLANET_SHAPES, 146); // tyrian logo
+					draw_title_mark(y);
 
 					JE_showVGA();
 
@@ -3408,6 +3419,7 @@ bool titleScreen(void)
 			else
 			{
 				blit_sprite(VGAScreenSeg, 11, 4, PLANET_SHAPES, 146); // tyrian logo
+				draw_title_mark(4);
 
 				fade_palette(colors, 10, 0, 255 - 16);
 			}

@@ -80,7 +80,7 @@ bool gameplaySelect(void)
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
-			// Network play and, until Phase 3b, Timed Battle are not selectable.
+			// Network play and, until Phase 4, Timed Battle are not selectable.
 			const bool disabled = strings->gameplay_choices[i] == GAMEPLAY_NETWORK ||
 			                      strings->gameplay_choices[i] == GAMEPLAY_TIMED_BATTLE;
 
@@ -205,7 +205,7 @@ bool gameplaySelect(void)
 				twoPlayerMode = choice == GAMEPLAY_ARCADE_2P;
 				return true;
 			}
-			case GAMEPLAY_TIMED_BATTLE:  // Phase 3b: Timed Battle selection and rules
+			case GAMEPLAY_TIMED_BATTLE:  // Phase 4: Timed Battle selection and rules
 			case GAMEPLAY_NETWORK:
 			{
 				JE_playSampleNum(S_SPRING);
@@ -236,8 +236,8 @@ bool episodeSelect(void)
 	const int xCenter = 320 / 2;
 	const int yMenuHeader = 20;
 	const int xMenuItem = 20;
-	const int yMenuItems = 50;
-	const int dyMenuItems = 30;
+	const int yMenuItems = gameUi()->episode_row_y;
+	const int dyMenuItems = gameUi()->episode_row_step;
 	const int hMenuItem = 13;
 	int wMenuItem[EPISODE_MAX] = { 0 };
 

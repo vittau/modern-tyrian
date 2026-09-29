@@ -30,6 +30,7 @@
 #include "memwriter.h"
 #include "modern.h"
 #include "modern_bloom.h"
+#include "mouse_buttons.h"
 #include "mtrand.h"
 #include "nortsong.h"
 #include "opentyr.h"
@@ -407,6 +408,18 @@ static void loadOpenTyrianConfig(void)
 			}
 		}
 	}
+
+	// Mouse buttons (chosen in the Tyrian 2000 options menu).
+	section = config_find_section(config, "mouse", NULL);
+	if (section != NULL)
+	{
+		for (unsigned int i = 0; i < MOUSE_BUTTON_COUNT; ++i)
+		{
+			const char *actionName;
+			if (config_get_string_option(section, mouse_button_config_key(i), &actionName))
+				mouse_button_action_set_by_name(i, actionName);
+		}
+	}
 }
 
 static void saveOpenTyrianConfig(void)
@@ -445,6 +458,21 @@ static void saveOpenTyrianConfig(void)
 		if (keyName[0] == '\0')
 			keyName = NULL;
 		config_set_string_option(section, keySettingNames[i], keyName);
+	}
+
+	// Only what the player chose in the mouse menu is written, so a session that
+	// never uses it writes the same file as before.
+	for (unsigned int i = 0; i < MOUSE_BUTTON_COUNT; ++i)
+	{
+		const int action = mouse_button_config_action(i);
+		if (action < 0)
+			continue;
+
+		section = config_find_or_add_section(config, "mouse", NULL);
+		if (section == NULL)
+			exit(EXIT_FAILURE);  // out of memory
+
+		config_set_string_option(section, mouse_button_config_key(i), mouse_action_config_name((MouseAction)action));
 	}
 
 	File file = userFileOpen(opentyrianConfigFilename, "w");

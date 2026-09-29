@@ -41,6 +41,7 @@ extern bool pause_pressed, ingamemenu_pressed;
 void JE_drawTextWindow(const char *text);
 void JE_initPlayerData(void);
 void JE_highScoreScreen(void);
+void JE_highScoreScreenAt(size_t first_page);
 void JE_gammaCorrect_func(JE_byte *col, JE_real r);
 void JE_gammaCorrect(Palette *colorBuffer, JE_byte gamma);
 JE_boolean JE_gammaCheck(void);

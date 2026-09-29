@@ -89,6 +89,12 @@ extern int regress_reverse_y;             // non-zero = force the reverse-contro
 extern int regress_front_weapon;          // -1 = not overridden
 extern int regress_front_power;           // -1 = not overridden
 
+// --regress-loadout=widest: give the players the items with the widest names of
+// the variant's data (the two widest ports and sidekicks, the widest generator),
+// so a HUD run shows the longest names it can meet.  The choice is computed from
+// the data, so no text of it is kept anywhere.
+extern int regress_loadout_widest;
+
 // Applies the --regress-front-weapon/--regress-front-power overrides to player
 // 1's item set.  Called after JE_initPlayerData() on the --regress-script path;
 // a no-op when neither override was requested.
@@ -144,6 +150,7 @@ bool regress_screen_active(void);
 // Renders the requested screen and exits once the frame cap (--regress-frames,
 // default REGRESS_SCREEN_FRAMES) is reached.  Never returns.
 void regress_screen_run(void);
+void regress_screen_verify_mapping(void);
 
 // Resets the presented-frame counter to 0 (the screen run starts its own
 // frame timeline so setup frames do not eat into --regress-frames).

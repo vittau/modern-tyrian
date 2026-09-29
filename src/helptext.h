@@ -29,7 +29,6 @@
 
 #define DESTRUCT_MODES 5
 
-extern const JE_byte menuHelp[MENU_MAX][11];   /* [1..14, 1..11] */
 
 // Capacities: the largest of the Tyrian 2.1 and Tyrian 2000 sections.  How many
 // strings are read from tyrian.hdt is the selected GameStringSchema's business.
