@@ -388,6 +388,8 @@ To meet the approved **private cache** intent on a public repo, cache an **authe
 
 Failure uploads must contain only logs, hashes, coverage summaries and code-owned fixture diagnostics. Exclude verified zip/extracted files, screenshots, audio PCM, save dumps containing original default names, and core dumps that could contain asset bytes. Release jobs stage only the existing approved 2.1 data; installer constants/manifest/hash text may ship, but no 2000 payload. Inspect actual archive contents before publishing, not merely `.gitignore`. Use provenance-aware denylist checking as above for shared hashes.
 
+**Implemented (Phase 5 CI, user decision: no cache).** `tools/fetch_t2000_data.sh DEST` downloads the archive in every run and applies the checks above; the encrypted-cache proposal is not used and no Actions cache is involved. The Linux, macOS and Windows workflows fetch into `$RUNNER_TEMP/tyrian2000` after the 2.1 suite, in the same job (so they reuse its binary), run `make regress-2000`, and on failure upload only `test/regress-2000/actual/*.txt` and `*.log`. A failed fetch fails the job. Release events skip both steps and package only `./data`.
+
 ## Review gates and remaining uncertainties
 
 1. Phase 2: 2.1-only abstraction, namespace migration and early parse; GCC-16 warnings-as-errors and all 164 unchanged baselines. No 2000 code becomes “supported” merely by removing the startup guard.
