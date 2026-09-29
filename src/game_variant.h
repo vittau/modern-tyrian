@@ -1,4 +1,4 @@
-/* 
+/*
  * OpenTyrian: A modern cross-platform port of Tyrian
  * Copyright (C) The OpenTyrian Development Team
  *
@@ -16,17 +16,40 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-#ifndef PARAMS_H
-#define PARAMS_H
+#ifndef GAME_VARIANT_H
+#define GAME_VARIANT_H
 
-#include "opentyr.h"
-#include "arg_parse.h"
+#include <stdbool.h>
+#include <stdint.h>
 
-extern JE_boolean richMode, constantPlay, constantDie;
+typedef enum
+{
+	VARIANT_TYRIAN21,
+	VARIANT_TYRIAN2000
+} GameVariant;
 
-enum { PARAM_VARIANT = 313 };
+typedef struct
+{
+	GameVariant id;
+	const char *cli_name;
+	const char *display_name;
+	const char *log_label;
+	const char *save_namespace;
+	uint8_t episode_count, demo_count;
+	// Schema, UI and rule tables arrive in Phase 3.
+} GameVariantDef;
 
-const Options *JE_paramOptions(void);
-void JE_paramCheck(int argc, char *argv[]);
+typedef enum
+{
+	GAME_VARIANT_OK,
+	GAME_VARIANT_UNAVAILABLE,
+	GAME_VARIANT_INVALID
+} GameVariantStatus;
 
-#endif /* PARAMS_H */
+const GameVariantDef *gameVariantGet(GameVariant variant);
+const GameVariantDef *gameVariantCurrent(void);
+bool gameVariantParse(const char *name, GameVariant *out);
+// Select only before initialization or after full session teardown.
+GameVariantStatus gameVariantSelect(GameVariant variant);
+
+#endif // GAME_VARIANT_H

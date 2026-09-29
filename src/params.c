@@ -48,9 +48,9 @@ const char pars[][9] = {
 	"LOOT", "RECORD", "NOJOY", "CONSTANT", "DEATH", "NOSOUND", "NOXMAS", "YESXMAS"
 };
 
-void JE_paramCheck(int argc, char *argv[])
+const Options *JE_paramOptions(void)
 {
-	const Options options[] =
+	static const Options options[] =
 	{
 		{ 'h', 'h', "help",              false },
 		
@@ -59,6 +59,7 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 'x', 'x', "no-xmas",           false },
 		
 		{ 't', 't', "data",              true },
+		{ PARAM_VARIANT, 0, "variant",    true },
 		
 		{ 'n', 'n', "net",               true },
 		{ 256, 0,   "net-player-name",   true }, // TODO: no short codes because there should
@@ -125,6 +126,12 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 0, 0, NULL, false }
 	};
 	
+	return options;
+}
+
+void JE_paramCheck(int argc, char *argv[])
+{
+	const Options *options = JE_paramOptions();
 	Option option;
 	
 	for (; ; )
@@ -163,6 +170,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --pixel-aspect=SHAPE         Classic pixel aspect: original (1.2) or square");
 			logInfo("  --bloom=LEVEL                Modern bloom override: off, low or high");
 			logInfo("  --lighting=LEVEL             Modern bloom + lighting: off, low or high (default low)");
+			logInfo("  --variant=2.1|2000           Select variant for automation/testing (2000 unavailable)");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
@@ -243,9 +251,10 @@ void JE_paramCheck(int argc, char *argv[])
 			xmas = false;
 			break;
 			
-		// set custom Tyrian data directory
+		// Bootstrap owns the data directory and variant selection.
 		case 't':
-			customDataDirPath = option.arg;
+			// Already selected by gameBootstrapParse(), before user files.
+		case PARAM_VARIANT:
 			break;
 			
 		case 'n':
