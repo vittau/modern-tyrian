@@ -21,6 +21,8 @@
 #include "backgrnd.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_schema.h"
+#include "helptext.h"
 #include "interp.h"
 #include "logging.h"
 #include "loudness.h"
@@ -38,6 +40,15 @@
 
 #define SAVE_FILES_SIZE (109 * SAVE_FILES_NUM)
 #define SAVE_FILE_SIZE (SAVE_FILES_SIZE + 100)
+
+// Bytes of one high-score entry of the Tyrian 2000 save suffix.
+#define VARIANT_SCORE_TIMED_SIZE (4 + 1 + VARIANT_SCORE_NAME_MAX + 1)
+#define VARIANT_SCORE_MAIN_SIZE  (4 + 4 + 1 + VARIANT_SCORE_NAME_MAX + 1)
+#define VARIANT_SCORE_SUFFIX_MAX \
+	(VARIANT_SCORE_TIMED_BOARDS * VARIANT_SCORE_ENTRIES * VARIANT_SCORE_TIMED_SIZE + \
+	 (VARIANT_SCORE_BOARDS - VARIANT_SCORE_TIMED_BOARDS) * VARIANT_SCORE_ENTRIES * VARIANT_SCORE_MAIN_SIZE)
+// The unknown field of a fresh main-game entry (the original's own placeholder).
+#define VARIANT_SCORE_UNKNOWN_DEFAULT 0x12345678u
 
 /* Configuration Load/Save handler */
 
@@ -226,6 +237,7 @@ JE_byte    gameSpeed;
 JE_byte    processorType;        /* effective level: 1=386 2=486 3=High 4=Pentium 5=Nonstandard VGA 6=SuperWild */
 JE_byte    processorTypeChoice;  /* the player's stored choice (tyrian.cfg); Classic renders at it, Modern pins 4 (or 6) */
 
+VariantHighScore variantHighScores[VARIANT_SCORE_BOARDS][VARIANT_SCORE_ENTRIES];
 JE_SaveFilesType saveFiles; /*array[1..saveLevelnum] of savefiletype;*/
 
 JE_EditorItemAvailType editorItemAvail;
@@ -885,9 +897,80 @@ static const char *const tyrianSaveFilename = "tyrian.sav";
 
 static bool decryptSaveData(Uint8 *data);
 
+// Bytes of the unencrypted score boards after the encrypted prefix: none in
+// Tyrian 2.1, 2,220 in Tyrian 2000.
+static size_t saveSuffixSize(void)
+{
+	const GameDataSchema *schema = gameSchema();
+	return (size_t)schema->save_suffix_boards_per *
+	       ((size_t)schema->save_suffix_timed_boards * VARIANT_SCORE_TIMED_SIZE +
+	        (size_t)schema->save_suffix_main_boards * VARIANT_SCORE_MAIN_SIZE);
+}
+
+// Parses the score boards of the save suffix.  Names longer than the field are
+// clamped, and a difficulty that no board can hold makes the suffix invalid.
+static bool readSaveSuffix(MemReader *reader)
+{
+	const GameDataSchema *schema = gameSchema();
+	bool valid = true;
+
+	for (size_t board = 0; board < (size_t)schema->save_suffix_timed_boards + schema->save_suffix_main_boards; ++board)
+	{
+		const bool timed = board < schema->save_suffix_timed_boards;
+
+		for (size_t entry = 0; entry < schema->save_suffix_boards_per; ++entry)
+		{
+			VariantHighScore *score = &variantHighScores[board][entry];
+
+			score->score = memReadS32(reader);
+			score->unknown = timed ? 0 : memReadU32(reader);
+			Uint8 nameLen = memReadU8(reader);
+			memset(score->playerName, 0, sizeof score->playerName);
+			memReadCharArray(reader, score->playerName, VARIANT_SCORE_NAME_MAX);
+			if (nameLen > VARIANT_SCORE_NAME_MAX)
+			{
+				logWarn("Score board %u entry %u: name length %u is out of range; clamped.",
+				        (unsigned)board, (unsigned)entry, (unsigned)nameLen);
+				nameLen = VARIANT_SCORE_NAME_MAX;
+			}
+			score->playerName[nameLen] = '\0';
+			score->difficulty = memReadU8(reader);
+			if (score->difficulty > DIFFICULTY_10)
+				valid = false;
+		}
+	}
+
+	return valid && !reader->error && reader->size == 0;
+}
+
+static void writeSaveSuffix(MemWriter *writer)
+{
+	const GameDataSchema *schema = gameSchema();
+
+	for (size_t board = 0; board < (size_t)schema->save_suffix_timed_boards + schema->save_suffix_main_boards; ++board)
+	{
+		const bool timed = board < schema->save_suffix_timed_boards;
+
+		for (size_t entry = 0; entry < schema->save_suffix_boards_per; ++entry)
+		{
+			const VariantHighScore *score = &variantHighScores[board][entry];
+
+			memWriteS32(writer, score->score);
+			if (!timed)
+				memWriteU32(writer, score->unknown);
+			memWriteU8(writer, strlen(score->playerName));
+			memWriteCharArray(writer, score->playerName, VARIANT_SCORE_NAME_MAX);
+			memWriteU8(writer, score->difficulty);
+		}
+	}
+}
+
 void loadSaves(void)
 {
 	bool invalid = false;
+
+	const size_t prefixSize = SAVE_FILE_SIZE + 4;
+	const size_t suffixSize = saveSuffixSize();
 
 	File file = userFileOpenKind(USER_FILE_VARIANT_SAVE, tyrianSaveFilename, "rb");
 	if (file.error)
@@ -898,20 +981,32 @@ void loadSaves(void)
 	}
 	else
 	{
-		Uint8 data[SAVE_FILE_SIZE + 4];
-		fileReadExactly(&file, data, sizeof data);
+		Uint8 data[SAVE_FILE_SIZE + 4 + VARIANT_SCORE_SUFFIX_MAX];
 
-		invalid |= file.error;
+		// A variant with a score suffix requires the exact total length; the
+		// suffix is not covered by the prefix's integrity bytes.
+		if (suffixSize != 0 && (size_t)fileGetLength(&file) != prefixSize + suffixSize)
+		{
+			logError("'%s' must be %u bytes.", tyrianSaveFilename, (unsigned)(prefixSize + suffixSize));
+			invalid = true;
+		}
+		else
+		{
+			fileReadExactly(&file, data, prefixSize + suffixSize);
 
-		if (file.error)
-			logError("Failed to read from '%s': %s", tyrianSaveFilename, fileGetError(&file));
+			invalid |= file.error;
+
+			if (file.error)
+				logError("Failed to read from '%s': %s", tyrianSaveFilename, fileGetError(&file));
+		}
 
 		fileClose(&file);
 
-		invalid |= !decryptSaveData(data);
+		invalid |= !invalid && !decryptSaveData(data);
 
-		MemReader reader = { data, sizeof data, false };
+		MemReader reader = { data, prefixSize, false };
 
+		if (!invalid)
 		for (size_t i = 0; i < COUNTOF(saveFiles); ++i)
 		{
 			saveFiles[i].encode            = memReadU16(&reader);
@@ -942,17 +1037,42 @@ void loadSaves(void)
 			saveFiles[i].highScoreDiff     = memReadU8(&reader);
 		}
 
-		memReadU8Array(&reader, editorItemAvail, COUNTOF(editorItemAvail));
+		if (!invalid)
+		{
+			memReadU8Array(&reader, editorItemAvail, COUNTOF(editorItemAvail));
 
-		editorLevel = ((Uint16)editorItemAvail[98] << 8) | editorItemAvail[99];
+			editorLevel = ((Uint16)editorItemAvail[98] << 8) | editorItemAvail[99];
 
-		assert(reader.size == 4 || reader.error);
-		invalid |= reader.error;
+			assert(reader.size == 4 || reader.error);
+			invalid |= reader.error;
+		}
+
+		if (!invalid && suffixSize != 0)
+		{
+			MemReader suffixReader = { data + prefixSize, suffixSize, false };
+			invalid |= !readSaveSuffix(&suffixReader);
+		}
 	}
 
 	if (invalid)
 	{
 		logWarn("'%s' is invalid or missing.", tyrianSaveFilename);
+
+		// The default high-score names of some variants are data: they must be
+		// loaded before any default score is generated.
+		const GameStringSchema *strings = gameStrings();
+		if (strings->default_names_from_data)
+			helpTextEnsureLoaded();
+
+		// (The casts only add const to the row type of the mutable HDT arrays.)
+		const char (*highScoreNames)[23] = strings->default_names_from_data
+			? (const char (*)[23])hdtHighScoreNames : defaultHighScoreNames;
+		const size_t highScoreNameCount = strings->default_names_from_data
+			? strings->high_score_names : COUNTOF(defaultHighScoreNames);
+		const char (*teamNames)[25] = strings->default_names_from_data
+			? (const char (*)[25])hdtTeamNames : defaultTeamNames;
+		const size_t teamNameCount = strings->default_names_from_data
+			? strings->team_names : COUNTOF(defaultTeamNames);
 
 		memset(saveFiles, 0, sizeof(saveFiles));
 
@@ -968,14 +1088,44 @@ void loadSaves(void)
 			if (i % 6 < 3)
 			{
 				saveFiles[i].highScore2 = 0;
-				strcpy(saveFiles[i].highScoreName, defaultHighScoreNames[mt_rand() % COUNTOF(defaultHighScoreNames)]);
+				strcpy(saveFiles[i].highScoreName, highScoreNames[mt_rand() % highScoreNameCount]);
 			}
 			else
 			{
 				saveFiles[i].highScore2 = ((mt_rand() % 20) + 1) * 1000;
-				strcpy(saveFiles[i].highScoreName, defaultTeamNames[mt_rand() % COUNTOF(defaultTeamNames)]);
+				strcpy(saveFiles[i].highScoreName, teamNames[mt_rand() % teamNameCount]);
 			}
 			saveFiles[i].highScoreDiff = 0;
+		}
+
+		// Score boards of the save suffix (variants that have one).  Every field
+		// not drawn here, including the difficulty, starts at zero: no RNG draw
+		// is added for them.
+		const GameDataSchema *schema = gameSchema();
+		memset(variantHighScores, 0, sizeof variantHighScores);
+		for (size_t board = 0; board < (size_t)schema->save_suffix_timed_boards + schema->save_suffix_main_boards; ++board)
+		{
+			const bool timed = board < schema->save_suffix_timed_boards;
+
+			for (size_t entry = 0; entry < schema->save_suffix_boards_per; ++entry)
+			{
+				VariantHighScore *score = &variantHighScores[board][entry];
+
+				if (timed)
+				{
+					score->score = ((mt_rand() % 50) + 1) * 100;
+					strcpy(score->playerName, highScoreNames[mt_rand() % highScoreNameCount]);
+				}
+				else
+				{
+					score->score = ((mt_rand() % 20) + 1) * 1000;
+					score->unknown = VARIANT_SCORE_UNKNOWN_DEFAULT;
+					if (board & 1)
+						strcpy(score->playerName, teamNames[mt_rand() % teamNameCount]);
+					else
+						strcpy(score->playerName, highScoreNames[mt_rand() % highScoreNameCount]);
+				}
+			}
 		}
 
 		memcpy(editorItemAvail, initialEditorItemAvail, sizeof(editorItemAvail));
@@ -991,9 +1141,10 @@ void saveSaves(void)
 	if (!userSavesWritable())
 		return;
 
-	Uint8 data[SAVE_FILE_SIZE + 4];
+	const size_t suffixSize = saveSuffixSize();
+	Uint8 data[SAVE_FILE_SIZE + 4 + VARIANT_SCORE_SUFFIX_MAX];
 
-	MemWriter writer = { data, sizeof data, false };
+	MemWriter writer = { data, SAVE_FILE_SIZE + 4, false };
 
 	for (size_t i = 0; i < COUNTOF(saveFiles); ++i)
 	{
@@ -1031,6 +1182,14 @@ void saveSaves(void)
 
 	encryptSaveData(data);
 
+	// The score boards follow the encrypted prefix unencrypted.
+	if (suffixSize != 0)
+	{
+		MemWriter suffixWriter = { data + SAVE_FILE_SIZE + 4, suffixSize, false };
+		writeSaveSuffix(&suffixWriter);
+		assert(suffixWriter.size == 0 && !suffixWriter.error);
+	}
+
 	File file = userFileOpenKind(USER_FILE_VARIANT_SAVE, tyrianSaveFilename, "wb");
 	if (file.error)
 	{
@@ -1038,7 +1197,7 @@ void saveSaves(void)
 	}
 	else
 	{
-		fileWrite(&file, data, sizeof data);
+		fileWrite(&file, data, SAVE_FILE_SIZE + 4 + suffixSize);
 		fileFlush(&file);
 
 		if (file.error)

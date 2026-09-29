@@ -38,7 +38,9 @@
 #define EXTRA_SHAPES      7 /*Used for Ending pics*/
 
 #define SPRITE_TABLES_MAX        8
-#define SPRITES_PER_TABLE_MAX  151
+// Capacity: the largest generic table of any variant (Tyrian 2000: 152).  The
+// count a variant may load is GameDataSchema::sprite_table_max.
+#define SPRITES_PER_TABLE_MAX  152
 
 typedef struct
 {
@@ -114,6 +116,13 @@ extern Sprite2_array spriteSheet9;  // fka shapes9
 extern Sprite2_array spriteSheet10;  // fka eShapes6
 extern Sprite2_array spriteSheet11;  // fka eShapes5
 extern Sprite2_array spriteSheet12;  // fka shapesW2
+
+// Tyrian 2000 only: the added ship bank, the last bank of tyrian.shp.  Ship
+// graphics above GameDataSchema::ship_bank2_base live here, minus that base.
+extern Sprite2_array spriteSheet13;  // fka shapesT2k
+
+// The sheet and the sprite index of a ship graphic ID (ships[].shipgraphic).
+Sprite2_array *shipGraphicSheet(unsigned int graphic, unsigned int *index);
 
 void JE_loadCompShapes(Sprite2_array *, char s);
 void JE_loadCompShapesB(Sprite2_array *, File *file);

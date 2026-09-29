@@ -195,6 +195,12 @@ clean :
 regress :
 	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh
 
+# Tyrian 2000 suite: separate manifest, baselines (test/regress-2000) and data.
+# TYRIAN2000_DATA must name a verified Tyrian 2000 directory; there is no fallback.
+.PHONY : regress-2000
+regress-2000 :
+	TYRIAN2000_DATA="$(TYRIAN2000_DATA)" tools/regress-2000.sh
+
 .PHONY : regress-replay
 regress-replay :
 	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh --replay-check

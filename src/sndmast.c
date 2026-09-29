@@ -18,7 +18,7 @@
  */
 #include "sndmast.h"
 
-const char soundTitle[SOUND_COUNT][9] = /* [1..soundnum + 9] of string [8] */
+const char soundTitle21[SFX_COUNT_MAX - 2 + VOICE_COUNT][9] = /* [1..soundnum + 9] of string [8] */
 {
 	"SCALEDN2", /*1*/
 	"F2",       /*2*/
@@ -60,15 +60,65 @@ const char soundTitle[SOUND_COUNT][9] = /* [1..soundnum + 9] of string [8] */
 	"VOICE9"
 };
 
-const JE_byte windowTextSamples[9] = /* [1..9] */
+/* Tyrian 2000: two more effects before the voices. */
+const char soundTitle2000[SOUND_COUNT][9] = /* [1..soundnum + 9] of string [8] */
 {
-	V_DANGER,
-	V_BOSS,
-	V_ENEMIES,
-	V_CLEARED_PLATFORM,
-	V_DANGER,
-	V_SPIKES,
-	V_ACCELERATE,
-	V_DANGER,
-	V_ENEMIES
+	"SCALEDN2", /*1*/
+	"F2",       /*2*/
+	"TEMP10",
+	"EXPLSM",
+	"PASS3",    /*5*/
+	"TEMP2",
+	"BYPASS1",
+	"EXP1RT",
+	"EXPLLOW",
+	"TEMP13",   /*10*/
+	"EXPRETAP",
+	"MT2BOOM",
+	"TEMP3",
+	"LAZB",     /*28K*/
+	"LAZGUN2",  /*15*/
+	"SPRING",
+	"WARNING",
+	"ITEM",
+	"HIT2",     /*14K*/
+	"MACHNGUN", /*20*/
+	"HYPERD2",
+	"EXPLHUG",
+	"CLINK1",
+	"CLICK",
+	"SCALEDN1", /*25*/
+	"TEMP11",
+	"TEMP16",
+	"SMALL1",
+	"POWERUP",
+	"MARS3",
+	"NEEDLE2",
+	"VOICE1",
+	"VOICE2",
+	"VOICE3",
+	"VOICE4",
+	"VOICE5",
+	"VOICE6",
+	"VOICE7",
+	"VOICE8",
+	"VOICE9"
 };
+
+static const JE_byte windowTextVoices[9] = /* [1..9] */
+{
+	VOICE_DANGER,
+	VOICE_BOSS,
+	VOICE_ENEMIES,
+	VOICE_CLEARED_PLATFORM,
+	VOICE_DANGER,
+	VOICE_SPIKES,
+	VOICE_ACCELERATE,
+	VOICE_DANGER,
+	VOICE_ENEMIES
+};
+
+JE_byte windowTextSample(unsigned int id)
+{
+	return gameVoiceSound(windowTextVoices[id - 1]);
+}

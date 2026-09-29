@@ -20,6 +20,7 @@
 
 #include "drawlist.h"
 #include "episodes.h"
+#include "game_schema.h"
 #include "player.h"
 #include "sprite.h"
 #include "video.h"
@@ -338,7 +339,7 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 	static const JE_byte soundChannel[11] /* [1..11] */ = {0, 2, 4, 4, 2, 2, 5, 5, 1, 4, 1};
 
 	// Bounds check
-	if (portNum > PORT_NUM || wpNum <= 0 || wpNum > WEAP_NUM)
+	if (portNum > gameSchema()->port_max || wpNum <= 0 || !gameWeaponValid(wpNum))
 		return MAX_PWEAPON;
 
 	const JE_WeaponType* weapon = &weapons[wpNum];

@@ -1,0 +1,158 @@
+/*
+ * OpenTyrian: A modern cross-platform port of Tyrian
+ * Copyright (C) The OpenTyrian Development Team
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ */
+#include "game_schema.h"
+
+#include "logging.h"
+#include "sndmast.h"
+
+#include <stddef.h>
+
+// Tyrian 2.1: exactly the counts and order the loaders used before schemas.
+// Tyrian 2000 values follow data-formats.md; the ported logic is that of
+// KScl/opentyrian2000 (GPL-2.0), reimplemented on this tree's loaders.
+
+static const GameIdBank weaponBanks21[] = { { 0, 780 } };
+static const GameIdBank enemyBanks21[] = { { 0, 850 } };
+
+// The fork reads weapons 0..818 and 1000..1818, and enemies 0..850 and
+// 1001..1850.  The IDs in between have no bytes in the stream.
+static const GameIdBank weaponBanks2000[] = { { 0, 818 }, { 1000, 1818 } };
+static const GameIdBank enemyBanks2000[] = { { 0, 850 }, { 1001, 1850 } };
+
+// Enemy shape files: the character of newsh?.shp, by 1-based table number.
+static const char enemyShapeFiles21[34] =
+{
+	'2', '4', '7', '8', 'A', 'B', 'C', 'D', 'E', 'F',
+	'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+	'Q', 'R', 'S', 'T', 'U', '5', '#', 'V', '0', '@',  // [25] should be '&' rather than '5'
+	'3', '^', '5', '9'
+};
+static const char enemyShapeFiles2000[36] =
+{
+	'2', '4', '7', '8', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+	'O', 'P', 'Q', 'R', 'S', 'T', 'U', '5', '#', 'V', '0', '@', '3', '^', '5', '9', '\'', '%'
+};
+
+// Palette of each picture (tyrian.pic).  2000 adds picture 14 with palette 23.
+static const uint8_t picturePalette21[13] = { 0, 7, 5, 8, 10, 5, 18, 19, 19, 20, 21, 22, 5 };
+static const uint8_t picturePalette2000[14] = { 0, 7, 5, 8, 10, 5, 18, 19, 19, 20, 21, 22, 5, 23 };
+
+// Events 58, 59, 68 (replaced), 83, 84, 85 and 99 have Tyrian 2000 rules that
+// Phase 3b implements.  Until then they do nothing.
+static const uint8_t deferredEvents2000[] = { 58, 59, 68, 83, 84, 85, 99 };
+
+const GameDataSchema gameDataSchema21 =
+{
+	{ 780, 42, 6, 13, 30, 10, 850 },
+	weaponBanks21, 1,
+	42, 46, 6, 13, 30, 10,
+	enemyBanks21, 1,
+	0,
+	780, 850,
+	12, 151, 0, enemyShapeFiles21, sizeof enemyShapeFiles21, 10,
+	13, 23, picturePalette21,
+	29, VOICE_COUNT, soundTitle21,
+	131,
+	0, 0, 0,
+	NULL, 0
+};
+
+const GameDataSchema gameDataSchema2000 =
+{
+	{ 818, 60, 6, 18, 37, 11, 850 },
+	weaponBanks2000, 2,
+	60, 54, 6, 18, 37, 11,
+	enemyBanks2000, 2,
+	GAME_ITEM_TRAILER_2000,
+	1818, 1850,
+	13, 152, 500, enemyShapeFiles2000, sizeof enemyShapeFiles2000, 12,
+	14, 24, picturePalette2000,
+	31, VOICE_COUNT, soundTitle2000,
+	126,
+	10, 10, 3,
+	deferredEvents2000, sizeof deferredEvents2000
+};
+
+// Unused setup blocks of the 2000 HDT: counts of strings, skipped structurally.
+static const uint8_t setupSkip2000[] = { 10, 5, 4, 4, 5, 7, 7, 21, 3, 3 };
+
+static const uint8_t gameplayChoices21[] =
+{
+	GAMEPLAY_FULL_GAME, GAMEPLAY_ARCADE, GAMEPLAY_ARCADE_2P, GAMEPLAY_NETWORK
+};
+static const uint8_t gameplayChoices2000[] =
+{
+	GAMEPLAY_FULL_GAME, GAMEPLAY_ARCADE, GAMEPLAY_TIMED_BATTLE, GAMEPLAY_ARCADE_2P, GAMEPLAY_NETWORK
+};
+
+// Menu strings by menu number (menuInt[n]).  Menus with no strings, or that
+// are read elsewhere in the HDT order, are zero.
+const GameStringSchema gameStringSchema21 =
+{
+	68, 5, 34,
+	4, 11, 9, 13,
+	5, gameplayChoices21,
+	{ 0, 7, 9, 8, 0, 0, 11, 0, 0, 0, 6, 4, 6, 7, 5, 0 },
+	false, 0, NULL, 0, 0, 0, 0, 0, 0,
+	false, false,
+	{ 48, 49, 66 }
+};
+
+// The 2000 HDT appends records to the misc text, so the labels the HUD knows
+// keep their positions.  Menu 15 (mouse settings) has strings only in 2000.
+const GameStringSchema gameStringSchema2000 =
+{
+	72, 8, 37,
+	5, 13, 11, 20,
+	6, gameplayChoices2000,
+	{ 0, 7, 9, 9, 0, 0, 11, 0, 0, 0, 6, 4, 7, 7, 5, 6 },
+	true, 4, setupSkip2000, sizeof setupSkip2000, 3, 39, 10, 6, 6,
+	true, true,
+	{ 48, 49, 66 }
+};
+
+bool gameEventDeferred(unsigned int eventType)
+{
+	static bool logged[256];
+	const GameDataSchema *schema = gameSchema();
+
+	for (size_t i = 0; i < schema->deferred_event_count; ++i)
+	{
+		if (schema->deferred_events[i] != eventType)
+			continue;
+		if (!logged[eventType])
+		{
+			logged[eventType] = true;
+			logWarn("Level event %u is not implemented for %s yet (Phase 3b); skipping it.",
+			        eventType, gameVariantCurrent()->display_name);
+		}
+		return true;
+	}
+	return false;
+}
+
+const GameDataSchema *gameSchema(void)
+{
+	return gameVariantCurrent()->data_schema;
+}
+
+const GameStringSchema *gameStrings(void)
+{
+	return gameVariantCurrent()->string_schema;
+}

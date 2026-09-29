@@ -20,6 +20,8 @@
 
 #include "file.h"
 #include "fonthand.h"
+#include "game_data.h"
+#include "game_schema.h"
 #include "logging.h"
 #include "menus.h"
 #include "opentyr.h"
@@ -43,7 +45,8 @@ const JE_byte menuHelp[MENU_MAX][11] = /* [1..maxmenu, 1..11] */
 	{                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 	{ 16, 17, 15, 15, 12,                   0, 0, 0, 0, 0, 0 },
 	{ 31, 31, 31, 31, 32, 12,                  0, 0, 0, 0, 0 },
-	{  4, 34,  3,  5,                    0, 0, 0, 0, 0, 0, 0 }
+	{  4, 34,  3,  5,                    0, 0, 0, 0, 0, 0, 0 },
+	{ 35, 35, 35, 36, 12,                   0, 0, 0, 0, 0, 0 }  // Tyrian 2000 only (menu 15)
 };
 
 char helpTxt[39][231];                                                   /* [1..39] of string [230] */
@@ -68,7 +71,13 @@ char destructHelp[25][22];                                               /* [1..
 char weaponNames[17][17];                                                /* [1..17] of string [16] */
 char destructModeName[DESTRUCT_MODES][13];                               /* [1..destructmodes] of string [12] */
 char shipInfo[HELPTEXT_SHIPINFO_COUNT][2][256];                          /* [1..13, 1..2] of string */
-char menuInt[MENU_MAX+1][11][18];                                        /* [0..14, 1..11] of string [17] */
+char timedBattleName[HELPTEXT_TIMED_BATTLE_COUNT][23];                   /* Tyrian 2000 */
+char licensingInfo[HELPTEXT_LICENSING_COUNT][46];                        /* Tyrian 2000 */
+char hdtHighScoreNames[HELPTEXT_HIGH_SCORE_NAMES_COUNT][23];             /* Tyrian 2000: default names */
+char hdtTeamNames[HELPTEXT_TEAM_NAMES_COUNT][25];                        /* Tyrian 2000: default names */
+char orderingInfo[HELPTEXT_ORDERING_COUNT][32];                          /* Tyrian 2000 */
+char superTyrianText[HELPTEXT_SUPER_TYRIAN_COUNT][64];                   /* Tyrian 2000 */
+char menuInt[MENU_MAX+1][11][18];                                        /* [0..15, 1..11] of string [17] */
 
 static void decrypt_string(char *s, size_t len)
 {
@@ -164,11 +173,9 @@ void JE_HBox(SDL_Surface *screen, int x, int y, JE_byte messageNum, JE_byte boxW
 
 void JE_loadHelpText(void)
 {
-	static const unsigned int menuInt_entries[MENU_MAX + 1] =
-	{
-		-1, 7, 9, 8, -1, -1, 11, -1, -1, -1, 6, 4, 6, 7, 5
-	};
-	
+	const GameStringSchema *strings = gameStrings();
+	const uint8_t *menuInt_entries = strings->menu_entries;
+
 	const char *filename = "tyrian.hdt";
 
 	File file = dataFileOpen(filename, "rb");
@@ -194,13 +201,13 @@ void JE_loadHelpText(void)
 
 	/*Miscellaneous text*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(miscText); ++i)
+	for (size_t i = 0; i < strings->misc_text; ++i)
 		readEncryptedString(&file, miscText[i], sizeof miscText[i]);
 	readEncryptedString(&file, NULL, 0);
 
 	/*Little Miscellaneous text*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(miscTextB); ++i)
+	for (size_t i = 0; i < strings->misc_text_b; ++i)
 		readEncryptedString(&file, miscTextB[i], sizeof miscTextB[i]);
 	readEncryptedString(&file, NULL, 0);
 
@@ -216,6 +223,14 @@ void JE_loadHelpText(void)
 		readEncryptedString(&file, menuText[i], sizeof menuText[i]);
 	readEncryptedString(&file, NULL, 0);
 
+	if (strings->title_menu_makes_room)
+	{
+		// The title screen puts "Setup" in entry 4 and keeps the rest of the
+		// entries in the order of the actions (Demo, Quit).
+		memcpy(menuText[6], menuText[5], sizeof menuText[6]);
+		memcpy(menuText[5], menuText[4], sizeof menuText[5]);
+	}
+
 	/*Event text*/
 	readEncryptedString(&file, NULL, 0);
 	for (size_t i = 0; i < COUNTOF(outputs); ++i)
@@ -230,7 +245,7 @@ void JE_loadHelpText(void)
 
 	/*Main Menu Help*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(mainMenuHelp); ++i)
+	for (size_t i = 0; i < strings->main_menu_help; ++i)
 		readEncryptedString(&file, mainMenuHelp[i], sizeof mainMenuHelp[i]);
 	readEncryptedString(&file, NULL, 0);
 
@@ -284,7 +299,7 @@ void JE_loadHelpText(void)
 
 	// gameplay mode names
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(gameplay_name); ++i)
+	for (size_t i = 0; i < strings->gameplay_name; ++i)
 		readEncryptedString(&file, gameplay_name[i], sizeof gameplay_name[i]);
 	readEncryptedString(&file, NULL, 0);
 
@@ -302,7 +317,7 @@ void JE_loadHelpText(void)
 
 	/*Network text*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(networkText); ++i)
+	for (size_t i = 0; i < strings->network_text; ++i)
 		readEncryptedString(&file, networkText[i], sizeof networkText[i]);
 	readEncryptedString(&file, NULL, 0);
 
@@ -338,13 +353,13 @@ void JE_loadHelpText(void)
 
 	/*SuperShips - For Super Arcade Mode*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(superShips); ++i)
+	for (size_t i = 0; i < strings->super_ships; ++i)
 		readEncryptedString(&file, superShips[i], sizeof superShips[i]);
 	readEncryptedString(&file, NULL, 0);
 
 	/*SuperShips - For Super Arcade Mode*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(specialName); ++i)
+	for (size_t i = 0; i < strings->special_name; ++i)
 		readEncryptedString(&file, specialName[i], sizeof specialName[i]);
 	readEncryptedString(&file, NULL, 0);
 
@@ -368,17 +383,79 @@ void JE_loadHelpText(void)
 
 	/*NEW: Ship Info*/
 	readEncryptedString(&file, NULL, 0);
-	for (size_t i = 0; i < COUNTOF(shipInfo); ++i)
+	for (size_t i = 0; i < strings->ship_info; ++i)
 	{
 		readEncryptedString(&file, shipInfo[i][0], sizeof shipInfo[i][0]);
 		readEncryptedString(&file, shipInfo[i][1], sizeof shipInfo[i][1]);
 	}
 	readEncryptedString(&file, NULL, 0);
 
-	/*Menu 12 - Network Options*/
+	/*Menu 14 - Super Tyrian*/
 	readEncryptedString(&file, NULL, 0);
 	for (size_t i = 0; i < menuInt_entries[14]; ++i)
 		readEncryptedString(&file, menuInt[14][i], sizeof menuInt[14][i]);
+
+	if (strings->has_tail)
+	{
+		// The Tyrian 2000 HDT continues after menu 14 (the 2.1 file ends there).
+		readEncryptedString(&file, NULL, 0);
+
+		/*Timed Battle names*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < strings->timed_battle_name; ++i)
+			readEncryptedString(&file, timedBattleName[i], sizeof timedBattleName[i]);
+		readEncryptedString(&file, NULL, 0);
+
+		/*Setup blocks: not used by this engine, skipped structurally*/
+		for (size_t block = 0; block < strings->setup_skip_count; ++block)
+		{
+			readEncryptedString(&file, NULL, 0);
+			for (size_t i = 0; i < strings->setup_skip[block]; ++i)
+				readEncryptedString(&file, NULL, 0);
+			readEncryptedString(&file, NULL, 0);
+		}
+
+		/*Menu 15 - Mouse settings*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < menuInt_entries[15]; ++i)
+			readEncryptedString(&file, menuInt[15][i], sizeof menuInt[15][i]);
+		readEncryptedString(&file, NULL, 0);
+
+		/*Licensing info*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < strings->licensing_info; ++i)
+			readEncryptedString(&file, licensingInfo[i], sizeof licensingInfo[i]);
+		readEncryptedString(&file, NULL, 0);
+
+		/*Default high score names*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < strings->high_score_names; ++i)
+			readEncryptedString(&file, hdtHighScoreNames[i], sizeof hdtHighScoreNames[i]);
+		readEncryptedString(&file, NULL, 0);
+
+		/*Default team names*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < strings->team_names; ++i)
+		{
+			// One name is longer than its 24-character field: keep the field,
+			// truncating (as the fork does), so it also fits a score entry.
+			char full[256];
+			readEncryptedString(&file, full, sizeof full);
+			SDL_strlcpy(hdtTeamNames[i], full, sizeof hdtTeamNames[i]);
+		}
+		readEncryptedString(&file, NULL, 0);
+
+		/*Ordering info*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < strings->ordering_info; ++i)
+			readEncryptedString(&file, orderingInfo[i], sizeof orderingInfo[i]);
+		readEncryptedString(&file, NULL, 0);
+
+		/*Super Tyrian text*/
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < strings->super_tyrian_text; ++i)
+			readEncryptedString(&file, superTyrianText[i], sizeof superTyrianText[i]);
+	}
 
 	if (file.error)
 	{
@@ -387,4 +464,21 @@ void JE_loadHelpText(void)
 	}
 
 	fileClose(&file);
+}
+
+const char *helpLabelText(GameLabel label)
+{
+	return miscText[gameStrings()->label_misc_text[label]];
+}
+
+void helpTextEnsureLoaded(void)
+{
+	static bool loaded = false;
+	if (loaded)
+		return;
+
+	if (!gameDataPrepare())
+		exit(EXIT_FAILURE);
+	JE_loadHelpText();
+	loaded = true;
 }

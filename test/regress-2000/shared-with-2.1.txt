@@ -1,0 +1,45 @@
+# Files of the Tyrian 2000 set (data-manifest.txt) whose bytes are identical to the
+# approved Tyrian 2.1 freeware data (size, POSIX cksum CRC, name).  Those already
+# ship legally with 2.1, so tools/check_no_t2000_data.sh does not treat a copy of
+# one of them as Tyrian 2000 data.  Metadata only.
+#
+# size crc name
+2745 625760848 demo.1
+2193 3214433957 demo.2
+1974 623644273 demo.3
+699 1914765014 demo.4
+1122 2152709229 demo.5
+115338 1085736327 estsc.shp
+6052 1789566389 levels3.dat
+153482 842346037 music.mus
+17750 2070673289 newsh#.shp
+14096 3328586459 newsh0.shp
+29941 2874864033 newsh1.shp
+35236 1993929893 newsh2.shp
+37130 2811399401 newsh3.shp
+44079 2593278867 newsh7.shp
+35152 975069015 newsh8.shp
+38831 3600755471 newsh9.shp
+34888 711303051 newsh^.shp
+25622 2511252582 newsha.shp
+39025 2458773564 newshb.shp
+40714 117528338 newshc.shp
+42012 1017427299 newshd.shp
+33543 3376643067 newshf.shp
+36643 3829556607 newshg.shp
+46639 4102196915 newshh.shp
+30860 2722307320 newshi.shp
+43999 3409272313 newshj.shp
+41201 1292696811 newshn.shp
+24478 3002203261 newsho.shp
+46204 1454869397 newshp.shp
+28249 3612603756 newshr.shp
+46566 2487630938 newshs.shp
+35657 1233745291 newshu.shp
+172480 1648817559 shapesw.dat
+217504 767763841 shapesx.dat
+3315848 3988034873 tyrend.anm
+27674 491299863 user1.shp
+27674 84075211 user2.shp
+132767 1661905447 voices.snd
+188275 2600234191 voicesc.snd

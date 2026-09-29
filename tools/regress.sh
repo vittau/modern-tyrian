@@ -251,6 +251,12 @@ mkdir -p "$BASELINE_DIR"
 rm -rf "$ACTUAL_DIR"
 mkdir -p "$ACTUAL_DIR"
 
+# No Tyrian 2000 file may land in the tree (metadata-only check, no game data).
+if ! "$ROOT/tools/check_no_t2000_data.sh"; then
+	echo "ERROR: a Tyrian 2000 data file is in the source tree"
+	exit 1
+fi
+
 if ! "$ROOT/tools/check_variant_bootstrap.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/variant-bootstrap"; then
 	echo "ERROR: variant/bootstrap checks failed"
 	exit 1

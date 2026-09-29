@@ -18,13 +18,17 @@
  */
 #include "game_variant.h"
 
+#include "game_schema.h"
+
 #include <stddef.h>
 #include <string.h>
 
 static const GameVariantDef variants[] =
 {
-	{ VARIANT_TYRIAN21, "2.1", "Tyrian 2.1 Freeware", "Tyrian 2.1", "tyrian21", 4, 5 },
-	{ VARIANT_TYRIAN2000, "2000", "Tyrian 2000", "Tyrian 2000", "tyrian2000", 5, 5 }
+	{ VARIANT_TYRIAN21, "2.1", "Tyrian 2.1 Freeware", "Tyrian 2.1", "tyrian21", 4, 5,
+	  &gameDataSchema21, &gameStringSchema21 },
+	{ VARIANT_TYRIAN2000, "2000", "Tyrian 2000", "Tyrian 2000", "tyrian2000", 5, 5,
+	  &gameDataSchema2000, &gameStringSchema2000 }
 };
 
 static const GameVariantDef *currentVariant = &variants[0];
@@ -62,8 +66,6 @@ GameVariantStatus gameVariantSelect(GameVariant variant)
 	const GameVariantDef *def = gameVariantGet(variant);
 	if (def == NULL)
 		return GAME_VARIANT_INVALID;
-	if (variant == VARIANT_TYRIAN2000)
-		return GAME_VARIANT_UNAVAILABLE;
 	currentVariant = def;
 	return GAME_VARIANT_OK;
 }

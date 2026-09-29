@@ -148,7 +148,14 @@ static void loadSounds(size_t soundsOffset, size_t soundsCount, const char *file
 	// Read number of sounds.
 	Uint16 count = fileReadU16(&file);
 	assert(count == soundsCount);
-	count = MIN(count, soundsCount);
+	if (count != soundsCount)
+	{
+		// A count that differs from the schema would put the effect/voice
+		// boundary in the wrong place and shift every voice ID.
+		logFatal("'%s' holds %u sounds, but %s has %u.", filename, (unsigned)count,
+		         gameVariantCurrent()->display_name, (unsigned)soundsCount);
+		exit(EXIT_FAILURE);
+	}
 
 	size_t positionsCount = count + 1;
 	long *positions = malloc(sizeof *positions * positionsCount);
@@ -220,11 +227,14 @@ void loadSndFile(bool xmas)
 		soundSampleCount[i] = 0;
 	}
 
-	const char *sfxFilename = "tyrian.snd";
-	loadSounds(0, SFX_COUNT, sfxFilename, false);
+	const GameDataSchema *schema = gameSchema();
 
+	const char *sfxFilename = "tyrian.snd";
+	loadSounds(0, schema->sfx_count, sfxFilename, false);
+
+	// The voices follow the effects, so their sound IDs depend on the variant.
 	const char *voiceFilename = xmas ? "voicesc.snd" : "voices.snd";
-	loadSounds(SFX_COUNT, VOICE_COUNT, voiceFilename, true);
+	loadSounds(schema->sfx_count, schema->voice_count, voiceFilename, true);
 }
 
 void JE_playSampleNum(JE_byte samplenum)

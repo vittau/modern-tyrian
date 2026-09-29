@@ -24,6 +24,7 @@
 #include "drawlist.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_schema.h"
 #include "font.h"
 #include "fonthand.h"
 #include "game_menu.h"
@@ -2130,11 +2131,11 @@ draw_player_shot_loop_end:
 		sprintf(buffer, "%.1f", levelTimerCountdown / 100.0f);
 		if (modern_hud_in_panels())
 		{
-			modern_hud_draw_timer(miscText[66], buffer, (levelTimerCountdown % 20) / 3);
+			modern_hud_draw_timer(helpLabelText(GAME_LABEL_TIMER), buffer, (levelTimerCountdown % 20) / 3);
 		}
 		else
 		{
-			JE_textShade (VGAScreen, 140, 6, miscText[66], 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
+			JE_textShade (VGAScreen, 140, 6, helpLabelText(GAME_LABEL_TIMER), 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
 			JE_dString (VGAScreen, 100, 2, buffer, SMALL_FONT_SHAPES);
 		}
 	}
@@ -2724,7 +2725,7 @@ new_game:
 							if (s[0] == '#')
 								break;
 
-							if (levelWarningLines >= COUNTOF(levelWarningText))
+							if (levelWarningLines >= gameSchema()->warning_lines)
 							{
 								logWarn("Hint has too many lines.");
 								continue;
@@ -2771,7 +2772,11 @@ new_game:
 								}
 
 								if (SANextShip[superArcadeMode] < SA_NORTSHIPZ)
-									blit_sprite2x2(VGAScreen, 148, 70, spriteSheet9, ships[SAShip[SANextShip[superArcadeMode]-1]].shipgraphic);
+								{
+									unsigned int shipGrIndex;
+									Sprite2_array *const shipSheet = shipGraphicSheet(ships[SAShip[SANextShip[superArcadeMode]-1]].shipgraphic, &shipGrIndex);
+									blit_sprite2x2(VGAScreen, 148, 70, *shipSheet, shipGrIndex);
+								}
 								else if (SANextShip[superArcadeMode] == SA_NORTSHIPZ)
 									trentWin = true;
 
@@ -2807,7 +2812,7 @@ new_game:
 							JE_word tempX = atoi(s + 3);
 							if (tempX > 900)
 							{
-								memcpy(colors, palettes[pcxpal[tempX-1 - 900]], sizeof(colors));
+								memcpy(colors, palettes[gameSchema()->picture_palette[tempX-1 - 900]], sizeof(colors));
 								JE_clr256(VGAScreen);
 								JE_showVGA();
 								fade_palette(colors, 1, 0, 255);
@@ -3006,7 +3011,7 @@ new_game:
 									if (s[0] == '#')
 										break;
 
-									if (levelWarningLines >= COUNTOF(levelWarningText))
+									if (levelWarningLines >= gameSchema()->warning_lines)
 									{
 										logWarn("Text has too many lines.");
 										continue;
@@ -3706,7 +3711,8 @@ bool newGame(void)
 		{
 			// allows player to smuggle arcade/super-arcade ships into full game
 
-			const ulong initial_cash[] = { 10000, 15000, 20000, 30000 };
+			// Episode 5 (Tyrian 2000) also starts with 20000.
+			const ulong initial_cash[] = { 10000, 15000, 20000, 30000, 20000 };
 
 			assert(episodeNum >= 1 && episodeNum <= EPISODE_AVAILABLE);
 			player[0].cash = initial_cash[episodeNum - 1];
@@ -3729,7 +3735,11 @@ bool newSuperArcadeGame(unsigned int i)
 		JE_dString(VGAScreen, JE_fontCenter(superShips[i + 1], SMALL_FONT_SHAPES), 100, superShips[i + 1], SMALL_FONT_SHAPES);
 		tempW = ships[player[0].items.ship].shipgraphic;
 		if (tempW != 1)
-			blit_sprite2x2(VGAScreen, 148, 70, spriteSheet9, tempW);
+		{
+			unsigned int shipGrIndex;
+			Sprite2_array *const shipSheet = shipGraphicSheet(tempW, &shipGrIndex);
+			blit_sprite2x2(VGAScreen, 148, 70, *shipSheet, shipGrIndex);
+		}
 
 		JE_showVGA();
 		fade_palette(colors, 50, 0, 255);
@@ -3932,6 +3942,16 @@ uint JE_makeEnemy(struct JE_SingleEnemyType *enemy, Uint16 eDatI, Sint16 uniqueS
 	uint avail;
 
 	JE_byte shapeTableI;
+
+	// The type comes from level data: an ID the variant's item data does not hold
+	// (past its end, or between two banks) would index enemyDat[] out of bounds
+	// or read a record that was never loaded.  Fall back to the first record.
+	if (!gameEnemyValid(eDatI))
+	{
+		logWarn("Enemy type %u does not exist in %s; using type 0.", (unsigned)eDatI,
+		        gameVariantCurrent()->display_name);
+		eDatI = 0;
+	}
 
 	if (superArcadeMode != SA_NONE && eDatI == 534)
 		eDatI = 533;
@@ -4324,6 +4344,13 @@ bool JE_searchFor/*enemy*/(JE_byte PLType, JE_byte* out_index)
 
 void JE_eventSystem(void)
 {
+	// Phase 3b: events with a different Tyrian 2000 rule are skipped for now.
+	if (gameEventDeferred(eventRec[eventLoc-1].eventtype))
+	{
+		eventLoc++;
+		return;
+	}
+
 	switch (eventRec[eventLoc-1].eventtype)
 	{
 	case 1:
@@ -4391,13 +4418,18 @@ void JE_eventSystem(void)
 			{
 				if (enemySpriteSheetIds[i] != newEnemyShapeTables[i])
 				{
-					if (newEnemyShapeTables[i] > 0)
+					const JE_char shapeFileChar = enemyShapeFileChar(newEnemyShapeTables[i]);
+					if (newEnemyShapeTables[i] > 0 && shapeFileChar != '\0')
 					{
-						assert(newEnemyShapeTables[i] <= COUNTOF(shapeFile));
-						JE_loadCompShapes(&enemySpriteSheets[i], shapeFile[newEnemyShapeTables[i] - 1]);
+						JE_loadCompShapes(&enemySpriteSheets[i], shapeFileChar);
 					}
 					else
+					{
+						if (newEnemyShapeTables[i] > 0)
+							logWarn("Enemy shape table %u is not defined for %s; leaving it empty.",
+							        newEnemyShapeTables[i], gameVariantCurrent()->display_name);
 						free_sprite2s(&enemySpriteSheets[i]);
+					}
 
 					enemySpriteSheetIds[i] = newEnemyShapeTables[i];
 				}
@@ -4494,7 +4526,7 @@ void JE_eventSystem(void)
 			break;
 		}
 		JE_drawTextWindow(outputs[id-1]);
-		soundQueue[3] = windowTextSamples[id-1];
+		soundQueue[3] = windowTextSample(id);
 		break;
 	}
 

@@ -23,6 +23,7 @@
 #include "demo.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_schema.h"
 #include "gamepad_selftest.h"
 #include "interp.h"
 #include "joystick.h"
@@ -659,9 +660,9 @@ void JE_paramCheck(int argc, char *argv[])
 		case 311: // --regress-front-weapon=N
 		{
 			const int id = atoi(option.arg);
-			if (id < 0 || id > PORT_NUM)
+			if (id < 0 || id > gameSchema()->port_max)
 			{
-				logError("%s: --regress-front-weapon must be between 0 and %d", argv[0], PORT_NUM);
+				logError("%s: --regress-front-weapon must be between 0 and %d", argv[0], gameSchema()->port_max);
 				exit(EXIT_FAILURE);
 			}
 			regress_front_weapon = id;

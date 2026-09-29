@@ -20,6 +20,7 @@
 
 #include "drawlist.h"
 #include "file.h"
+#include "game_schema.h"
 #include "logging.h"
 #include "opentyr.h"
 #include "video.h"
@@ -44,6 +45,7 @@ Sprite2_array spriteSheet9;
 Sprite2_array spriteSheet10;
 Sprite2_array spriteSheet11;
 Sprite2_array spriteSheet12;
+Sprite2_array spriteSheet13;
 
 void load_sprites_file(unsigned int table, const char *filename)
 {
@@ -72,8 +74,9 @@ void load_sprites(unsigned int table, File *file)
 	free_sprites(table);
 	
 	Uint16 count = fileReadU16(file);
-	assert(count <= SPRITES_PER_TABLE_MAX);
-	count = MIN(count, SPRITES_PER_TABLE_MAX);
+	const unsigned int countMax = MIN(gameSchema()->sprite_table_max, SPRITES_PER_TABLE_MAX);
+	assert(count <= countMax);
+	count = MIN(count, countMax);
 	
 	sprite_table[table].count = count;
 	
@@ -976,8 +979,11 @@ void blit_sprite2x2_filter_clip(SDL_Surface *surface, int x, int y, Sprite2_arra
 
 void JE_loadMainShapeTables(const char *filename)
 {
-	enum { SHP_NUM = 12 };
-	
+	enum { SHP_MAX = 13 };  // capacity: the largest variant
+
+	const unsigned int shpNum = gameSchema()->main_shape_banks;
+	assert(shpNum <= SHP_MAX);
+
 	File file = dataFileOpen(filename, "rb");
 	if (file.error)
 	{
@@ -985,15 +991,21 @@ void JE_loadMainShapeTables(const char *filename)
 		exit(EXIT_FAILURE);
 	}
 
-	long positions[SHP_NUM + 1];
+	long positions[SHP_MAX + 1];
 
 	Uint16 count = fileReadU16(&file);
-	assert(count == SHP_NUM);
-	count = MIN(count, SHP_NUM);
+	assert(count == shpNum);
+	if (count != shpNum)
+	{
+		logFatal("'%s' has %u shape banks, but %s has %u.", filename, (unsigned)count,
+		         gameVariantCurrent()->display_name, shpNum);
+		exit(EXIT_FAILURE);
+	}
 
 	for (size_t i = 0; i < count; ++i)
 		positions[i] = fileReadU32(&file);
 
+	// The last bank ends at the end of the file.
 	long fileLength = fileGetLength(&file);
 	for (size_t i = count; i < COUNTOF(positions); ++i)
 		positions[i] = fileLength;
@@ -1031,6 +1043,15 @@ void JE_loadMainShapeTables(const char *filename)
 	// more player shot sprites
 	spriteSheet12.size = positions[i + 1] - positions[i];
 	JE_loadCompShapesB(&spriteSheet12, &file);
+	i++;
+
+	// Tyrian 2000: the added player ship sprites.  Its bank is delimited by its
+	// own offsets, so the previous bank does not run on into it.
+	if (shpNum > i)
+	{
+		spriteSheet13.size = positions[i + 1] - positions[i];
+		JE_loadCompShapesB(&spriteSheet13, &file);
+	}
 
 	if (file.error)
 	{
@@ -1039,6 +1060,18 @@ void JE_loadMainShapeTables(const char *filename)
 	}
 
 	fileClose(&file);
+}
+
+Sprite2_array *shipGraphicSheet(unsigned int graphic, unsigned int *index)
+{
+	const unsigned int base = gameSchema()->ship_bank2_base;
+	if (base != 0 && graphic > base)
+	{
+		*index = graphic - base;
+		return &spriteSheet13;
+	}
+	*index = graphic;
+	return &spriteSheet9;
 }
 
 void free_main_shape_tables(void)
@@ -1051,4 +1084,5 @@ void free_main_shape_tables(void)
 	free_sprite2s(&spriteSheet10);
 	free_sprite2s(&spriteSheet11);
 	free_sprite2s(&spriteSheet12);
+	free_sprite2s(&spriteSheet13);
 }

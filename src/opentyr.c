@@ -1118,18 +1118,8 @@ int main(int argc, char *argv[])
 		logInfo("Modern lighting: bloom %s, lighting %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality]);
 	}
 
-	GameDataError data_error;
-	findDataFiles();
-	GameDataStatus data_status = gameDataValidate(gameDataCurrent(), &data_error);
-	logInfo("Game variant: %s; data root: %s; validation: %s%s%s.",
-	        gameVariantCurrent()->log_label, gameDataDirectory(gameDataCurrent()),
-	        gameDataStatusName(data_status), data_error.filename[0] != '\0' ? "; file: " : "",
-	        data_error.filename);
-	if (data_status != GAME_DATA_OK)
-	{
-		logFatal("%s", data_error.detail);
+	if (!gameDataPrepare())
 		return EXIT_FAILURE;
-	}
 
 	if (regress_audio_active())
 	{

@@ -25,6 +25,7 @@
 #include "editship.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_schema.h"
 #include "font.h"
 #include "fonthand.h"
 #include "helptext.h"
@@ -1322,7 +1323,7 @@ JE_boolean JE_gammaCheck(void)
 	{
 		keysactive[SDL_SCANCODE_F11] = false;
 		gammaCorrection = (gammaCorrection + 1) % 4;
-		memcpy(colors, palettes[pcxpal[3-1]], sizeof(colors));
+		memcpy(colors, palettes[gameSchema()->picture_palette[3-1]], sizeof(colors));
 		JE_gammaCorrect(&colors, gammaCorrection);
 		set_palette(colors, 0, 255);
 	}
@@ -2056,7 +2057,7 @@ void JE_highScoreCheck(void)
 
 					if (twoPlayerMode)
 					{
-						sprintf(buffer, "%s %s", miscText[48 + p], miscText[53]);
+						sprintf(buffer, "%s %s", helpLabelText(p == 0 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2), miscText[53]);
 						JE_textShade(VGAScreen, 60 + dx, 55, buffer, 11, 4, FULL_SHADE);
 					}
 					else
@@ -2346,7 +2347,7 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 						SFCurrentCode[playerNum_-1][temp2]++;
 
 						temp4 = keyboardCombos[temp5-1][SFCurrentCode[playerNum_-1][temp2]];
-						if (temp4 > 100 && temp4 <= 100 + SPECIAL_NUM)
+						if (temp4 > 100 && temp4 <= 100 + gameSchema()->special_max)
 						{
 							SFCurrentCode[playerNum_-1][temp2] = 0;
 							SFExecuted[playerNum_-1] = temp4 - 100;
@@ -2412,7 +2413,10 @@ void JE_playCreditsRegressHold(bool hold)
 
 void JE_playCredits(void)
 {
-	char credstr[131][65 + 1];
+	char credstr[131][65 + 1];  // capacity: the largest variant
+	// Records in tyrian.cdt (Tyrian 2.1: 131, Tyrian 2000: 126).
+	const size_t credstrCount = gameSchema()->credits_lines;
+	assert(credstrCount <= COUNTOF(credstr));
 
 	JE_byte currentpic = 0, fade = 0;
 	JE_shortint fadechg = 1;
@@ -2436,7 +2440,7 @@ void JE_playCredits(void)
 	}
 
 	// load credits text
-	for (size_t i = 0; i < COUNTOF(credstr); ++i)
+	for (size_t i = 0; i < credstrCount; ++i)
 		readEncryptedString(&file, credstr[i], sizeof credstr[i]);
 
 	if (file.error)
@@ -2454,7 +2458,7 @@ void JE_playCredits(void)
 
 	//tempScreenSeg = VGAScreenSeg;
 
-	const uint ticks_max = COUNTOF(credstr) * 20 * 3;
+	const uint ticks_max = credstrCount * 20 * 3;
 	for (uint ticks = 0; ticks < ticks_max; ++ticks)
 	{
 		setFrameCount(1);
@@ -2547,14 +2551,16 @@ void JE_playCredits(void)
 			? (int)((long)shipx * (target->w - 24) / 900)
 			: shipx / 40;
 
-		blit_sprite2x2(target, ship_draw_x, 184 - (ticks % 200), spriteSheet9, ship_sprite);
+		unsigned int shipSpriteIndex;
+		Sprite2_array *const shipSheet = shipGraphicSheet(ship_sprite, &shipSpriteIndex);
+		blit_sprite2x2(target, ship_draw_x, 184 - (ticks % 200), *shipSheet, shipSpriteIndex);
 
 		const int bottom_line = (ticks / 3) / 20;
 		int y = 20 - ((ticks / 3) % 20);
 
 		for (int line = bottom_line - 10; line < bottom_line; ++line)
 		{
-			if (line >= 0 && (uint)line < COUNTOF(credstr))
+			if (line >= 0 && (uint)line < credstrCount)
 			{
 				if (credstr[line][0] != '.' && credstr[line][0] != '\0')
 				{
@@ -2582,7 +2588,7 @@ void JE_playCredits(void)
 		if (currentpic == sprite_table[EXTRA_SHAPES].count - 1)
 			JE_outTextAdjust(target, 5, 180, miscText[54], 2, -2, SMALL_FONT_SHAPES, false);  // levels-in-episode
 
-		if (bottom_line == COUNTOF(credstr) - 8)
+		if (bottom_line == (int)credstrCount - 8)
 			fade_song();
 
 		if (ticks == ticks_max - 1)
@@ -2985,7 +2991,7 @@ void JE_inGameDisplays(void)
 				}
 			}
 
-			strcpy(stemp, (temp == 0) ? miscText[49-1] : miscText[50-1]);
+			strcpy(stemp, helpLabelText(temp == 0 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2));
 			if (isNetworkGame)
 			{
 				strcpy(stemp, JE_getName(temp+1));
@@ -4691,7 +4697,7 @@ const char *JE_getName(JE_byte pnum)
 	else if (network_opponent_name[0] != '\0')
 		return network_opponent_name;
 
-	return miscText[47 + pnum];
+	return helpLabelText(pnum == 1 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2);
 }
 
 void JE_playerCollide(Player *this_player, JE_byte playerNum_)
