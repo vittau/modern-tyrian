@@ -364,6 +364,7 @@ typedef struct
 	const void *key;   // sprite data pointer
 	Uint32 key2;       // index + variant/params (distinguishes hue/value/filter)
 	Uint8 rep;
+	Uint8 foot;        // bright-pixel count (emissive footprint), clamped 0..255
 	bool valid;
 } DlRepCache;
 
@@ -380,12 +381,22 @@ static void dl_rep_cache_clear(void)
 static Uint32 dl_rep_block_score[16];  // score sum per hue family
 static Uint32 dl_rep_idx_score[256];   // best score per palette index
 static int dl_rep_idx_max[256];        // best max-channel per palette index
+static Uint32 dl_rep_foot;             // pixels at or above DL_REP_HOT
+
+// A pixel this bright feeds the dynamic light (the pass thresholds are 224 for
+// bloom and 216 for light), so counting them gives the object's emissive
+// footprint --- what the per-object soft cap below is based on.  Using the
+// bright count rather than the whole opaque area is deliberate: a thin, dim
+// shot and a big bright orb can have the same sprite area but very different
+// light.
+#define DL_REP_HOT 216
 
 static void dl_rep_reset(void)
 {
 	memset(dl_rep_block_score, 0, sizeof dl_rep_block_score);
 	memset(dl_rep_idx_score, 0, sizeof dl_rep_idx_score);
 	memset(dl_rep_idx_max, 0, sizeof dl_rep_idx_max);
+	dl_rep_foot = 0;
 }
 
 static void dl_rep_accumulate(const SDL_Color *pal, unsigned int pi)
@@ -402,6 +413,8 @@ static void dl_rep_accumulate(const SDL_Color *pal, unsigned int pi)
 		dl_rep_idx_score[pi] = score;
 	if (mx > dl_rep_idx_max[pi])
 		dl_rep_idx_max[pi] = mx;
+	if (mx >= DL_REP_HOT)
+		++dl_rep_foot;
 }
 
 static Uint8 dl_rep_result(void)
@@ -450,16 +463,19 @@ static Uint8 dl_rep_result(void)
 	return (Uint8)best;
 }
 
-static int dl_rep_cached(const void *data, Uint32 key2)
+static int dl_rep_cached(const void *data, Uint32 key2, Uint8 *out_foot)
 {
 	const Uint32 slot = ((Uint32)(uintptr_t)data ^ (key2 * 2654435761u)) & (DL_REP_CACHE - 1);
 	const DlRepCache *e = &dl_rep_cache[slot];
 	if (e->valid && e->key == data && e->key2 == key2)
+	{
+		*out_foot = e->foot;
 		return e->rep;
+	}
 	return -1;
 }
 
-static void dl_rep_store(const void *data, Uint32 key2, Uint8 rep)
+static void dl_rep_store(const void *data, Uint32 key2, Uint8 rep, Uint8 foot)
 {
 	const Uint32 slot = ((Uint32)(uintptr_t)data ^ (key2 * 2654435761u)) & (DL_REP_CACHE - 1);
 	DlRepCache *e = &dl_rep_cache[slot];
@@ -467,16 +483,19 @@ static void dl_rep_store(const void *data, Uint32 key2, Uint8 rep)
 	e->key = data;
 	e->key2 = key2;
 	e->rep = rep;
+	e->foot = foot;
 }
 
 // Representative index of a compressed Sprite2 (the shots, explosions, enemies
 // and pickups).  `filter` mirrors blit_sprite2_filter's `filter | (index & 0xf)`.
-static Uint8 dl_sprite2_rep(Sprite2_array sprite2s, unsigned int index, int variant, Uint8 filter)
+// `*out_foot` receives the sprite's emissive footprint (bright pixels, clamped).
+static Uint8 dl_sprite2_rep(Sprite2_array sprite2s, unsigned int index, int variant, Uint8 filter,
+                            Uint8 *out_foot)
 {
 	const bool filtered = (variant == DL_SPRITE2_FILTER || variant == DL_SPRITE2_FILTER_CLIP);
 	const Uint32 key2 = ((Uint32)index & 0xfffu) | ((Uint32)(variant & 0xf) << 12) |
 	                    ((Uint32)filter << 16);
-	const int cached = dl_rep_cached(sprite2s.data, key2);
+	const int cached = dl_rep_cached(sprite2s.data, key2, out_foot);
 	if (cached >= 0)
 		return (Uint8)cached;
 
@@ -496,14 +515,16 @@ static Uint8 dl_sprite2_rep(Sprite2_array sprite2s, unsigned int index, int vari
 	}
 
 	const Uint8 rep = dl_rep_result();
-	dl_rep_store(sprite2s.data, key2, rep);
+	*out_foot = (Uint8)MIN(dl_rep_foot, 255u);
+	dl_rep_store(sprite2s.data, key2, rep, *out_foot);
 	return rep;
 }
 
 // Representative index of a 1-bit sprite_table sprite (the option/special-shot
 // shapes), applying the hue/value transform of the hv variants so the scored
-// index is the one the blit actually writes.
-static Uint8 dl_sprite_rep(unsigned int table, unsigned int index, int variant, Uint8 hue, Sint8 value)
+// index is the one the blit actually writes.  `*out_foot` as in dl_sprite2_rep.
+static Uint8 dl_sprite_rep(unsigned int table, unsigned int index, int variant, Uint8 hue, Sint8 value,
+                           Uint8 *out_foot)
 {
 	if (index >= sprite_table[table].count || !sprite_exists(table, index))
 		return 0;
@@ -511,7 +532,7 @@ static Uint8 dl_sprite_rep(unsigned int table, unsigned int index, int variant, 
 	const Sprite *const cur = sprite(table, index);
 	const Uint32 key2 = ((Uint32)index & 0xfffu) | ((Uint32)(variant & 0xf) << 12) |
 	                    ((Uint32)(hue & 0xf) << 16) | (((Uint32)(Uint8)value) << 20);
-	const int cached = dl_rep_cached(cur->data, key2);
+	const int cached = dl_rep_cached(cur->data, key2, out_foot);
 	if (cached >= 0)
 		return (Uint8)cached;
 
@@ -542,7 +563,8 @@ static Uint8 dl_sprite_rep(unsigned int table, unsigned int index, int variant, 
 	}
 
 	const Uint8 rep = dl_rep_result();
-	dl_rep_store(cur->data, key2, rep);
+	*out_foot = (Uint8)MIN(dl_rep_foot, 255u);
+	dl_rep_store(cur->data, key2, rep, *out_foot);
 	return rep;
 }
 
@@ -573,7 +595,10 @@ void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag)
 
 	Uint8 *buf = dl_tag_for_surface(surface);
 	if (buf != NULL)
-		buf[(size_t)y * DL_TAG_W + (size_t)x] = (Uint8)tag;
+	{
+		// Direct pixels (superpixels, VFX) have no object footprint: class only.
+		buf[(size_t)y * DL_TAG_W + (size_t)x] = (Uint8)(tag & DL_TAG_CLASS_MASK);
+	}
 
 	// A directly drawn pixel (a superpixel) carries no object colour of its
 	// own: clear any representative left by a sprite it was drawn over.
@@ -999,10 +1024,12 @@ void drawlist_record_blit_sprite(SDL_Surface *surface, int x, int y,
 		Uint8 *lcolbuf = dl_lcol_for_surface(surface);
 		if (tagbuf != NULL && lcolbuf != NULL)
 		{
-			const Uint8 tag = dl_tag_value();
-			const Uint8 rep = (tag != DL_TAG_NONE)
-				? dl_sprite_rep(table, index, variant, hue, value)
+			const Uint8 cls = dl_tag_value();
+			Uint8 foot = 0;
+			const Uint8 rep = (cls != DL_TAG_NONE)
+				? dl_sprite_rep(table, index, variant, hue, value, &foot)
 				: 0;
+			const Uint8 tag = dl_tag_pack(cls, foot);
 			dl_tag_sprite(tagbuf, lcolbuf, x, y, table, index, tag, rep);
 		}
 	}
@@ -1037,10 +1064,12 @@ void drawlist_record_blit_sprite2(SDL_Surface *surface, int x, int y,
 		if (tagbuf != NULL && lcolbuf != NULL)
 		{
 			const bool clip = (variant == DL_SPRITE2_CLIP || variant == DL_SPRITE2_FILTER_CLIP);
-			const Uint8 tag = dl_tag_value();
-			const Uint8 rep = (tag != DL_TAG_NONE)
-				? dl_sprite2_rep(sheet, index, variant, filter)
+			const Uint8 cls = dl_tag_value();
+			Uint8 foot = 0;
+			const Uint8 rep = (cls != DL_TAG_NONE)
+				? dl_sprite2_rep(sheet, index, variant, filter, &foot)
 				: 0;
+			const Uint8 tag = dl_tag_pack(cls, foot);
 			dl_tag_sprite2(tagbuf, lcolbuf, x, y, sheet, index, tag, clip, rep);
 		}
 	}

@@ -113,6 +113,8 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 299, 0,   "regress-menu",      true },
 		{ 310, 0,   "log-file",          true },
 		{ 301, 0,   "regress-smooth-effects-check", false },
+		{ 311, 0,   "regress-front-weapon", true },
+		{ 312, 0,   "regress-front-power",  true },
 		
 		{ 305, 0,   "deadzone",          true },
 		
@@ -222,6 +224,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-stick-log=FILE     Log the per-tick ship x/y and x/y velocity of a");
 			logInfo("                               --regress-stick run to FILE");
 			logInfo("  --regress-reverse-y          Regress only: force the reverse-controls smoothie on");
+			logInfo("  --regress-front-weapon=N      Regress only: front weapon id (0-42) for --regress-script");
+			logInfo("  --regress-front-power=N       Regress only: front weapon power (1-11) for --regress-script");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -636,6 +640,30 @@ void JE_paramCheck(int argc, char *argv[])
 		case 301: // --regress-smooth-effects-check
 			regress_smooth_effects_check = 1;
 			break;
+
+		case 311: // --regress-front-weapon=N
+		{
+			const int id = atoi(option.arg);
+			if (id < 0 || id > PORT_NUM)
+			{
+				logError("%s: --regress-front-weapon must be between 0 and %d", argv[0], PORT_NUM);
+				exit(EXIT_FAILURE);
+			}
+			regress_front_weapon = id;
+			break;
+		}
+
+		case 312: // --regress-front-power=N
+		{
+			const int power_level = atoi(option.arg);
+			if (power_level < 1 || power_level > 11)
+			{
+				logError("%s: --regress-front-power must be between 1 and 11", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_front_power = power_level;
+			break;
+		}
 
 		case 299: // --regress-menu=ingame|pause|help
 			if (strcmp(option.arg, "ingame") == 0)

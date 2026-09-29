@@ -85,6 +85,27 @@ int regress_stick_y = 0;
 const char *regress_stick_log_path = NULL;
 int regress_reverse_y = 0;
 
+// --regress-front-weapon / --regress-front-power: -1 = leave the built-in
+// loadout.  Applied by regress_apply_loadout() right after JE_initPlayerData()
+// on the --regress-script path.
+int regress_front_weapon = -1;
+int regress_front_power = -1;
+
+void regress_apply_loadout(void)
+{
+	if (regress_front_weapon < 0 && regress_front_power < 0)
+		return;
+
+	if (regress_front_weapon >= 0)
+		player[0].items.weapon[FRONT_WEAPON].id = (JE_byte)regress_front_weapon;
+	if (regress_front_power >= 0)
+		player[0].items.weapon[FRONT_WEAPON].power = (JE_byte)regress_front_power;
+
+	// The engine snapshots last_items for the pause/items screens; keep it
+	// consistent with the override.
+	player[0].last_items = player[0].items;
+}
+
 // Per-tick stick-trajectory log (--regress-stick-log).
 static FILE *regress_stick_log = NULL;
 static unsigned long regress_stick_tick = 0;

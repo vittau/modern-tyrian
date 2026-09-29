@@ -287,6 +287,49 @@ static Uint16 mb_light_w[256];
 // the other half.
 static Uint8 mb_hue_rep[16];
 
+// --- Per-sprite emissive-footprint cap for player shots ----------------------
+//
+// The pixel-derived light is a blurred sum of every tagged pixel's emission, so
+// a sprite's contribution grows with its emissive *area*.  A large, dense
+// player shot (the Mega Cannon at power 6 is the reported case; the high-power
+// Laser and Zica are the same kind) then floods the field with a wide, bright
+// halo, while the small shots (Pulse-Cannon, Vulcan, Lightning) sit well below
+// it.  Each sprite blit stamps its bright-pixel count (its emissive footprint,
+// drawlist.c) into the tag; a player-shot pixel's emission is scaled by
+// MB_OBJ_FOOT_REF / footprint once the sprite has more than MB_OBJ_FOOT_REF
+// bright pixels, i.e. one sprite never emits more light than a reference-sized
+// one however big it is.  Sprites at or below the reference are untouched (the
+// Pulse-Cannon, Multi-Cannon, Vulcan and Protron shots are all under 30 bright
+// pixels; the Mega Cannon orb's four sprites are 70-95 each).
+//
+// Only the player-shot class is capped.  The flood comes from the sustained
+// fire the player holds down, while explosions (up to ~110 bright pixels) and
+// pickups are brief and are meant to flash, so they keep their full emission.
+#define MB_OBJ_FOOT_REF 32
+static Uint16 mb_oscale[DL_TAG_FOOT_STEPS];  // Q8: 256 = unchanged
+
+static void mb_build_oscale(void)
+{
+	mb_oscale[0] = 256;  // no object footprint: unchanged
+	for (int i = 1; i < DL_TAG_FOOT_STEPS; ++i)
+	{
+		// The step's centre (a step covers DL_TAG_FOOT_PER_STEP bright pixels).
+		const int foot = i * DL_TAG_FOOT_PER_STEP + DL_TAG_FOOT_PER_STEP / 2;
+		mb_oscale[i] = foot <= MB_OBJ_FOOT_REF
+			? 256
+			: (Uint16)((Uint32)MB_OBJ_FOOT_REF * 256u / (Uint32)foot);
+	}
+}
+
+// The Q8 footprint scale of a tag byte: the cap above for player shots, none
+// (256) for every other class.
+static inline Uint16 mb_tag_oscale(Uint8 tag)
+{
+	return (tag & DL_TAG_CLASS_MASK) == DL_TAG_PLAYER_SHOT
+		? mb_oscale[tag >> DL_TAG_FOOT_SHIFT]
+		: 256;
+}
+
 // Ceiling on the combined per-pixel glow before it is screen-blended.  Keeps a
 // dense volley of overlapping shots from saturating into a solid coloured blob;
 // the base pixel keeps its own detail above it.  Round 3 raised the gains by
@@ -299,6 +342,8 @@ static Uint8 mb_hue_rep[16];
 
 static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int light_threshold)
 {
+	mb_build_oscale();
+
 	for (int i = 0; i < 256; ++i)
 	{
 		const int r = palette[i].r, g = palette[i].g, b = palette[i].b;
@@ -540,14 +585,16 @@ static void mb_add_explicit_sources(void)
 // Emitted colour of one playfield pixel: the object's representative colour
 // (or, when the object buffer holds 0 --- VFX/superpixels and anything not
 // stamped by a sprite blit, the saturated shade of the pixel's own hue family),
-// scaled by the pixel's own emission weight.  Packed 0xRRGGBB.
-static inline Uint32 mb_emit_rgb(const Uint8 *rep_class, Uint8 pi, Uint8 rep, Uint16 w)
+// scaled by the pixel's own emission weight and by the object's per-object
+// footprint scale (Q8; player shots only).  Packed 0xRRGGBB.
+static inline Uint32 mb_emit_rgb(const Uint8 *rep_class, Uint8 pi, Uint8 rep, Uint16 w, Uint16 oscale)
 {
 	const Uint8 idx = rep != 0 ? rep : mb_hue_rep[pi >> 4];
 	const Uint8 *c = rep_class + idx * 3;
-	const Uint32 r = (Uint32)((c[0] * w) >> 8);
-	const Uint32 g = (Uint32)((c[1] * w) >> 8);
-	const Uint32 b = (Uint32)((c[2] * w) >> 8);
+	const Uint32 s = (Uint32)w * (Uint32)oscale >> 8;  // emission weight x object scale, Q8
+	const Uint32 r = (Uint32)((c[0] * s) >> 8);
+	const Uint32 g = (Uint32)((c[1] * s) >> 8);
+	const Uint32 b = (Uint32)((c[2] * s) >> 8);
 	return (r << 16) | (g << 8) | b;
 }
 
@@ -580,9 +627,11 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 
 				for (int k = 0; k < 4; ++k)
 				{
-					if (t[k] == DL_TAG_NONE)
+					if ((t[k] & DL_TAG_CLASS_MASK) == DL_TAG_NONE)
 						continue;
-					const Uint32 v = mb_emit_rgb(mb_rep[t[k]], p[k], rr[k], mb_bloom_w[p[k]]);
+					const Uint8 cls = t[k] & DL_TAG_CLASS_MASK;
+					const Uint32 v = mb_emit_rgb(mb_rep[cls], p[k], rr[k], mb_bloom_w[p[k]],
+					                             mb_tag_oscale(t[k]));
 					sr += (v >> 16) & 0xff;
 					sg += (v >> 8) & 0xff;
 					sb += v & 0xff;
@@ -614,9 +663,11 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 
 					for (int j = 0; j < 4; ++j)
 					{
-						if (tag[j] == DL_TAG_NONE)
+						if ((tag[j] & DL_TAG_CLASS_MASK) == DL_TAG_NONE)
 							continue;
-						const Uint32 v = mb_emit_rgb(mb_rep[tag[j]], row[j], lcl[j], mb_light_w[row[j]]);
+						const Uint8 cls = tag[j] & DL_TAG_CLASS_MASK;
+						const Uint32 v = mb_emit_rgb(mb_rep[cls], row[j], lcl[j], mb_light_w[row[j]],
+						                             mb_tag_oscale(tag[j]));
 						sr += (v >> 16) & 0xff;
 						sg += (v >> 8) & 0xff;
 						sb += v & 0xff;
@@ -648,10 +699,11 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 
 		for (int x = 0; x < MODERN_PLAYFIELD_W; ++x)
 		{
-			if (tag[x] != DL_TAG_NONE)
+			const Uint8 cls = tag[x] & DL_TAG_CLASS_MASK;
+			if (cls != DL_TAG_NONE)
 			{
-				mb_stat_tagged[tag[x]]++;
-				if (tag[x] == DL_TAG_ITEM)
+				mb_stat_tagged[cls]++;
+				if (cls == DL_TAG_ITEM)
 					item_tagged++;
 			}
 
@@ -661,8 +713,8 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 			if (!bright)
 				continue;
 
-			if (tag[x] != DL_TAG_NONE)
-				mb_stat_emissive[tag[x]]++;
+			if (cls != DL_TAG_NONE)
+				mb_stat_emissive[cls]++;
 			else
 				mb_stat_untagged++;
 
@@ -670,22 +722,23 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 			// threshold matters, and only the tag-carrying particles.  Weighted
 			// by the emitted colour's max channel so the bright cores (which
 			// dominate the blurred light) count more than the dim rims.
-			if (do_light && mb_light_w[row[x]] != 0 && tag[x] != DL_TAG_NONE)
+			if (do_light && mb_light_w[row[x]] != 0 && cls != DL_TAG_NONE)
 			{
-				const Uint32 v = mb_emit_rgb(mb_rep[tag[x]], row[x], lcl[x], mb_light_w[row[x]]);
+				const Uint32 v = mb_emit_rgb(mb_rep[cls], row[x], lcl[x], mb_light_w[row[x]],
+				                             mb_tag_oscale(tag[x]));
 				const int cr = (int)((v >> 16) & 0xff);
 				const int cg = (int)((v >> 8) & 0xff);
 				const int cb = (int)(v & 0xff);
 				const int mx = MAX(cr, MAX(cg, cb));
 				const int mn = MIN(cr, MIN(cg, cb));
 				const Uint8 rep = lcl[x] != 0 ? lcl[x] : row[x];
-				mb_stat_rgb[tag[x]][0] += (unsigned long)cr;
-				mb_stat_rgb[tag[x]][1] += (unsigned long)cg;
-				mb_stat_rgb[tag[x]][2] += (unsigned long)cb;
-				mb_stat_energy[tag[x]] += (unsigned long)mx;
-				mb_stat_hue[tag[x]][rep >> 4] += (unsigned long)mx;
+				mb_stat_rgb[cls][0] += (unsigned long)cr;
+				mb_stat_rgb[cls][1] += (unsigned long)cg;
+				mb_stat_rgb[cls][2] += (unsigned long)cb;
+				mb_stat_energy[cls] += (unsigned long)mx;
+				mb_stat_hue[cls][rep >> 4] += (unsigned long)mx;
 				if (mx > 0 && (mx - mn) * 4 < mx)
-					mb_stat_white[tag[x]] += (unsigned long)mx;
+					mb_stat_white[cls] += (unsigned long)mx;
 			}
 		}
 	}
