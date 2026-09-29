@@ -328,6 +328,35 @@ static void set_windowed_size_for_mode(void)
 	window_center_in_display(window_get_display());
 }
 
+void video_fit_launcher_window(void)
+{
+	if (fullscreen_display != -1)
+		return;
+
+	// The largest 16:9 window inside ~80% of the usable desktop.
+	int w = 1280, h = 720;
+	SDL_Rect usable;
+	if (SDL_GetDisplayUsableBounds(window_get_display(), &usable) && usable.w > 0 && usable.h > 0)
+	{
+		h = (int)floorf((float)usable.h * 0.8f);
+		w = h * 16 / 9;
+		if (w > (int)((float)usable.w * 0.8f))
+		{
+			w = (int)floorf((float)usable.w * 0.8f);
+			h = w * 9 / 16;
+		}
+		if (h < vga_height)
+		{
+			w = vga_width * 2;
+			h = w * 9 / 16;
+		}
+	}
+
+	SDL_SetWindowSize(main_window, w, h);
+	window_center_in_display(window_get_display());
+	modern_update_canvas_size();
+}
+
 void video_apply_display_settings(void)
 {
 	// Called when the presentation/aspect/pixel-aspect settings change at

@@ -61,6 +61,21 @@ To see the log while diagnosing a problem, add this launch option:
 (The game also writes `~/.config/opentyrian/opentyrian.log` automatically on a
 Deck, so this is only needed if you want the log somewhere else.)
 
+The built-in launcher opens on **every start**, including in Game Mode. Its
+painted panels render at the actual display resolution and fit the Deck's
+1280×800 screen. Use the d-pad or left stick to select **Tyrian 2.1** or
+**Tyrian 2000**, A to confirm, and B to exit. The last choice only preselects
+the panel; it never skips this screen. Down selects the About/Exit bar; About
+shows version, credits, licences, and the data paths in use.
+
+The package includes only the freeware 2.1 data. Until a valid 2000 installation
+is found, its button reads **INSTALL** and explains manual installation. Place
+your 2000 data in `~/Games/opentyrian/tyrian2000/`, beside the executable, or
+set the `TYRIAN2000_DATA` environment variable to its directory. Saves and
+scores are separate in `tyrian21/` and `tyrian2000/` under the shared user root.
+For automation, `--variant=2.1|2000` skips the launcher; leave normal Steam
+launch options empty to use the selector.
+
 ## 4. Controller
 
 The built-in Steam Deck controls are ordinary SDL gamepads, and OpenTyrian uses

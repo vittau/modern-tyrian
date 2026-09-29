@@ -19,11 +19,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 UPDATE=0
+LAUNCHER_ONLY=0
 for arg in "$@"; do
 	case "$arg" in
 		--update) UPDATE=1 ;;
+		--only-launcher) LAUNCHER_ONLY=1 ;;
 		-h|--help)
-			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update]"
+			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update] [--only-launcher]"
 			exit 0 ;;
 		*) echo "ERROR: unknown option: $arg" >&2; exit 2 ;;
 	esac
@@ -115,7 +117,7 @@ run_case() {
 		failures=$((failures + 1))
 		return
 	fi
-	if ! grep -Fq 'validation: ok.' "$log"; then
+	if [ "$kind" != launcher ] && ! grep -Fq 'validation: ok.' "$log"; then
 		echo "FAIL $label: the run did not validate the Tyrian 2000 data"
 		failures=$((failures + 1))
 		return
@@ -137,6 +139,26 @@ run_case() {
 		failures=$((failures + 1))
 	fi
 }
+
+# Launcher fixtures are independent of either game's data, save files and clock.
+# Run just these with --only-launcher, including when adding/updating their hashes.
+for size in 1280x720 1280x800; do
+	for data in installed missing; do
+		for panel in 1 2; do
+			run_case launcher "launcher-$size-$data-p$panel" "--regress-launcher=$size,$data,$panel"
+		done
+	done
+done
+run_case launcher launcher-1280x800-about --regress-launcher=1280x800,installed,2,about
+run_case launcher launcher-1280x800-message --regress-launcher=1280x800,missing,2,message
+if [ "$LAUNCHER_ONLY" -eq 1 ]; then
+	if [ "$failures" -eq 0 ]; then
+		echo "All $cases launcher cases passed."
+		exit 0
+	fi
+	echo "$failures of $cases launcher cases failed."
+	exit 1
+fi
 
 M="--regress-modern --regress-detail=$MODERN_DETAIL"
 
