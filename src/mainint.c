@@ -25,10 +25,12 @@
 #include "editship.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_rules.h"
 #include "game_schema.h"
 #include "font.h"
 #include "fonthand.h"
 #include "helptext.h"
+#include "highscores.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "lds_play.h"
@@ -963,8 +965,9 @@ void JE_nextEpisode(void)
 {
 	strcpy(lastLevelName, "Completed");
 
-	if (episodeNum == initial_episode_num && !gameHasRepeated && episodeNum != EPISODE_AVAILABLE &&
-	    !isNetworkGame && !constantPlay)
+	if (episodeNum == initial_episode_num && !gameHasRepeated &&
+	    (episodeNum != EPISODE_AVAILABLE || gameRules()->final_episode_score) &&
+	    episodeNum <= highScoreEpisodes() && !isNetworkGame && !constantPlay)
 	{
 		JE_highScoreCheck();
 	}
@@ -1042,6 +1045,7 @@ void JE_initPlayerData(void)
 	gameHasRepeated = false;
 	onePlayerAction = false;
 	superArcadeMode = SA_NONE;
+	timedBattleMode = false;
 	superTyrian = false;
 	twoPlayerMode = false;
 
@@ -1070,14 +1074,9 @@ void JE_initPlayerData(void)
 
 void JE_sortHighScores(void)
 {
-	JE_byte x;
-
-	temp = 0;
-	for (x = 0; x < 6; x++)
-	{
-		JE_sort();
-		temp += 3;
-	}
+	highScoreSortAll();
+	// The legacy six-board sort leaves the shared scratch index at 18.
+	temp = 18;
 }
 
 void JE_highScoreScreen(void)
@@ -1088,8 +1087,8 @@ void JE_highScoreScreen(void)
 	bool restart = true;
 
 	size_t episodeIndex = 0;
-	// Save file only has space for scores for 3 episodes.
-	const size_t episodeCount = 3;
+	// Only the episodes that have boards in the save file.
+	const size_t episodeCount = highScoreEpisodes();
 
 	const int xCenter = 320 / 2;
 	const int yMenuHeader = 3;
@@ -1130,12 +1129,12 @@ void JE_highScoreScreen(void)
 		{
 			const int y = 75 + 10 * i;
 
-			const JE_SaveFileType *const saveFile = &saveFiles[episodeIndex * 6 + i];
-			const int rank = MIN(saveFile->highScoreDiff, COUNTOF(difficultyNameB) - 1);
+			const unsigned int board = highScoreBoard(episodeIndex + 1, false);
+			const int rank = MIN(highScoreDifficulty(board, i), COUNTOF(difficultyNameB) - 1);
 
-			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, saveFile->highScore1);
+			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, highScoreValue(board, i));
 			JE_textShade(VGAScreen, 20, y, buffer, 15, 0, FULL_SHADE);
-			JE_textShade(VGAScreen, 110, y, saveFile->highScoreName, 15, 2, FULL_SHADE);
+			JE_textShade(VGAScreen, 110, y, highScoreName(board, i), 15, 2, FULL_SHADE);
 			JE_textShade(VGAScreen, 250, y, difficultyNameB[rank], 15, rank + (rank == 0 ? 0 : -1), FULL_SHADE);
 		}
 
@@ -1147,12 +1146,12 @@ void JE_highScoreScreen(void)
 		{
 			const int y = 135 + 10 * i;
 
-			const JE_SaveFileType *const saveFile = &saveFiles[episodeIndex * 6 + 3 + i];
-			const int rank = MIN(saveFile->highScoreDiff, COUNTOF(difficultyNameB) - 1);
+			const unsigned int board = highScoreBoard(episodeIndex + 1, true);
+			const int rank = MIN(highScoreDifficulty(board, i), COUNTOF(difficultyNameB) - 1);
 
-			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, saveFile->highScore1);
+			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, highScoreValue(board, i));
 			JE_textShade(VGAScreen, 20, y, buffer, 15, 0, FULL_SHADE);
-			JE_textShade(VGAScreen, 110, y, saveFile->highScoreName, 15, 2, FULL_SHADE);
+			JE_textShade(VGAScreen, 110, y, highScoreName(board, i), 15, 2, FULL_SHADE);
 			JE_textShade(VGAScreen, 250, y, difficultyNameB[rank], 15, rank + (rank == 0 ? 0 : -1), FULL_SHADE);
 		}
 
@@ -1995,25 +1994,20 @@ void JE_highScoreCheck(void)
 			temp_score = JE_totalScore(&player[0]);
 		}
 
-		int slot;
-		const int first_slot = (initial_episode_num - 1) * 6 + (twoPlayerMode ? 3 : 0),
-		          slot_limit = first_slot + 3;
+		unsigned int slot;
+		const unsigned int board = highScoreBoard(initial_episode_num, twoPlayerMode);
 
-		for (slot = first_slot; slot < slot_limit; ++slot)
+		for (slot = 0; slot < HIGH_SCORE_ENTRIES; ++slot)
 		{
-			if (temp_score > saveFiles[slot].highScore1)
+			if (temp_score > highScoreValue(board, slot))
 				break;
 		}
 
 		// did you get a high score?
-		if (slot < slot_limit)
+		if (slot < HIGH_SCORE_ENTRIES)
 		{
 			// shift down old scores
-			for (int i = slot_limit - 1; i > slot; --i)
-			{
-				saveFiles[i].highScore1 = saveFiles[i - 1].highScore1;
-				strcpy(saveFiles[i].highScoreName, saveFiles[i - 1].highScoreName);
-			}
+			highScoreShiftDown(board, slot);
 
 			JE_clr256(VGAScreen);
 			JE_showVGA();
@@ -2161,9 +2155,7 @@ void JE_highScoreCheck(void)
 
 				if (!cancel)
 				{
-					saveFiles[slot].highScore1 = temp_score;
-					strcpy(saveFiles[slot].highScoreName, stemp);
-					saveFiles[slot].highScoreDiff = difficultyLevel;
+					highScoreSet(board, slot, temp_score, stemp, difficultyLevel);
 				}
 
 				fade_black(15);
@@ -2172,13 +2164,13 @@ void JE_highScoreCheck(void)
 				JE_dString(VGAScreen, JE_fontCenter(miscText[50], FONT_SHAPES), 10, miscText[50], FONT_SHAPES);
 				JE_dString(VGAScreen, JE_fontCenter(episode_name[episodeNum], SMALL_FONT_SHAPES), 35, episode_name[episodeNum], SMALL_FONT_SHAPES);
 
-				for (int i = first_slot; i < slot_limit; ++i)
+				for (unsigned int i = 0; i < HIGH_SCORE_ENTRIES; ++i)
 				{
 					if (i != slot)
 					{
-						sprintf(buffer, "~#%d:~  %d", (i - first_slot + 1), saveFiles[i].highScore1);
-						JE_textShade(VGAScreen,  20, ((i - first_slot + 1) * 12) + 65, buffer, 15, 0, FULL_SHADE);
-						JE_textShade(VGAScreen, 150, ((i - first_slot + 1) * 12) + 65, saveFiles[i].highScoreName, 15, 2, FULL_SHADE);
+						sprintf(buffer, "~#%d:~  %d", i + 1, highScoreValue(board, i));
+						JE_textShade(VGAScreen,  20, ((i + 1) * 12) + 65, buffer, 15, 0, FULL_SHADE);
+						JE_textShade(VGAScreen, 150, ((i + 1) * 12) + 65, highScoreName(board, i), 15, 2, FULL_SHADE);
 					}
 				}
 
@@ -2186,15 +2178,15 @@ void JE_highScoreCheck(void)
 
 				fade_palette(colors, 15, 0, 255);
 
-				sprintf(buffer, "~#%d:~  %d", (slot - first_slot + 1), saveFiles[slot].highScore1);
+				sprintf(buffer, "~#%d:~  %d", slot + 1, highScoreValue(board, slot));
 
 				frameCountMax = 6;
 				textGlowFont = TINY_FONT;
 
 				textGlowBrightness = 10;
-				JE_outTextGlow(VGAScreenSeg,  20, (slot - first_slot + 1) * 12 + 65, buffer);
+				JE_outTextGlow(VGAScreenSeg,  20, (slot + 1) * 12 + 65, buffer);
 				textGlowBrightness = 10;
-				JE_outTextGlow(VGAScreenSeg, 150, (slot - first_slot + 1) * 12 + 65, saveFiles[slot].highScoreName);
+				JE_outTextGlow(VGAScreenSeg, 150, (slot + 1) * 12 + 65, highScoreName(board, slot));
 				textGlowBrightness = 10;
 				JE_outTextGlow(VGAScreenSeg, JE_fontCenter(miscText[4], TINY_FONT), 180, miscText[4]);
 
@@ -2328,7 +2320,7 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 			{
 
 				/*Use SuperTyrian ShipCombos or not?*/
-				temp5 = superTyrian ? shipCombosB[temp2] : shipCombos[ship][temp2];
+				temp5 = superTyrian ? shipCombosB[temp2] : gameShipCombos(ship)[temp2];
 
 				// temp5 == selected combo in ship
 				if (temp5 == 0) /* combo doesn't exists */
@@ -2367,36 +2359,6 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 			}
 		}
 
-	}
-}
-
-void JE_sort(void)
-{
-	JE_byte a, b;
-
-	for (a = 0; a < 2; a++)
-	{
-		for (b = a + 1; b < 3; b++)
-		{
-			if (saveFiles[temp + a].highScore1 < saveFiles[temp + b].highScore1)
-			{
-				JE_longint tempLI;
-				char tempStr[30];
-				JE_byte tempByte;
-
-				tempLI = saveFiles[temp + a].highScore1;
-				saveFiles[temp + a].highScore1 = saveFiles[temp + b].highScore1;
-				saveFiles[temp + b].highScore1 = tempLI;
-
-				strcpy(tempStr, saveFiles[temp + a].highScoreName);
-				strcpy(saveFiles[temp + a].highScoreName, saveFiles[temp + b].highScoreName);
-				strcpy(saveFiles[temp + b].highScoreName, tempStr);
-
-				tempByte = saveFiles[temp + a].highScoreDiff;
-				saveFiles[temp + a].highScoreDiff = saveFiles[temp + b].highScoreDiff;
-				saveFiles[temp + b].highScoreDiff = tempByte;
-			}
-		}
 	}
 }
 
@@ -4256,18 +4218,20 @@ redo:
 					{
 						shotMultiPos[SHOT_REAR] = 0;
 
-						if (superArcadeMode != SA_NONE && superArcadeMode <= SA_NORTSHIPZ)
+						const GameArcadeRules *const arcade = gameRules()->arcade;
+
+						if (superArcadeMode != SA_NONE && superArcadeMode <= arcade->ship_count)
 						{
 							shotMultiPos[SHOT_SPECIAL] = 0;
 							shotMultiPos[SHOT_SPECIAL2] = 0;
-							if (player[0].items.special == SASpecialWeapon[superArcadeMode-1])
+							if (player[0].items.special == arcade->special[superArcadeMode-1])
 							{
-								player[0].items.special = SASpecialWeaponB[superArcadeMode-1];
+								player[0].items.special = arcade->special_b[superArcadeMode-1];
 								this_player->weapon_mode = 2;
 							}
 							else
 							{
-								player[0].items.special = SASpecialWeapon[superArcadeMode-1];
+								player[0].items.special = arcade->special[superArcadeMode-1];
 								this_player->weapon_mode = 1;
 							}
 						}
@@ -4563,7 +4527,9 @@ redo:
 								}
 								else  // has infinite ammo
 								{
-									if (button[0] || button[1 + i])
+									// Where the variant says so, a sidekick that charges is not fired
+									// by the main fire button, only by its own.
+									if ((button[0] && gameSidekickMainFire(this_option->pwr)) || button[1 + i])
 									{
 										b = player_shot_create(this_option->wport, shot_i, this_player->sidekick[i].x, this_player->sidekick[i].y, *mouseX_, *mouseY_, this_option->wpnum + this_player->sidekick[i].charge, playerNum_);
 
@@ -4737,12 +4703,13 @@ void JE_playerCollide(Player *this_player, JE_byte playerNum_)
 						enemyAvail[z] = 1;
 						soundQueue[7] = S_POWERUP;
 					}
-					else if (superArcadeMode != SA_NONE && evalue > 30000)
+					else if (superArcadeMode != SA_NONE && superArcadeMode <= gameRules()->arcade->ship_count &&
+					         evalue > 30000 && evalue <= 30005)
 					{
 						shotMultiPos[SHOT_FRONT] = 0;
 						shotRepeat[SHOT_FRONT] = 10;
 
-						tempW = SAWeapon[superArcadeMode-1][evalue - 30000-1];
+						tempW = gameRules()->arcade->weapon[superArcadeMode-1][evalue - 30000-1];
 
 						// if picked up already-owned weapon, power weapon up
 						if (tempW == player[0].items.weapon[FRONT_WEAPON].id)

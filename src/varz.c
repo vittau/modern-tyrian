@@ -22,6 +22,7 @@
 #include "drawlist.h"
 #include "editship.h"
 #include "episodes.h"
+#include "game_rules.h"
 #include "joystick.h"
 #include "logging.h"
 #include "loudness.h"
@@ -39,21 +40,6 @@
 #include <string.h>
 
 JE_integer tempDat, tempDat2, tempDat3;
-
-const JE_byte SANextShip[SA + 2] /* [0..SA + 1] */ = { 3, 9, 6, 2, 5, 1, 4, 3, 7 }; // 0 -> 3 -> 2 -> 6 -> 4 -> 5 -> 1 -> 9 -> 7
-const JE_word SASpecialWeapon[SA] /* [1..SA] */  = { 7, 8, 9, 10, 11, 12, 13 };
-const JE_word SASpecialWeaponB[SA] /* [1..SA] */ = {37, 6, 15, 40, 16, 14, 41 };
-const JE_byte SAShip[SA] /* [1..SA] */ = { 3, 1, 5, 10, 2, 11, 12 };
-const JE_word SAWeapon[SA][5] /* [1..SA, 1..5] */ =
-{  /*  R  Bl  Bk  G   P */
-	{  9, 31, 32, 33, 34 },  /* Stealth Ship */
-	{ 19,  8, 22, 41, 34 },  /* StormWind    */
-	{ 27,  5, 20, 42, 31 },  /* Techno       */
-	{ 15,  3, 28, 22, 12 },  /* Enemy        */
-	{ 23, 35, 25, 14,  6 },  /* Weird        */
-	{  2,  5, 21,  4,  7 },  /* Unknown      */
-	{ 40, 38, 37, 41, 36 }   /* NortShip Z   */
-};
 
 const JE_byte specialArcadeWeapon[PORT_NUM] /* [1..Portnum] */ =
 {
@@ -149,24 +135,6 @@ const JE_byte shipCombosB[21] /* [1..21] */ =
 	{15,16,17,18,19,20,21,22,23,24, 7, 8, 5,25,14, 4, 6, 3, 9, 2,26};
   /*!! SUPER Tyrian !!*/
 const JE_byte superTyrianSpecials[4] /* [1..4] */ = {1,2,4,5};
-
-const JE_byte shipCombos[14][3] /* [0..12, 1..3] */ =
-{
-	{ 5, 4, 7},  /*2nd Player ship*/
-	{ 1, 2, 0},  /*USP Talon*/
-	{14, 4, 0},  /*Super Carrot*/
-	{ 4, 5, 0},  /*Gencore Phoenix*/
-	{ 6, 5, 0},  /*Gencore Maelstrom*/
-	{ 7, 8, 0},  /*MicroCorp Stalker*/
-	{ 7, 9, 0},  /*MicroCorp Stalker-B*/
-	{10, 3, 5},  /*Prototype Stalker-C*/
-	{ 5, 8, 9},  /*Stalker*/
-	{ 1, 3, 0},  /*USP Fang*/
-	{ 7,16,17},  /*U-Ship*/
-	{ 2,11,12},  /*1st Player ship*/
-	{ 3, 8,10},  /*Nort ship*/
-	{ 0, 0, 0}   // Dummy entry added for Stalker 21.126
-};
 
 /*Street-Fighter Commands*/
 JE_byte SFCurrentCode[2][21]; /* [1..2, 1..21] */
@@ -599,7 +567,7 @@ void JE_specialComplete(JE_byte playerNum, JE_byte specialType)
 		case 12:  // Invulnerability
 			player[playerNum-1].invulnerable_ticks = temp2 * 10;
 
-			if (superArcadeMode > 0 && superArcadeMode <= SA)
+			if (superArcadeMode > 0 && superArcadeMode <= gameRules()->arcade->ship_count)
 			{
 				shotRepeat[SHOT_SPECIAL] = 250;
 				b = player_shot_create(0, SHOT_SPECIAL2, player[0].x, player[0].y, player[0].mouseX, player[0].mouseY, 707, 1);
@@ -854,7 +822,7 @@ void JE_setupExplosion(
 	const struct {
 		JE_word sprite;
 		JE_byte ttl;
-	} explosion_data[53] /* [1..53] */ = {
+	} explosion_data[54] /* [1..54] */ = {
 		{ 144,  7 },
 		{ 120, 12 },
 		{ 190, 12 },
@@ -907,8 +875,18 @@ void JE_setupExplosion(
 		{ 208, 14 },
 		{ 246, 14 },
 		{ 227, 14 },
-		{ 265, 14 }
+		{ 265, 14 },
+		{  96,  3 }   /*Tyrian 2000 only: see GameRules.explosion_count*/
 	};
+
+	// The type comes from weapon and enemy data, which in 2.1 never names the
+	// last entry (it is Tyrian 2000's); refuse it there instead of reading past
+	// the table the variant has.
+	if (type < 0 || type >= gameRules()->explosion_count)
+	{
+		if (!gameIsSmokeTrail(type))
+			return;
+	}
 
 	if (y > -16 && y < 190)
 	{
@@ -923,7 +901,7 @@ void JE_setupExplosion(
 					explosions[i].y += 12;
 					explosions[i].x += 2;
 				}
-				else if (type == 98)
+				else if (gameIsSmokeTrail(type))
 				{
 					type = 6;
 				}

@@ -20,6 +20,7 @@
 
 #include "drawlist.h"
 #include "episodes.h"
+#include "game_rules.h"
 #include "game_schema.h"
 #include "player.h"
 #include "sprite.h"
@@ -257,7 +258,7 @@ bool player_shot_move_and_draw(
 
 		if (shot->shotTrail != 255)
 		{
-			if (shot->shotTrail == 98)
+			if (gameIsSmokeTrail(shot->shotTrail))
 				JE_setupExplosion(shot->shotX - shot->shotXM, shot->shotY - shot->shotYM, 0, shot->shotTrail, false, false);
 			else
 				JE_setupExplosion(shot->shotX, shot->shotY, 0, shot->shotTrail, false, false);
@@ -409,7 +410,8 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 			shot->shotDirY = -1;
 		}
 
-		shot->shotTrail = weapon->trail;
+		// Tyrian 2000's Flying Punch trails only from the first tile of its volley.
+		shot->shotTrail = gameShotTrail(weapon->trail, shotMultiPos[bay_i]);
 
 		if (weapon->attack[shotMultiPos[bay_i]-1] > 99 && weapon->attack[shotMultiPos[bay_i]-1] < 250)
 		{

@@ -20,12 +20,14 @@ cd "$ROOT" || exit 1
 
 UPDATE=0
 LAUNCHER_ONLY=0
+UPDATE_CASES=""
 for arg in "$@"; do
 	case "$arg" in
 		--update) UPDATE=1 ;;
+		--update-case=*) UPDATE=1; UPDATE_CASES="$UPDATE_CASES ${arg#*=}" ;;
 		--only-launcher) LAUNCHER_ONLY=1 ;;
 		-h|--help)
-			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update] [--only-launcher]"
+			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update | --update-case=LABEL ...] [--only-launcher]"
 			exit 0 ;;
 		*) echo "ERROR: unknown option: $arg" >&2; exit 2 ;;
 	esac
@@ -100,6 +102,9 @@ describe_status() {
 run_case() {
 	local kind=$1 label=$2 out log baseline rc start elapsed lines
 	shift 2
+	if [ -n "$UPDATE_CASES" ]; then
+		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
+	fi
 	cases=$((cases + 1))
 	out="$ACTUAL_DIR/$label.txt"
 	log="$ACTUAL_DIR/$label.log"
@@ -123,6 +128,20 @@ run_case() {
 		return
 	fi
 	lines=$(wc -l < "$out" | tr -d ' ')
+	# A hash alone cannot establish that a late level event was reached.
+	local coverage=""
+	case "$label" in
+		state-e4-level5-*) coverage='Rule coverage: event 68 replacement ran.' ;;
+		state-e5-level5-*) coverage='Rule coverage: spawn -200 ran.' ;;
+		state-e5-level7-events-*) coverage='Rule coverage: event 68 replacement ran.' ;;
+		state-e5-level8-*) coverage='Rule coverage: event 58 launch ran.' ;;
+		rules-*) coverage="Rule fixture PASS: ${label#rules-}" ;;
+	esac
+	if [ -n "$coverage" ] && ! grep -Fq "$coverage" "$log"; then
+		echo "FAIL $label: required rule did not run ($coverage)"
+		failures=$((failures + 1))
+		return
+	fi
 	if [ "$UPDATE" -eq 1 ]; then
 		cp "$out" "$baseline"
 		echo "UPDATE $label: $lines lines, ${elapsed}s"
@@ -172,13 +191,32 @@ done
 run_case frames "demo1-d$MODERN_DETAIL" --regress-demo=1 --regress-detail="$MODERN_DETAIL"
 run_case frames "modern-demo1-d$MODERN_DETAIL" --regress-demo=1 $M
 
-# Direct level starts: episode 1 level 1, and episode 5 (levels 1 and 7; the
-# latter carries events whose 2000 rules are Phase 3b and are skipped for now).
+# Direct level starts: episode 1 level 1, and episode 5 (levels 1 and 7).
 run_case frames "e1-level1-d$MODERN_DETAIL" --regress-level=1:1 --regress-detail="$MODERN_DETAIL" --regress-frames=900
 run_case frames "e5-level1-d$MODERN_DETAIL" --regress-level=5:1 --regress-detail="$MODERN_DETAIL" --regress-frames=900
 run_case frames "e5-level7-d$MODERN_DETAIL" --regress-level=5:7 --regress-detail="$MODERN_DETAIL" --regress-frames=900
 run_case frames "modern-e5-level1-d$MODERN_DETAIL" --regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
 run_case state "state-e5-level1-d$MODERN_DETAIL" --regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
+
+# Tyrian 2000 gameplay rules (src/game_rules.c), as logic/RNG hashes over enough
+# frames to reach the events.  Which rule each level exercises:
+#   5:5  spawn X -200 (random position) and launch types of the second enemy bank
+#   5:7  events 58 (set launch), 59 and 68 (replace enemy)
+#   5:8  event 58
+#   4:5  event 68 as replace enemy (it is random explosions in 2.1)
+# These prove the rules run deterministically and did not drift, not that they
+# match the DOS game (the events are the fork's approximations).
+run_case state "state-e5-level5-d$MODERN_DETAIL" --regress-level=5:5 --regress-detail="$MODERN_DETAIL" --regress-frames=1500
+run_case state "state-e5-level7-events-d$MODERN_DETAIL" --regress-level=5:7 --regress-detail="$MODERN_DETAIL" --regress-frames=7000
+run_case state "state-e5-level8-d$MODERN_DETAIL" --regress-level=5:8 --regress-detail="$MODERN_DETAIL" --regress-frames=1500
+run_case state "state-e4-level5-d$MODERN_DETAIL" --regress-level=4:5 --regress-detail="$MODERN_DETAIL" --regress-frames=8000
+
+# Code-owned runtime assertions, followed by real Modern ticks. Replay observes
+# the new ships, sidekick charges and Punch/explosion objects without RNG draws.
+for fixture in events spawn sidekicks twiddle punch; do
+	run_case state "rules-$fixture" --regress-level=5:1 $M --regress-frames=240 \
+		--regress-aspect=16:9 --regress-replay-check --regress-rules="$fixture"
+done
 
 # Non-gameplay screens that read the 2000 strings, pictures, palettes, ships and
 # the 126-record credits.

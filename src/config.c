@@ -21,6 +21,7 @@
 #include "backgrnd.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_rules.h"
 #include "game_schema.h"
 #include "helptext.h"
 #include "interp.h"
@@ -210,6 +211,7 @@ JE_boolean extraGame;
 JE_boolean twoPlayerMode, twoPlayerLinked, onePlayerAction, superTyrian;
 JE_boolean trentWin = false;
 JE_byte    superArcadeMode;
+bool       timedBattleMode;
 
 JE_byte    superArcadePowerUp;
 
@@ -603,8 +605,9 @@ void JE_loadGame(JE_byte slot)
 		superTyrian = true;
 	if (superArcadeMode != SA_NONE)
 		onePlayerAction = true;
-	if (superArcadeMode > SA_NORTSHIPZ)
+	if (superArcadeMode > gameRules()->arcade->ship_count)
 		superArcadeMode = SA_NONE;
+	timedBattleMode = false;
 	
 	if (twoPlayerMode)
 	{

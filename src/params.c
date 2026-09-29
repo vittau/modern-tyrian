@@ -34,6 +34,7 @@
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "regress_rules.h"
 #include "vfx.h"
 #include "xmas.h"
 
@@ -119,6 +120,7 @@ const Options *JE_paramOptions(void)
 		{ 301, 0,   "regress-smooth-effects-check", false },
 		{ 311, 0,   "regress-front-weapon", true },
 		{ 312, 0,   "regress-front-power",  true },
+		{ 320, 0,   "regress-rules",        true },
 		
 		{ 305, 0,   "deadzone",          true },
 		
@@ -239,6 +241,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-reverse-y          Regress only: force the reverse-controls smoothie on");
 			logInfo("  --regress-front-weapon=N      Regress only: front weapon id (0-42) for --regress-script");
 			logInfo("  --regress-front-power=N       Regress only: front weapon power (1-11) for --regress-script");
+			logInfo("  --regress-rules=NAME          Code-owned gameplay fixture: events, spawn, sidekicks, twiddle, punch");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -681,6 +684,10 @@ void JE_paramCheck(int argc, char *argv[])
 			break;
 		}
 
+		case 320: // --regress-rules=events|spawn|sidekicks|twiddle|punch
+			regress_rule_fixture = option.arg;
+			break;
+
 		case 299: // --regress-menu=ingame|pause|help
 			if (strcmp(option.arg, "ingame") == 0)
 				regress_menu_kind = REGRESS_MENU_INGAME;
@@ -745,6 +752,12 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 	}
 	
+	if (regress_rule_fixture != NULL && !regress_scenario_active())
+	{
+		logError("%s: --regress-rules requires --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
 	if ((regress_demo != 0 || regress_scenario_episode != 0) && regress_audio)
 	{
 		logError("%s: --regress-audio cannot be combined with --regress-demo/--regress-level", argv[0]);
