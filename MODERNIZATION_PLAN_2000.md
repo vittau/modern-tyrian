@@ -2,7 +2,7 @@
 
 Plano e diário da integração do **Tyrian 2000** ao Modern Tyrian, mantendo o **Tyrian 2.1 Freeware** exatamente como está. Nasceu do briefing do usuário de 2026-09-29. O plano geral de modernização continua em `MODERNIZATION_PLAN.md`, e este documento cobre só a trilha do 2000.
 
-**Estado:** mapeamento feito e decisões do usuário tomadas (§12, 2026-09-29). A Fase 1 (pesquisa) está em andamento.
+**Estado:** mapeamento feito e decisões do usuário tomadas (§12, 2026-09-29). A Fase 1 (pesquisa) está pronta para começar; o usuário retoma em 2026-09-30.
 
 ---
 
@@ -431,3 +431,7 @@ As mesmas regras do plano geral valem aqui:
   - **sempre abrir no launcher, embutido no binário**;
   - trabalho no `modernization`.
 - **Fase 1 despachada.**
+- **Fase 1 pausada a pedido do usuário**, que retoma amanhã.
+  - A tentativa com o Sonnet foi parada antes de qualquer edição (`task_1a7951363cc7`, dispatch `ctx_1d9092e90fd1`).
+  - Especificação: `.worker-reports/specs/spec-t2000-phase1.md`. Worktree `t2000p1` limpo.
+  - Para retomar: `worker-start --task task_1a7951363cc7 --retry-of ctx_1d9092e90fd1`, ou, com o Codex, `task-create` com a mesma especificação e `dispatch --inject`.
