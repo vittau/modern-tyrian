@@ -2,7 +2,7 @@
 
 Plano e diário da integração do **Tyrian 2000** ao Modern Tyrian, mantendo o **Tyrian 2.1 Freeware** exatamente como está. Nasceu do briefing do usuário de 2026-09-29. O plano geral de modernização continua em `MODERNIZATION_PLAN.md`, e este documento cobre só a trilha do 2000.
 
-**Estado:** mapeamento feito (2026-09-29). Nenhum código escrito. A Fase 1 (pesquisa) é a próxima, e algumas decisões em §12 precisam do usuário antes da Fase 3.
+**Estado:** mapeamento feito e decisões do usuário tomadas (§12, 2026-09-29). A Fase 1 (pesquisa) está em andamento.
 
 ---
 
@@ -196,7 +196,7 @@ O 2.1 passa a usar o provider explicitamente, sem mudar de comportamento.
   - **direita, TYRIAN 2000:** Episodes 1–5, naves e armas novas, Timed Battle e conteúdo expandido.
 - **Controles:** `←/→` escolhe a variante, `Enter/A` confirma, `Esc/B` sai. Funciona com teclado e gamepad (Steam Deck incluso).
 - **Estado dos dados:** o launcher mostra se os dados do 2000 estão instalados. Quando faltam, o botão vira "INSTALL", e ele nunca presume o 2000 instalado.
-- **Memória e atalhos:** a última escolha fica salva, e `--variant=2.1|2000` pula o launcher (útil para regressão, Deck e atalhos da Steam).
+- **Sempre abre, dentro do binário:** o launcher é a primeira tela do próprio executável, não um programa separado, e abre em todo início, inclusive no Deck. A última escolha só define o painel que começa selecionado. `--variant=2.1|2000` pula o launcher apenas para regressão e automação (§12.5).
 - **Correção do briefing:** o briefing cita "Arena Multiplayer" no 2.1, mas o Modern Tyrian não tem arena. A rede é só `--net` pela linha de comando, herdada do OpenTyrian. O texto do launcher lista só o que existe.
 
 ### 5.5 Instalador dos dados do 2000
@@ -288,8 +288,8 @@ As mesmas regras do plano geral valem aqui:
 
 ### Fase 6 — Launcher
 - [ ] Tela 16:9 (§5.4) no pipeline moderno, com teclado, gamepad e navegação.
-- [ ] Estado dos dados, "Install" quando necessário e a última escolha lembrada.
-- [ ] Steam Deck: começa no launcher, e o `--variant` permite atalhos separados na Steam.
+- [ ] Estado dos dados, "Install" quando necessário e o painel da última escolha pré-selecionado.
+- [ ] Steam Deck: sempre começa no launcher, como nos outros sistemas.
 
 **Resultado:** a experiência de início é simples.
 
@@ -402,14 +402,14 @@ As mesmas regras do plano geral valem aqui:
 
 ---
 
-## 12. Decisões para o usuário
+## 12. Decisões do usuário (2026-09-29)
 
-1. **Pino do fork:** o `master` (`aad5aca`, inclui os sidekicks com carga do 2000) ou a tag `v2000.20250408` (`573ccd6`)? Recomendação: `master`, porque traz uma correção de fidelidade a mais.
-2. **Fonte oficial do download:** `camanis.net/tyrian/tyrian2000.zip` (site do autor, a mesma do fork) com o hash de §3.2? Recomendação: sim, com instalação manual e GOG como alternativas.
-3. **CI do 2000:** baixar os dados da fonte oficial dentro da CI, com cache privado, para rodar `make regress-2000`? A outra opção é deixar essa suíte só local. Recomendação: baixar na CI.
-4. **Configurações compartilhadas entre as variantes** (apresentação, controle, escala): compartilhar ou separar tudo? Recomendação: compartilhar apresentação e controle, e separar saves, high scores e progresso.
-5. **Steam Deck:** abrir sempre no launcher, ou direto na última variante (com o launcher no menu)? Recomendação: launcher na primeira vez e depois a última escolha, com `--variant` para atalhos.
-6. **Branch:** trabalhar na `modernization` como hoje, com cada fase mesclada quando o 2.1 continuar verde, ou num branch longo `tyrian2000`? Recomendação: `modernization`, fase a fase, porque as Fases 2 e 5 já têm valor sozinhas.
+1. **Pino do fork:** `KScl/opentyrian2000@master`, commit `aad5aca` (2026-02-22).
+2. **Fonte do download:** `camanis.net/tyrian/tyrian2000.zip`, com o tamanho e o SHA-256 de §3.2. Instalação manual e detecção do GOG como alternativas.
+3. **CI do 2000:** a CI baixa os dados da fonte oficial, confere o hash, guarda no cache privado do Actions e roda `make regress-2000`.
+4. **Configurações:** apresentação e controle compartilhados entre as variantes; saves, high scores e progresso separados por variante.
+5. **Launcher:** **sempre abre no launcher**, inclusive no Steam Deck, sem pular para a última variante. O launcher é **parte do próprio binário**, a primeira tela do jogo desenhada no pipeline moderno, e não um programa separado. A última escolha só define qual painel começa selecionado. `--variant=` fica para regressão e automação.
+6. **Branch:** `modernization`, fase a fase, com o 2.1 sempre verde.
 
 ---
 
@@ -423,3 +423,11 @@ As mesmas regras do plano geral valem aqui:
   - o nosso `EPISODE_MAX` já vale 5.
 - **Correção do briefing:** o Modern Tyrian não tem arena multiplayer, então o launcher não pode anunciar uma.
 - **Próximo:** as decisões de §12 e depois a Fase 1 (classificação do diff do fork → `docs/t2000/fork-diff.md`), com um worker novo.
+- **Decisões do usuário (§12):**
+  - fork no `master`;
+  - download da Camanis com o hash fixo;
+  - dados do 2000 baixados na CI;
+  - apresentação e controle compartilhados, saves e progresso separados;
+  - **sempre abrir no launcher, embutido no binário**;
+  - trabalho no `modernization`.
+- **Fase 1 despachada.**
