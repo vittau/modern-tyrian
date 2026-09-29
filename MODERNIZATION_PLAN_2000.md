@@ -2,7 +2,7 @@
 
 Plano e diário da integração do **Tyrian 2000** ao Modern Tyrian, mantendo o **Tyrian 2.1 Freeware** exatamente como está. Nasceu do briefing do usuário de 2026-09-29. O plano geral de modernização continua em `MODERNIZATION_PLAN.md`, e este documento cobre só a trilha do 2000.
 
-**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. A Fase 2 (só 2.1) pode seguir.
+**Estado:** Fase 1 (pesquisa) concluída em 2026-09-29, com os documentos em `docs/t2000/` aguardando a aprovação do usuário, necessária antes da Fase 3. Fase 2a (variante, provider e `--variant=`) integrada; a 2b (namespaces e migração) é a próxima.
 
 ---
 
@@ -244,11 +244,11 @@ As mesmas regras do plano geral valem aqui:
 **Resultado:** documento técnico aprovado pelo usuário antes da Fase 3.
 
 ### Fase 2 — `GameVariant` e provider (só no 2.1)
-- [ ] `GameVariant` e a estrutura por variante (§5.1), com o 2.1 como única implementação.
-- [ ] `GameDataProvider` (§5.2). O 2.1 carrega os dados por ele.
+- [x] `GameVariant` e a estrutura por variante (§5.1), com o 2.1 como única implementação.
+- [x] `GameDataProvider` (§5.2). O 2.1 carrega os dados por ele.
 - [ ] Namespaces de usuário com migração transparente dos saves e configs atuais (§5.3), provada por teste.
-- [ ] Log de variante e validação (§5.6).
-- [ ] `--variant=` e o hook do launcher (ainda sem a tela).
+- [x] Log de variante e validação (§5.6).
+- [x] `--variant=` (parse antes de tudo, em `src/bootstrap.c`). O hook do launcher fica para a Fase 6.
 - [ ] **Trava:** os 164 casos passam sem mudar nenhum baseline.
 
 **Resultado:** a arquitetura suporta duas versões, e o 2.1 fica byte a byte igual.
@@ -454,4 +454,27 @@ As mesmas regras do plano geral valem aqui:
   - no fim de cada bloco de itens sobram 77 bytes que o fork não lê. Fica em aberto, sem inventar ID;
   - o fork marca os eventos novos e o rastro do Flying Punch como aproximações, então a fidelidade ao DOS precisa de comparação manual.
 - **Validação:** build GCC-16 C99 com `-Werror` e os 164 casos passando, sem mudança de baseline. Nenhum dado do 2000 entrou no worktree ou nos documentos, só nomes, tamanhos e checksums.
+
+### 2026-09-29 — Fase 2a: variante, provider e `--variant=` (`4c7ec1c`)
+- **Worker:** Codex `gpt-6-sol` high, ~11 min.
+- **`src/game_variant.c`:** descritores imutáveis do 2.1 e do 2000, com nome, rótulo de log, namespace de save, episódios e demos. Selecionar o 2000 devolve "indisponível".
+- **`src/game_data.c`:** o `GameDataProvider` agora faz a busca dos dados, com a mesma ordem de antes (`--data`, pasta do executável/bundle, `TYRIAN_DIR`, cwd). Também faz a recusa do 1.x e do 2000, com as mesmas mensagens, e só abre arquivos para leitura, sem caminhos absolutos nem `..`. `dataFileOpen` passa por ele.
+- **`src/bootstrap.c`:** lê `--variant=` e `--data` antes de SDL, config e saves.
+  - `--variant=2000` sai com "Tyrian 2000 is not available yet."; valor desconhecido ou conflitante dá erro.
+  - Os arquivos do usuário são desativados para regress/selftest logo no início.
+  - O `JE_paramCheck` aceita as duas opções sem reaplicar.
+- **Log:** uma linha no startup com variante, raiz dos dados e status da validação.
+- **Testes:** `tools/check_variant_bootstrap.sh`, chamado pelo `make regress`, confere:
+  - os erros de `--variant`;
+  - hashes idênticos com e sem `--variant=2.1`;
+  - as formas curtas e abreviadas de `--data`;
+  - a recusa com um cabeçalho de 13 bancos gerado pelo script, sem dado original;
+  - a ausência de fallback entre pastas;
+  - que nenhum arquivo de usuário é criado.
+- **Trava:** os 164 casos passam sem mudar baseline (81 s no tree integrado).
+- **Desvios do `integration.md`, aceitos:**
+  - o descritor só tem os campos com uso atual;
+  - `gameVariantSelect` devolve um status em vez de `bool`;
+  - um `--data` repetido continua valendo a última ocorrência, como antes;
+  - a reordenação do startup para o launcher fica para a 2b e a Fase 6.
 
