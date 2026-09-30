@@ -275,25 +275,26 @@ As mesmas regras do plano geral valem aqui:
 **Resultado:** o Tyrian 2000 inicia.
 
 ### Fase 4 — Tyrian 2000 completo
-- [ ] Episódios 1 a 5, jogáveis do início ao fim pela interface normal. O episódio 5 não ganha implementação paralela.
-- [ ] Naves, armas, inimigos, bosses, música, sons, loja, menus, textos e cutscenes, progressão, scoring e saves.
-- [ ] Timed Battle e modo Natal.
-- [ ] Sessões de teste reproduzíveis por item (demos e scripts de regressão, §8).
+- [x] Episódios 1 a 5, jogáveis do início ao fim pela interface normal (`d39de50`). O episódio 5 não ganha implementação paralela.
+- [x] Naves, armas, inimigos, bosses, música, sons, loja, menus, textos e cutscenes, progressão, scoring e saves (3a/3b/3c/4). Oito pontos ficam para conferir no DOS (diário).
+- [x] Timed Battle e modo Natal.
+- [x] Sessões de teste reproduzíveis por item (demos e scripts de regressão, §8): `--regress-flow`, varredura das 74 fases e fixtures de regras.
 
 **Resultado:** o Tyrian 2000 é jogável do começo ao fim.
 
 ### Fase 5 — Instalador dos dados
-- [ ] Detector de instalação existente (pastas sugeridas e seleção manual).
-- [ ] Downloader com URL, tamanho e SHA-256 versionados (§3.2), temporário e rename atômico.
-- [ ] Extração e validação por manifesto.
-- [ ] Instalação manual por pasta, zip ou GOG.
-- [ ] Mensagens de erro do briefing.
-- [ ] Testes:
-  - [ ] instalação limpa;
-  - [ ] instalação existente;
-  - [ ] download interrompido;
-  - [ ] zip corrompido rejeitado;
-  - [ ] dados errados (os do 2.1 apontados como 2000) rejeitados.
+- [x] Detector de instalação existente (pastas sugeridas e seleção manual).
+- [x] Downloader com URL, tamanho e SHA-256 versionados (§3.2), temporário e rename atômico. Usa o `curl` do sistema (o runtime sniper do Steam também tem).
+- [x] Extração e validação por manifesto (miniz 3.1.2, MIT).
+- [x] Instalação manual por pasta, zip ou GOG.
+- [x] Mensagens de erro do briefing.
+- [x] Testes (`tools/check_installer.sh`, sem rede e sem dados reais):
+  - [x] instalação limpa;
+  - [x] instalação existente;
+  - [x] download interrompido;
+  - [x] zip corrompido rejeitado;
+  - [x] dados errados (os do 2.1 apontados como 2000) rejeitados.
+- [ ] Testes do instalador verdes no Windows (curl falso em C em vez de script shell; em validação no CI).
 
 **Resultado:** o usuário instala o 2000 sem conhecimento técnico.
 
@@ -301,17 +302,17 @@ As mesmas regras do plano geral valem aqui:
 - [x] Tela 16:9 (§5.4) desenhada no tamanho físico da janela, com teclado, mouse, gamepad e navegação (`ca400ec`).
 - [x] Estado dos dados, "Install" quando necessário e o painel da última escolha pré-selecionado. O botão Install ainda é um stub, até o instalador ser ligado.
 - [x] Steam Deck: sempre começa no launcher, como nos outros sistemas. Falta validar no Deck físico.
-- [ ] Ligar a API do instalador (Fase 5) ao `launcherInstall2000()`.
+- [x] Ligar o instalador ao botão Install do launcher (`fb6e172`), com uma tela sem seletor de arquivos para o Deck em Game Mode.
 - [x] Imagens dos painéis do Tyrian 2.1 e do Tyrian 2000 geradas por um worker **Codex GPT-6 Luna (high)**, por decisão do usuário (2026-09-29). As imagens são arte original, sem copiar a arte, os sprites ou o logotipo do jogo; entram no git como assets do projeto, com a origem registrada.
 
 **Resultado:** a experiência de início é simples.
 
 ### Fase 7 — Renderer moderno no 2000
-- [ ] Widescreen, escala, iluminação, partículas, HUD e efeitos validados no 2000, e o movimento suave também.
-- [ ] O modo Modern do 2000 usa o novo HUD nos painéis laterais, como no 2.1 (decisão do usuário, 2026-09-29). Os textos do HUD usam os rótulos semânticos do schema, não índices fixos de `miscText`.
-- [ ] As demos de atração seguem o HUD do modo ativo, clássico ou moderno, nas duas variantes (decisão do usuário, 2026-09-29). Validar com casos `modern-demo*` no `regress-2000`, com a asserção de que os painéis do HUD moderno estão presentes durante a demo.
-- [ ] Heurísticas pic-1 e pic-2 e créditos conferidos nas telas do 2000.
-- [ ] Tag buffer e luz colorida cobrindo os sprites novos (naves e armas do 2000).
+- [x] Widescreen, escala, iluminação, partículas, HUD e efeitos validados no 2000, e o movimento suave também.
+- [x] O modo Modern do 2000 usa o novo HUD nos painéis laterais, como no 2.1 (decisão do usuário, 2026-09-29). Os textos do HUD usam os rótulos semânticos do schema, não índices fixos de `miscText`.
+- [x] As demos de atração seguem o HUD do modo ativo, clássico ou moderno, nas duas variantes (decisão do usuário, 2026-09-29). Validar com casos `modern-demo*` no `regress-2000`, com a asserção de que os painéis do HUD moderno estão presentes durante a demo.
+- [x] Heurísticas pic-1 e pic-2 e créditos conferidos nas telas do 2000.
+- [x] Tag buffer e luz colorida cobrindo os sprites novos (naves e armas do 2000).
 - [ ] Comparação visual com o 2000 original no Classic.
 
 **Resultado:** as duas versões ganham a modernização visual.
@@ -567,3 +568,38 @@ As mesmas regras do plano geral valem aqui:
   - **Testes:** 10 casos `--regress-launcher` de hash, independentes dos dados, entram no `regress-2000`. Com eles, `make regress` fica em 164 casos mais os guards e `regress-2000` em 29 casos, tudo PASS.
   - **Pendências:** ligar o instalador, e validar no Windows/VS nativo e no Deck físico.
 - **Decisões do usuário:** o 2000 também terá o modo Modern com o HUD novo, e as demos de atração seguem o HUD do modo ativo (Fase 7).
+
+### 2026-09-29/30 — Rodadas finais: 3b, 3c, instalador, launcher com Install, Fases 4 e 7
+- **Integrados em `modernization`:**
+  - 3b, regras de jogo (`b49b22c`);
+  - instalador (`ce9731e`);
+  - 3c, menus e placares (`6be3c20`);
+  - fluxo Install no launcher (`fb6e172`);
+  - Fase 7 (`7d132a1`);
+  - Fase 4 (`d39de50`).
+  
+  Cada um passou em `make regress` (hoje 166 casos mais os guards) e em `make regress-2000` (hoje 148 casos), sem mudar nenhum baseline do 2.1.
+- **Placar:** a 3b e a 3c criaram módulos de placar paralelos. O worker da 3c unificou os dois em `src/highscores.[ch]` ao integrar.
+- **Fase 7:** a auditoria do Modern no 2000 não achou defeito no renderer, porque tags e luz vêm do contexto do objeto e não do id do sprite.
+  - O HUD usa os rótulos semânticos.
+  - `--regress-demo-hud-check` prova, nas duas variantes, que as demos seguem o HUD do modo ativo (decisão do usuário).
+- **Fase 4:** Timed Battle completo, e os episódios 1–5, arcade de 9 naves, Super Tyrian, Destruct e Natal são exercitados pelos menus reais.
+  - O `--regress-flow` é um teclado virtual que percorre os menus.
+  - Há também uma varredura das 74 fases.
+- **A conferir no DOS (Fase 4):**
+  - o overflow de 16 bits do bônus de tempo no fork;
+  - o mapeamento batalha→episódio (seções placeholder);
+  - a seção 44 do E1 com shapes inexistentes;
+  - o bônus de vidas;
+  - música e cancelamento do placar da batalha;
+  - o tamanho do sprite do Pretzel Pete;
+  - o estado 8 do Super Tyrian;
+  - as aproximações do fork nos eventos 58/59/68 e na trilha 198.
+- **CI no Windows:**
+  - Os hashes do launcher saíam com CRLF (`fopen "w"`); corrigido com `"wb"` (`da4fcb1`). Os pixels são idênticos nos três sistemas.
+  - O `%zu` não passa no `-Werror` do MinGW e o `python3` faltava no MSYS2 (`4991bbd`).
+  - Os testes do instalador usavam um curl falso em shell, que o `CreateProcess` não executa, e acabavam no curl real (rede). Estão sendo trocados por um stub em C apontado por caminho absoluto no spec de teste. A 1ª rodada passou nos três sistemas no branch `ci/instwin`.
+- **Pausas e modelos:**
+  - A cota do Codex acabou com os 4 workers GPT-6.1 Sol perto do fim, e eles foram concluídos por workers Sonnet 5.5.
+  - Depois o limite do Claude fechou os terminais dos workers Sonnet. As sessões foram retomadas com `claude --resume` e religadas a novos dispatches, sem perda.
+  - Para novos agentes, o usuário escolheu Codex GPT-6.1 Sol com raciocínio medium.
