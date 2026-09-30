@@ -24,12 +24,12 @@ install **Tyrian 2000** separately through the launcher.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/hero.png" alt="Tyrian 2.1 SAVARA IV in 16:9 with the Modern side HUD, lighting and effects" width="100%">
+  <img src="docs/screenshots/hero.png" alt="Tyrian 2.1 SAVARA IV in 16:9 with the Modern bevelled glass HUD, lighting and effects" width="100%">
   <br><sub>SAVARA IV · Modern HUD · 16:9</sub>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/arcade.png" alt="Tyrian 2.1 TYRIAN in one-player Arcade mode, 16:9, with the Modern HUD and extra lives" width="100%">
+  <img src="docs/screenshots/arcade.png" alt="Tyrian 2.1 TYRIAN in one-player Arcade mode, 16:9, with the Modern bevelled glass HUD" width="100%">
   <br><sub>TYRIAN · Arcade · Modern HUD · 16:9</sub>
 </p>
 
@@ -73,7 +73,8 @@ Select **Classic** or **Modern** in *Setup → Graphics → Presentation*.
 Both games support Modern mode:
 
 - **Widescreen** from 4:3 to 32:9, with automatic display aspect detection.
-- **Glass side HUD** for campaign and arcade modes, including two players.
+- **Bevelled glass HUD** with glowing edges, light glints and inset shadows,
+  for campaign and arcade modes, including two players.
 - **Smooth motion** at the display refresh rate, bloom, dynamic lighting and VFX.
 - **Sharp scaling and HiDPI output**, preserving the original pixel aspect.
 - **Gamepad support**, remappable buttons, analog movement and hot-plugging.
@@ -89,7 +90,7 @@ to 25% speed; `--starfield-speed=100` restores the upstream rate.
 ## <img src="docs/readme/h-deck.svg" alt="Steam Deck" width="100%">
 
 <p align="center">
-  <img src="docs/screenshots/steam-deck.png" alt="Steam Deck showing SAVARA IV in Modern mode at its native 16:10 aspect, with black screen bezels preserved" width="100%">
+  <img src="docs/screenshots/steam-deck.png" alt="Steam Deck showing SAVARA IV with the bevelled glass HUD at its native 16:10 aspect, with black screen bezels preserved" width="100%">
   <br><sub>SAVARA IV · Modern HUD · Steam Deck 16:10</sub>
 </p>
 

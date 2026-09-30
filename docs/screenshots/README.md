@@ -1,6 +1,7 @@
 # README screenshots
 
-Gameplay captures use only the freeware **Tyrian 2.1** data. The launcher uses
+Gameplay captures show the current bevelled glass HUD and use only the freeware
+**Tyrian 2.1** data. The launcher uses
 art generated for this port; it loads no Tyrian 2000 data.
 
 | File | Capture |
