@@ -8,6 +8,8 @@ art generated for this port; it loads no Tyrian 2000 data.
 | `launcher.png` | Launcher, 1280×720, Tyrian 2.1 selected, Tyrian 2000 not installed |
 | `hero.png` | SAVARA IV, episode script section 4:16, frame 500, Modern 16:9 |
 | `arcade.png` | TYRIAN, episode 1 via the Arcade menus, frame 800, Modern 16:9 |
+| `savara-deck-16x10.png` | SAVARA IV, frame 500, Modern 16:10, 1280×800 |
+| `steam-deck.png` | Steam Deck mockup with the 16:10 capture inside the active screen; black bezels preserved |
 | `menu.png` | Game Menu, Modern 16:9 |
 | `classic-vs-modern.png` | SAVARA IV at the same tick in Classic and Modern |
 
@@ -20,3 +22,13 @@ From the repository root, after `make` and `./get_data.sh`:
 The script uses the game's headless snapshot support, a fixed seed and constant
 play for reproducible captures. `render.py` scales gameplay with nearest-neighbour
 and the original 1.2 pixel aspect. The launcher exports its native PNG directly.
+
+The Steam Deck mockup uses the [Valve frame supplied for this task](https://clan.fastly.steamstatic.com/images//39049601/e54b85b6e75bc7ec589372474ef1705b3471bb66.png)
+and `savara-deck-16x10.png`. It was composed with the built-in ImageGen tool;
+`capture.sh` regenerates the game capture, not the mockup.
+
+ImageGen prompt: replace only the lit display content of the supplied Valve
+frame with the genuine SAVARA IV 1280×800 capture; preserve the full device,
+controls, labels, proportions and black display bezels; fit the complete
+screenshot inside the active screen; retain background transparency and add
+no text or objects.

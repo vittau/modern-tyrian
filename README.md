@@ -88,6 +88,11 @@ to 25% speed; `--starfield-speed=100` restores the upstream rate.
 
 ## <img src="docs/readme/h-deck.svg" alt="Steam Deck" width="100%">
 
+<p align="center">
+  <img src="docs/screenshots/steam-deck.png" alt="Steam Deck showing SAVARA IV in Modern mode at its native 16:10 aspect, with black screen bezels preserved" width="100%">
+  <br><sub>SAVARA IV · Modern HUD · Steam Deck 16:10</sub>
+</p>
+
 Add the extracted Linux `opentyrian` executable as a non-Steam game in Desktop
 Mode, then return to Game Mode. Leave launch options empty: the launcher opens
 normally, with fullscreen Modern presentation and native controller support.

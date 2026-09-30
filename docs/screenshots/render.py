@@ -3,9 +3,9 @@
 
 Usage:  python3 docs/screenshots/render.py BMP_DIR
 
-BMP_DIR must contain hero.bmp, arcade.bmp, menu.bmp, classic.bmp and modern.bmp as
+BMP_DIR must contain hero.bmp, arcade.bmp, deck.bmp, menu.bmp, classic.bmp and modern.bmp as
 produced by docs/screenshots/capture.sh.  Writes hero.png, menu.png and
-classic-vs-modern.png next to this script.
+classic-vs-modern.png and savara-deck-16x10.png next to this script.
 
 Nearest-neighbour only, with the original 1.2 pixel aspect (each source pixel
 is drawn 1.2x taller than wide), so the screenshots look like the real screen.
@@ -98,6 +98,10 @@ def main():
     for name, (w, h, rows) in (("hero.png", hero), ("arcade.png", arcade), ("menu.png", menu)):
         out, oh = scale(rows, w, h, 1280, 720)
         write_png(os.path.join(HERE, name), 1280, oh, out)
+
+    w, h, rows = read_bmp(os.path.join(bmp_dir, "deck.bmp"))
+    out, oh = scale(rows, w, h, 1280, 800)
+    write_png(os.path.join(HERE, "savara-deck-16x10.png"), 1280, oh, out)
 
     # Classic 4:3 vs Modern 16:9, same demo frame, same display scale.
     sw = 854  # modern side width (2x)

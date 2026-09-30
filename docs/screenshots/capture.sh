@@ -54,4 +54,10 @@ cd "$root"
     --regress-lighting=high --regress-vfx=high \
     --regress-snapshot=800:"$out/arcade.bmp" --no-sound
 
+# Native Deck aspect: SAVARA IV with its narrower Modern HUD.
+./opentyrian --variant=2.1 --regress-script=4:16 --regress-seed=32402394 \
+    --regress-frames=520 --constant --regress-modern --regress-aspect=16:10 \
+    --regress-lighting=high --regress-vfx=high \
+    --regress-snapshot=500:"$out/deck.bmp" --no-sound
+
 python3 "$root/docs/screenshots/render.py" "$out"
