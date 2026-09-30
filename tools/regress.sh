@@ -547,7 +547,12 @@ run_case() {
 for d in $DEMOS; do
 	for m in $LEVELS; do
 		pairs=$((pairs + 1))
-		run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		# --regress-demo-hud-check only observes: a Classic demo keeps the sidebar.
+		if [ "$d" = 1 ] && [ "$m" = "$MODERN_DETAIL" ]; then
+			run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m" --regress-demo-hud-check
+		else
+			run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		fi
 	done
 done
 
@@ -1249,6 +1254,15 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	# must still equal the modern-wide baseline, i.e. the check only observes.
 	run_gameplay_case "gameplay-wide-scenario-spotlight-d$MODERN_DETAIL" "modern-wide-scenario-spotlight-d$MODERN_DETAIL" \
 		--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9
+	pairs=$((pairs + 1))
+
+	# Attract demos follow the active mode's HUD: every in-level Modern demo frame
+	# composes the filled side panels (the check also fails if none was seen).
+	run_gameplay_case "demo-hud-wide-demo1-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" \
+		--regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9 --regress-demo-hud-check
+	pairs=$((pairs + 1))
+	run_gameplay_case "demo-hud-wide-16x10-demo1-d$MODERN_DETAIL" "modern-wide-16x10-demo1-d$MODERN_DETAIL" \
+		--regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:10 --regress-demo-hud-check
 	pairs=$((pairs + 1))
 
 	# In-game menu composition (pause-hud): --regress-menu opens the ESC in-game
