@@ -3,7 +3,7 @@
 
 Usage:  python3 docs/screenshots/render.py BMP_DIR
 
-BMP_DIR must contain hero.bmp, menu.bmp, classic.bmp and modern.bmp as
+BMP_DIR must contain hero.bmp, arcade.bmp, menu.bmp, classic.bmp and modern.bmp as
 produced by docs/screenshots/capture.sh.  Writes hero.png, menu.png and
 classic-vs-modern.png next to this script.
 
@@ -54,11 +54,12 @@ def read_bmp(path):
     return width, height, rows
 
 
-def scale(rows, w, h, out_w):
+def scale(rows, w, h, out_w, out_h=None):
     """Nearest-neighbour scale to out_w px wide, 1.2 pixel aspect."""
     sx = out_w / w
     sy = sx * 1.2
-    out_h = int(round(h * sy))
+    out_h = int(round(h * sy)) if out_h is None else out_h
+    sy = out_h / h
     out = []
     for oy in range(out_h):
         src = rows[min(h - 1, int(oy / sy))]
@@ -88,13 +89,14 @@ def write_png(path, width, height, rows):
 def main():
     bmp_dir = sys.argv[1] if len(sys.argv) > 1 else HERE
     hero = read_bmp(os.path.join(bmp_dir, "hero.bmp"))
+    arcade = read_bmp(os.path.join(bmp_dir, "arcade.bmp"))
     menu = read_bmp(os.path.join(bmp_dir, "menu.bmp"))
     classic = read_bmp(os.path.join(bmp_dir, "classic.bmp"))
     modern = read_bmp(os.path.join(bmp_dir, "modern.bmp"))
 
     # Full-window shots: the Modern canvas is 427x200 logical pixels.
-    for name, (w, h, rows) in (("hero.png", hero), ("menu.png", menu)):
-        out, oh = scale(rows, w, h, 1280)
+    for name, (w, h, rows) in (("hero.png", hero), ("arcade.png", arcade), ("menu.png", menu)):
+        out, oh = scale(rows, w, h, 1280, 720)
         write_png(os.path.join(HERE, name), 1280, oh, out)
 
     # Classic 4:3 vs Modern 16:9, same demo frame, same display scale.

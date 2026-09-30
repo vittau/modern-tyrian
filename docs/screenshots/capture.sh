@@ -9,13 +9,15 @@
 # committed; the screenshots are of the freeware Tyrian 2.1 running in this
 # port.
 #
-# The hero and comparison frames come from episode 4, level 16 (SAVARA LV),
+# The hero and comparison frames come from episode 4, level 16 (SAVARA IV),
 # started through the episode script (`--regress-script`) so `playDemo` is
 # false and no INSERT COIN is drawn.  `--constant` runs the engine's built-in
 # constant-play (a hidden test flag, not in --help) so the ship fires and
 # enemies die; `--regress-seed` makes the run reproducible.  Frame 500 is a
 # busy moment (enemy shots and an explosion) with full shield/armor.
 set -eu
+export SDL_VIDEO_DRIVER=dummy
+export SDL_AUDIO_DRIVER=dummy
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 out="${TMPDIR:-/tmp}/opentyrian-screenshots"
@@ -40,5 +42,16 @@ cd "$root"
     --constant --regress-modern --regress-aspect=16:9 \
     --regress-lighting=low --regress-vfx=low \
     --regress-snapshot=500:"$out/modern.bmp" --no-sound
+
+# Launcher artwork is generated for this port; no Tyrian 2000 data is loaded.
+./opentyrian --regress-launcher=1280x720,missing,1 \
+    --launcher-png="$root/docs/screenshots/launcher.png"
+
+# TYRIAN, entered through the real Arcade menus, with its lives HUD.
+./opentyrian --variant=2.1 --regress-flow=arcade:ship=1,ep=1,levels=0 \
+    --regress-frames=820 --constant \
+    --regress-modern --regress-aspect=16:9 \
+    --regress-lighting=high --regress-vfx=high \
+    --regress-snapshot=800:"$out/arcade.bmp" --no-sound
 
 python3 "$root/docs/screenshots/render.py" "$out"
