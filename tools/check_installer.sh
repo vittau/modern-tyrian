@@ -396,5 +396,83 @@ check; [ -f "$SB/portable/data-tyrian2000/tyrian1.lvl" ] || fail "portable mode 
 check; [ ! -e "$INSTALL" ] || fail "portable mode also wrote to the per-user location"
 expect_log "$SB/portable/data-tyrian2000"
 
+# --- 9. the launcher's install flow (no window: --launcher-flow drives the screen's controller) ---------------
+
+new_sandbox launcher-download
+STUB_ZIP="$FIX/valid.zip" STUB_MODE=serve
+run flow-download --launcher-flow=download --install-2000-spec="$FIX/valid.spec"
+expect_rc 0
+expect_log 'overlay=result title="TYRIAN 2000 INSTALLED" installed=1'
+expect_files_match "$FIX/valid.spec"
+expect_clean
+
+new_sandbox launcher-no-curl
+STUB_ZIP="$FIX/valid.zip" STUB_MODE=serve STUB_PATH="$SB/empty"
+run flow-no-curl --launcher-flow=download --install-2000-spec="$FIX/valid.spec"
+unset STUB_PATH
+expect_rc 1
+expect_log 'overlay=result title="CANNOT DOWNLOAD" installed=0'
+expect_log "You can still install from a .zip file or an existing folder."
+expect_not_installed
+expect_clean
+
+new_sandbox launcher-download-failed
+STUB_ZIP="$FIX/valid.zip" STUB_MODE=fail22
+run flow-network --launcher-flow=download --install-2000-spec="$FIX/valid.spec"
+expect_rc 1
+expect_log 'overlay=result title="INSTALL FAILED" installed=0'
+expect_not_installed
+expect_clean
+
+new_sandbox launcher-zip
+run flow-zip --launcher-flow="zip=$FIX/valid.zip" --install-2000-spec="$FIX/valid.spec"
+expect_rc 0
+expect_log 'title="TYRIAN 2000 INSTALLED" installed=1'
+expect_files_match "$FIX/valid.spec"
+expect_clean
+
+new_sandbox launcher-folder
+run flow-folder --launcher-flow="folder=$FIX/folder-gog" --install-2000-spec="$FIX/folders.spec"
+expect_rc 0
+expect_log 'title="TYRIAN 2000 INSTALLED" installed=1'
+expect_files_match "$FIX/folders.spec"
+expect_clean
+
+# The file dialog's callback, fed as SDL does: a path, a cancel, a failure.
+new_sandbox launcher-picker
+run flow-picker-zip --launcher-flow="picker-zip=$FIX/valid.zip" --install-2000-spec="$FIX/valid.spec"
+expect_rc 0
+expect_log 'title="TYRIAN 2000 INSTALLED" installed=1'
+new_sandbox launcher-picker-folder
+run flow-picker-folder --launcher-flow="picker-folder=$FIX/folder-plain" --install-2000-spec="$FIX/folders.spec"
+expect_rc 0
+expect_log 'title="TYRIAN 2000 INSTALLED" installed=1'
+new_sandbox launcher-picker-cancel
+run flow-picker-cancel --launcher-flow=picker-cancel
+expect_rc 0
+expect_log "overlay=install"
+expect_not_installed
+new_sandbox launcher-picker-error
+run flow-picker-error --launcher-flow=picker-error
+expect_rc 0
+expect_log "overlay=manual"
+expect_log "The file dialog could not be opened here."
+expect_not_installed
+
+# No dialog at all: a zip placed where the screen says is found by LOOK NOW.
+new_sandbox launcher-scan
+run flow-scan-empty --launcher-flow=scan --install-2000-spec="$FIX/valid.spec"
+expect_rc 1
+expect_log "overlay=manual"
+expect_log "Nothing found yet in those places."
+expect_not_installed
+mkdir -p "$PARENT"
+cp "$FIX/valid.zip" "$PARENT/tyrian2000.zip"
+run flow-scan --launcher-flow=scan --install-2000-spec="$FIX/valid.spec"
+expect_rc 0
+expect_log 'title="TYRIAN 2000 INSTALLED" installed=1'
+expect_files_match "$FIX/valid.spec"
+check; cmp -s "$FIX/valid.zip" "$PARENT/tyrian2000.zip" || fail "the placed zip was modified"
+
 echo "installer: $checks checks, $failures failures"
 [ "$failures" -eq 0 ]

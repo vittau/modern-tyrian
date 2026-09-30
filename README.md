@@ -43,9 +43,22 @@ campaign, one- and two-player arcade modes, and networked play.
 Every normal start opens the built-in launcher. Select **Tyrian 2.1** or
 **Tyrian 2000** with Left/Right and Enter, the gamepad's d-pad/left stick and A,
 or the mouse; Esc/B exits. The last choice only preselects a panel. The 2000
-panel shows **INSTALL** until its separate data validates; for now that button
-explains where to place the data. Set `TYRIAN2000_DATA` to your data directory,
-or place it in `tyrian2000/` beside the executable. About shows the data paths.
+panel shows **INSTALL** until its separate data validates. INSTALL opens a dialog:
+download it from camanis.net (about 5 MB, with a progress bar and Cancel, using
+the system `curl`), install from a `.zip`, or use an existing folder such as a GOG
+copy. Where no file dialog exists (Steam Deck Game Mode) the zip and folder choices
+show where to put the files instead, and **Look now** picks them up. The data is
+installed per user, and the download's temporary file is removed afterwards:
+
+| OS | Tyrian 2000 data |
+|---|---|
+| Windows | `%APPDATA%\OpenTyrian\data-tyrian2000` |
+| macOS | `~/Library/Application Support/OpenTyrian/data-tyrian2000` |
+| Linux / SteamOS | `$XDG_DATA_HOME/opentyrian/data-tyrian2000`, else `~/.local/share/opentyrian/data-tyrian2000` |
+| Portable mode | `data-tyrian2000/` beside the executable |
+
+You can also set `TYRIAN2000_DATA` or place the data in `tyrian2000/` beside the
+executable. About shows the data paths.
 `--variant=2.1` or `--variant=2000` skips the launcher for automation; regression
 and selftest runs also skip it. Tyrian 2000 data is never included in releases.
 

@@ -19,6 +19,7 @@
 #include "launcher.h"
 
 #include "file.h"
+#include "installer.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "launcher_art.h"
@@ -29,6 +30,7 @@
 #include <SDL3/SDL.h>
 
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,6 +69,14 @@ static const Rgb colorBox = { 7, 10, 18 };
 
 static const Rgb panelColor[2] = { { 70, 170, 255 }, { 255, 100, 45 } };
 
+// What detection found about the Tyrian 2000 data.
+typedef struct
+{
+	GameDataStatus status;    // result of locating and validating the data
+	char detail[256];         // why the data cannot be used ("" if not found)
+	char suggested_dir[512];  // a folder named tyrian2000 beside the executable
+} Launcher2000Data;
+
 typedef struct
 {
 	SDL_Texture *panel[2];
@@ -77,8 +87,27 @@ typedef enum
 {
 	OVERLAY_NONE,
 	OVERLAY_ABOUT,
-	OVERLAY_MESSAGE
+	OVERLAY_MESSAGE,
+	OVERLAY_INSTALL,    // how to install Tyrian 2000
+	OVERLAY_PROGRESS,   // an install is running
+	OVERLAY_RESULT,     // it succeeded or failed
+	OVERLAY_MANUAL      // where to put the files when no file dialog exists
 } LauncherOverlay;
+
+typedef enum
+{
+	ACT_NONE,
+	ACT_DOWNLOAD,
+	ACT_ZIP,
+	ACT_FOLDER,
+	ACT_BACK,
+	ACT_CANCEL,
+	ACT_MENU,
+	ACT_PLAY,
+	ACT_SCAN
+} LauncherAction;
+
+#define DIALOG_BUTTONS 4
 
 typedef struct
 {
@@ -95,6 +124,28 @@ typedef struct
 	int scroll_max;         // modal line limit from the current layout
 	int scroll;             // first visible modal line
 	int pulse;              // 0..255 glow phase; 0 in regress frames
+
+	// The install dialogs.
+	bool dialogs;           // the OS can show a file or folder picker
+	bool fixed;             // regress: never ask the system about files
+	bool skip_validate;     // headless flow: the synthetic data cannot pass the game's validation
+	char title[48];
+	char body[1600];
+	int button_count, button_selected;
+	LauncherAction button_action[DIALOG_BUTTONS];
+	const char *button_label[DIALOG_BUTTONS];
+	SDL_Rect button_rect[DIALOG_BUTTONS];   // where the last frame drew them (mouse)
+	InstallerProgress progress;
+	bool job;               // an install is running
+	bool cancelling;
+	LauncherAction job_kind;
+	bool picker_wait;       // a file dialog is open
+	LauncherAction picker_kind;
+	char detail2000[256];   // why the data found could not be used
+	char suggested_dir[512];
+	char install_dir[INSTALLER_PATH_MAX];
+	InstallerSuggestion found[4];
+	int found_count;
 } LauncherView;
 
 typedef struct
@@ -775,6 +826,123 @@ static void drawModal(SDL_Renderer *r, const LauncherLayout *l, LauncherView *v)
 	drawText(r, box.x + pad, box.y + box.h - pad - s * GLYPH, s, colorMuted, 200, visible < n ? "Up/Down: scroll  Enter/click: close" : "Press Enter or click to close");
 }
 
+// Size in megabytes with one decimal, for the progress line.
+static void formatMegabytes(char *out, size_t size, uint64_t bytes)
+{
+	const uint64_t tenths = bytes * 10 / (1024 * 1024);
+	snprintf(out, size, "%" PRIu64 ".%" PRIu64 " MB", tenths / 10, tenths % 10);
+}
+
+// The install dialogs: a title, wrapped text, for a running install a progress
+// bar, and a column of buttons.  The button rectangles are kept for the mouse.
+static void drawDialog(SDL_Renderer *r, const LauncherLayout *l, LauncherView *v)
+{
+	const Rgb accent = panelColor[VARIANT_TYRIAN2000];
+	const bool progress = v->overlay == OVERLAY_PROGRESS;
+	fillBox(r, l->comp, colorBlack, 165);
+
+	const int box_w = U(l, 1360);
+	const int pad = U(l, 40);
+
+	char text[1700];
+	if (progress)
+		snprintf(text, sizeof text, "%s", v->cancelling ? "Cancelling..." : v->progress.message);
+	else
+		snprintf(text, sizeof text, "%s", v->body);
+
+	char lines[MAX_LINES][LINE_BYTES];
+	int s = textScale(l, 26, 1, 1 << 20);
+	int n, line_h, title_s, bar_h, button_h, gap, box_h;
+	for (;;)
+	{
+		int max_chars = (box_w - 2 * pad) / (GLYPH * s);
+		if (max_chars > 60)
+			max_chars = 60;
+		n = wrapText(text, max_chars, lines, MAX_LINES);
+		line_h = s * GLYPH * 3 / 2;
+		title_s = textScale(l, 40, textChars(v->title), box_w / 2);
+		bar_h = s * GLYPH * 3 / 2;
+		button_h = s * GLYPH * 5 / 2;
+		gap = button_h / 4;
+		box_h = pad + title_s * GLYPH + pad / 2 + n * line_h + pad / 2;
+		if (progress)
+			box_h += bar_h + line_h + pad / 2;
+		if (v->button_count > 0)
+			box_h += v->button_count * (button_h + gap) - gap + pad / 2;
+		box_h += pad / 2;
+		if (box_h <= l->comp.h || s == 1)
+			break;
+		--s;
+	}
+
+	const SDL_Rect box = { l->comp.x + (l->comp.w - box_w) / 2, l->comp.y + (l->comp.h - box_h) / 2, box_w, box_h };
+	const int edge = U(l, 3) > 0 ? U(l, 3) : 1;
+	glowRect(r, box, U(l, 4) > 0 ? U(l, 4) : 1, 6, accent, 110);
+	fillBox(r, box, colorBox, 246);
+	strokeRect(r, box, edge, accent, 255);
+
+	int y = box.y + pad;
+	drawText(r, box.x + pad, y, title_s, accent, 255, v->title);
+	y += title_s * GLYPH + pad / 2;
+	for (int k = 0; k < n; ++k, y += line_h)
+		drawText(r, box.x + pad, y, s, colorWhite, 240, lines[k]);
+	y += pad / 2;
+
+	if (progress)
+	{
+		const InstallerProgress *p = &v->progress;
+		const SDL_Rect bar = { box.x + pad, y, box_w - 2 * pad, bar_h };
+		fillBox(r, bar, colorBlack, 220);
+		if (p->bytesTotal > 0)
+		{
+			uint64_t done = p->bytesDone < p->bytesTotal ? p->bytesDone : p->bytesTotal;
+			fillRect(r, bar.x + edge, bar.y + edge, (int)((uint64_t)(bar.w - 2 * edge) * done / p->bytesTotal),
+			         bar.h - 2 * edge, accent, 230);
+		}
+		else
+		{
+			// No byte count in this step: a block sliding along the bar.
+			const int seg = (bar.w - 2 * edge) / 5;
+			const int at = (bar.w - 2 * edge - seg) * v->pulse / 255;
+			fillRect(r, bar.x + edge + at, bar.y + edge, seg, bar.h - 2 * edge, accent, 230);
+		}
+		strokeRect(r, bar, edge, colorMuted, 200);
+		y += bar_h + line_h / 4;
+
+		char counts[80] = "";
+		if (p->bytesTotal > 0)
+		{
+			char a[24], b[24];
+			formatMegabytes(a, sizeof a, p->bytesDone < p->bytesTotal ? p->bytesDone : p->bytesTotal);
+			formatMegabytes(b, sizeof b, p->bytesTotal);
+			snprintf(counts, sizeof counts, "%s / %s   %d%%", a, b,
+			         (int)(p->bytesDone < p->bytesTotal ? p->bytesDone * 100 / p->bytesTotal : 100));
+		}
+		drawText(r, box.x + pad, y, s, colorMuted, 230, counts);
+		y += line_h + pad / 2;
+	}
+
+	for (int k = 0; k < v->button_count; ++k, y += button_h + gap)
+	{
+		const SDL_Rect b = { box.x + pad, y, box_w - 2 * pad, button_h };
+		const bool focused = k == v->button_selected;
+		v->button_rect[k] = b;
+		if (focused)
+		{
+			glowRect(r, b, U(l, 3) > 0 ? U(l, 3) : 1, 5, accent, 130 + v->pulse * 60 / 255);
+			fillBox(r, b, tint(accent, 22), 240);
+			strokeRect(r, b, edge, accent, 255);
+		}
+		else
+		{
+			fillBox(r, b, colorBox, 205);
+			strokeRect(r, b, 1, colorMuted, 120);
+		}
+		drawTextCentered(r, b, b.y + (b.h - s * GLYPH) / 2, s, focused ? colorWhite : colorMuted, focused ? 255 : 210,
+		                 v->button_label[k]);
+	}
+}
+
 static void launcherDraw(SDL_Renderer *r, const LauncherTextures *tex, LauncherView *v, int w, int h)
 {
 	LauncherLayout l;
@@ -837,8 +1005,10 @@ static void launcherDraw(SDL_Renderer *r, const LauncherTextures *tex, LauncherV
 
 	drawBottomBar(r, &l, v);
 
-	if (v->overlay != OVERLAY_NONE)
+	if (v->overlay == OVERLAY_ABOUT || v->overlay == OVERLAY_MESSAGE)
 		drawModal(r, &l, v);
+	else if (v->overlay != OVERLAY_NONE)
+		drawDialog(r, &l, v);
 }
 
 // ---------------------------------------------------------------------------
@@ -897,17 +1067,14 @@ static void dataDirectory(GameVariant variant, const char *data_override, char *
 	gameDataClose(provider);
 }
 
-bool launcherInstall2000(const Launcher2000Data *data, char *message, size_t message_size)
+// What the "message" regress frame shows: the plain manual-install hint.
+static void installHintMessage(const char *detail, const char *dir, char *message, size_t size)
 {
-	// The installer's module replaces this body: download or pick the data,
-	// verify and install it, and return true once the data validates.
-	if (data->detail[0] != '\0')
-		snprintf(message, message_size, "The Tyrian 2000 data found could not be used. %s Place a valid copy in %s or set TYRIAN2000_DATA.",
-		         data->detail, data->suggested_dir);
+	if (detail[0] != '\0')
+		snprintf(message, size, "The Tyrian 2000 data found could not be used. %s Place a valid copy in %s or set TYRIAN2000_DATA.",
+		         detail, dir);
 	else
-		snprintf(message, message_size, "Tyrian 2000 data is not installed. Place it in %s or set TYRIAN2000_DATA.",
-		         data->suggested_dir);
-	return false;
+		snprintf(message, size, "Tyrian 2000 data is not installed. Place it in %s or set TYRIAN2000_DATA.", dir);
 }
 
 static void refreshData(LauncherView *v, const char *data_override)
@@ -915,6 +1082,9 @@ static void refreshData(LauncherView *v, const char *data_override)
 	Launcher2000Data d;
 	detect2000(data_override, &d);
 	v->installed2000 = d.status == GAME_DATA_OK;
+	snprintf(v->detail2000, sizeof v->detail2000, "%s", d.detail);
+	snprintf(v->suggested_dir, sizeof v->suggested_dir, "%s", d.suggested_dir);
+	installerInstallDirectory(v->install_dir, sizeof v->install_dir);
 	dataDirectory(VARIANT_TYRIAN21, data_override, v->data21, sizeof v->data21);
 	if (v->installed2000)
 		dataDirectory(VARIANT_TYRIAN2000, data_override, v->data2000, sizeof v->data2000);
@@ -979,6 +1149,424 @@ static void showMessage(LauncherView *v, const char *text)
 	v->scroll = 0;
 }
 
+// ---------------------------------------------------------------------------
+// The install flow.  Everything here runs on the UI thread; the installer's own
+// worker thread is only ever reached through installerPoll()/installerCancel().
+// The one thing that can arrive from another thread is a file dialog's
+// callback, which writes a small result under a mutex (below) for the loop to
+// pick up.
+
+// The file dialogs answer asynchronously, maybe on another thread, maybe after
+// the launcher has moved on or is gone.  The callback therefore touches only
+// this static state: a generation number says whether anyone still waits for
+// the answer, and the mutex is never destroyed, so a late callback is harmless.
+typedef struct
+{
+	SDL_Mutex *lock;
+	unsigned generation;
+	bool ready;
+	int outcome;                       // 0 chosen, 1 cancelled, 2 failed
+	char path[INSTALLER_PATH_MAX];
+	char error[256];
+} PickerState;
+
+static PickerState picker;
+
+static void SDLCALL pickerCallback(void *userdata, const char *const *filelist, int filter)
+{
+	(void)filter;
+	if (picker.lock == NULL)
+		return;
+	SDL_LockMutex(picker.lock);
+	if ((unsigned)(uintptr_t)userdata == picker.generation)
+	{
+		picker.outcome = filelist == NULL ? 2 : filelist[0] == NULL ? 1 : 0;
+		picker.path[0] = '\0';
+		picker.error[0] = '\0';
+		if (filelist == NULL)
+			snprintf(picker.error, sizeof picker.error, "%s", SDL_GetError());
+		else if (filelist[0] != NULL)
+			snprintf(picker.path, sizeof picker.path, "%s", filelist[0]);
+		picker.ready = true;
+	}
+	SDL_UnlockMutex(picker.lock);
+}
+
+// Starts waiting for a dialog answer; returns the token its callback must carry.
+static unsigned pickerArm(LauncherView *v, LauncherAction kind)
+{
+	if (picker.lock == NULL)
+		picker.lock = SDL_CreateMutex();
+	unsigned generation = 0;
+	if (picker.lock != NULL)
+	{
+		SDL_LockMutex(picker.lock);
+		generation = ++picker.generation;
+		picker.ready = false;
+		SDL_UnlockMutex(picker.lock);
+	}
+	v->picker_wait = picker.lock != NULL;
+	v->picker_kind = kind;
+	return generation;
+}
+
+static void pickerDisarm(LauncherView *v)
+{
+	if (picker.lock != NULL)
+	{
+		SDL_LockMutex(picker.lock);
+		++picker.generation;   // a late answer is ignored
+		picker.ready = false;
+		SDL_UnlockMutex(picker.lock);
+	}
+	v->picker_wait = false;
+}
+
+// File dialogs need a desktop portal or window system; Steam's Game Mode has
+// neither, and it is gamepad-only anyway, so it never offers them.
+static bool dialogsAvailable(void)
+{
+	const char *gamepadUi = getenv("SteamGamepadUI");
+	const char *off = getenv("OPENTYRIAN_NO_DIALOGS");
+	return !(gamepadUi != NULL && gamepadUi[0] != '\0' && strcmp(gamepadUi, "0") != 0) &&
+	       !(off != NULL && off[0] != '\0' && strcmp(off, "0") != 0);
+}
+
+static void beginDialog(LauncherView *v, LauncherOverlay overlay, const char *title)
+{
+	v->overlay = overlay;
+	snprintf(v->title, sizeof v->title, "%s", title);
+	v->body[0] = '\0';
+	v->button_count = 0;
+	v->button_selected = 0;
+}
+
+static void addButton(LauncherView *v, LauncherAction action, const char *label)
+{
+	if (v->button_count >= DIALOG_BUTTONS)
+		return;
+	v->button_action[v->button_count] = action;
+	v->button_label[v->button_count] = label;
+	++v->button_count;
+}
+
+static void appendBody(LauncherView *v, const char *format, ...)
+{
+	const size_t used = strlen(v->body);
+	va_list args;
+	va_start(args, format);
+	vsnprintf(v->body + used, sizeof v->body - used, format, args);
+	va_end(args);
+}
+
+static void openInstallMenu(LauncherView *v, const char *note)
+{
+	beginDialog(v, OVERLAY_INSTALL, "INSTALL TYRIAN 2000");
+	if (v->detail2000[0] != '\0')
+		appendBody(v, "The data found could not be used: %s\n\n", v->detail2000);
+	appendBody(v, "Source: www.camanis.net/tyrian/tyrian2000.zip, about 5 MB.\nInstalls to: %s", v->install_dir[0] != '\0' ? v->install_dir : "(no location on this system)");
+	if (!v->dialogs)
+		appendBody(v, "\n\nFile pickers are not available here. The zip and folder choices say where to put the files instead.");
+	if (note != NULL && note[0] != '\0')
+		appendBody(v, "\n\n%s", note);
+	if (v->picker_wait)
+		appendBody(v, "\n\nWaiting for the file dialog. Esc stops waiting.");
+	addButton(v, ACT_DOWNLOAD, "Download from camanis.net (about 5 MB)");
+	addButton(v, ACT_ZIP, "Install from a .zip file...");
+	addButton(v, ACT_FOLDER, "Use an existing Tyrian 2000 folder...");
+	addButton(v, ACT_BACK, "Back");
+}
+
+// The directory that holds the install location; a zip placed there is found.
+static void parentOf(const char *path, char *out, size_t size)
+{
+	snprintf(out, size, "%s", path);
+	char *cut = NULL;
+	for (char *c = out; *c != '\0'; ++c)
+		if (*c == '/' || *c == '\\')
+			cut = c;
+	if (cut != NULL)
+		*cut = '\0';
+	else
+		out[0] = '\0';
+}
+
+static void openManual(LauncherView *v, const char *note)
+{
+	beginDialog(v, OVERLAY_MANUAL, "PLACE THE FILES");
+	if (!v->fixed)
+		v->found_count = installerSuggestFolders(v->found, (int)(sizeof v->found / sizeof v->found[0]));
+	if (note != NULL && note[0] != '\0')
+		appendBody(v, "%s\n\n", note);
+	char parent[INSTALLER_PATH_MAX];
+	parentOf(v->install_dir, parent, sizeof parent);
+	appendBody(v, "Put the Tyrian 2000 files in one of these places. The launcher picks them up when you choose LOOK NOW, and when you come back to this window.\n\n"
+	              "A folder with the game's files (a GOG copy works):\n%s\n\n"
+	              "The file tyrian2000.zip in:\n%s\n\n"
+	              "A folder named tyrian2000 next to the game:\n%s",
+	           v->install_dir, parent, v->suggested_dir);
+	for (int i = 0, shown = 0; i < v->found_count && shown < 2; ++i)
+	{
+		if (!v->found[i].hasData)
+			continue;
+		appendBody(v, shown == 0 ? "\n\nFound on this computer:\n%s" : "\n%s", v->found[i].path);
+		++shown;
+	}
+	addButton(v, ACT_SCAN, "Look now");
+	addButton(v, ACT_MENU, "Back");
+}
+
+static void showFailure(LauncherView *v, const char *message, bool no_curl)
+{
+	beginDialog(v, OVERLAY_RESULT, no_curl ? "CANNOT DOWNLOAD" : "INSTALL FAILED");
+	appendBody(v, "%s", message);
+	if (no_curl)
+	{
+		appendBody(v, "\n\nYou can still install from a .zip file or an existing folder.");
+		addButton(v, ACT_ZIP, "Install from a .zip file...");
+		addButton(v, ACT_FOLDER, "Use an existing Tyrian 2000 folder...");
+	}
+	else
+	{
+		if (v->job_kind == ACT_DOWNLOAD)
+			addButton(v, ACT_DOWNLOAD, "Try the download again");
+		addButton(v, ACT_MENU, "Other ways to install");
+	}
+	addButton(v, ACT_BACK, "Back");
+}
+
+static void showSuccess(LauncherView *v, const char *path, bool non_canonical)
+{
+	beginDialog(v, OVERLAY_RESULT, "TYRIAN 2000 INSTALLED");
+	appendBody(v, "The data is ready:\n%s", path);
+	if (non_canonical)
+		appendBody(v, "\n\nNote: these are not the original release's files, but they passed the checks.");
+	addButton(v, ACT_PLAY, "PLAY");
+	addButton(v, ACT_BACK, "Back");
+}
+
+static void showProgress(LauncherView *v)
+{
+	beginDialog(v, OVERLAY_PROGRESS, "INSTALLING");
+	addButton(v, ACT_CANCEL, "Cancel");
+}
+
+// Starts an install job of the given kind (ACT_DOWNLOAD, ACT_ZIP or ACT_FOLDER).
+static void installBegin(LauncherView *v, LauncherAction kind, const char *path)
+{
+	v->job_kind = kind;
+	const bool started = kind == ACT_DOWNLOAD ? installerBeginDownload() :
+	                     kind == ACT_ZIP ? installerBeginFromZip(path) : installerBeginFromFolder(path);
+	if (!started)
+	{
+		showFailure(v, "The install could not be started. Another install may still be finishing; try again in a moment.", false);
+		return;
+	}
+	v->job = true;
+	v->cancelling = false;
+	memset(&v->progress, 0, sizeof v->progress);
+	installerPoll(&v->progress);
+	showProgress(v);
+}
+
+// Called every frame: moves the screen along when the installer has finished.
+static void installTick(LauncherView *v, const char *data_override)
+{
+	if (!v->job)
+		return;
+	if (installerPoll(&v->progress))
+		return;
+
+	v->job = false;
+	v->cancelling = false;
+	const InstallerProgress *p = &v->progress;
+	switch (p->state)
+	{
+	case INSTALLER_DONE:
+		if (v->skip_validate)
+			v->installed2000 = true;
+		else
+			refreshData(v, data_override);
+		if (v->installed2000)
+			showSuccess(v, p->installedPath, p->nonCanonical);
+		else
+			showFailure(v, v->detail2000[0] != '\0' ? v->detail2000 : "The data was installed but the game could not use it.", false);
+		break;
+	case INSTALLER_CANCELLED:
+		openInstallMenu(v, "Cancelled. Nothing was installed.");
+		break;
+	default:
+		showFailure(v, p->message[0] != '\0' ? p->message : "The install failed.", p->error == INSTALLER_ERROR_NO_CURL);
+		break;
+	}
+}
+
+// LOOK NOW: whatever the player put in the documented places.
+static void scanForFiles(LauncherView *v, const char *data_override)
+{
+	if (!v->skip_validate)
+		refreshData(v, data_override);
+	if (v->installed2000)
+	{
+		showSuccess(v, v->install_dir, false);
+		return;
+	}
+
+	char parent[INSTALLER_PATH_MAX], candidate[INSTALLER_PATH_MAX];
+	parentOf(v->install_dir, parent, sizeof parent);
+	const char *base = SDL_GetBasePath();
+	const char *downloads = v->fixed ? NULL : SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS);
+	const char *const dirs[3] = { parent, base, downloads };
+	for (int i = 0; i < 3; ++i)
+	{
+		SDL_PathInfo info;
+		if (dirs[i] == NULL || dirs[i][0] == '\0')
+			continue;
+		snprintf(candidate, sizeof candidate, "%s%s%s", dirs[i], dirs[i][strlen(dirs[i]) - 1] == '/' ? "" : "/", INSTALLER_EXPECTED_FILENAME);
+		if (SDL_GetPathInfo(candidate, &info) && info.type == SDL_PATHTYPE_FILE)
+		{
+			installBegin(v, ACT_ZIP, candidate);
+			return;
+		}
+	}
+
+	v->found_count = installerSuggestFolders(v->found, (int)(sizeof v->found / sizeof v->found[0]));
+	for (int i = 0; i < v->found_count; ++i)
+	{
+		if (v->found[i].hasData)
+		{
+			installBegin(v, ACT_FOLDER, v->found[i].path);
+			return;
+		}
+	}
+	openManual(v, "Nothing found yet in those places.");
+}
+
+static void startPicker(LauncherView *v, LauncherAction kind)
+{
+	if (v->picker_wait)
+		return;
+	if (!v->dialogs)
+	{
+		openManual(v, "File pickers are not available here.");
+		return;
+	}
+	const unsigned generation = pickerArm(v, kind);
+	if (!v->picker_wait)
+	{
+		v->dialogs = false;
+		openManual(v, "File pickers are not available here.");
+		return;
+	}
+	if (kind == ACT_ZIP)
+	{
+		static const SDL_DialogFileFilter zips[] = { { "Zip archives", "zip" } };
+		SDL_ShowOpenFileDialog(pickerCallback, (void *)(uintptr_t)generation, main_window, zips, 1,
+		                       SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS), false);
+	}
+	else
+		SDL_ShowOpenFolderDialog(pickerCallback, (void *)(uintptr_t)generation, main_window, SDL_GetUserFolder(SDL_FOLDER_HOME), false);
+	openInstallMenu(v, NULL);
+}
+
+// Called every frame: takes a finished dialog's answer.
+static void pickerTick(LauncherView *v)
+{
+	if (!v->picker_wait)
+		return;
+	bool got = false;
+	int outcome = 1;
+	char path[INSTALLER_PATH_MAX], error[256];
+	path[0] = error[0] = '\0';
+	SDL_LockMutex(picker.lock);
+	if (picker.ready)
+	{
+		got = true;
+		outcome = picker.outcome;
+		snprintf(path, sizeof path, "%s", picker.path);
+		snprintf(error, sizeof error, "%s", picker.error);
+		picker.ready = false;
+	}
+	SDL_UnlockMutex(picker.lock);
+	if (!got)
+		return;
+
+	v->picker_wait = false;
+	if (outcome == 2)
+	{
+		v->dialogs = false;
+		openManual(v, "The file dialog could not be opened here.");
+		if (error[0] != '\0')
+			logWarn("File dialog failed: %s", error);
+	}
+	else if (outcome == 1)
+		openInstallMenu(v, NULL);
+	else
+		installBegin(v, v->picker_kind, path);
+}
+
+// What a button does; returns true when the player chose PLAY.
+static bool confirmPanel(LauncherView *v, const char *data_override);
+
+static bool runAction(LauncherView *v, LauncherAction action, const char *data_override)
+{
+	switch (action)
+	{
+	case ACT_DOWNLOAD:
+		installBegin(v, ACT_DOWNLOAD, NULL);
+		break;
+	case ACT_ZIP:
+	case ACT_FOLDER:
+		startPicker(v, action);
+		break;
+	case ACT_SCAN:
+		scanForFiles(v, data_override);
+		break;
+	case ACT_MENU:
+		openInstallMenu(v, NULL);
+		break;
+	case ACT_CANCEL:
+		if (v->job && !v->cancelling)
+		{
+			installerCancel();
+			v->cancelling = true;
+			v->button_count = 0;
+		}
+		break;
+	case ACT_PLAY:
+		v->overlay = OVERLAY_NONE;
+		v->selected = VARIANT_TYRIAN2000;
+		v->focus = 0;
+		return confirmPanel(v, data_override);
+	case ACT_BACK:
+		v->overlay = OVERLAY_NONE;
+		v->focus = 0;
+		v->selected = VARIANT_TYRIAN2000;   // PLAY, if the data is there now, else INSTALL again
+		break;
+	case ACT_NONE:
+		break;
+	}
+	return false;
+}
+
+// Esc / gamepad B in a dialog: one step back, or cancel a running install.
+static void dialogBack(LauncherView *v, const char *data_override)
+{
+	switch (v->overlay)
+	{
+	case OVERLAY_PROGRESS:
+		runAction(v, ACT_CANCEL, data_override);
+		break;
+	case OVERLAY_MANUAL:
+		openInstallMenu(v, NULL);
+		break;
+	default:
+		pickerDisarm(v);
+		v->overlay = OVERLAY_NONE;
+		break;
+	}
+}
+
 // The player confirmed a panel.  Returns true if the variant can start.
 static bool confirmPanel(LauncherView *v, const char *data_override)
 {
@@ -986,17 +1574,11 @@ static bool confirmPanel(LauncherView *v, const char *data_override)
 
 	if (v->selected == VARIANT_TYRIAN2000)
 	{
-		Launcher2000Data d;
-		detect2000(data_override, &d);
-		if (d.status != GAME_DATA_OK)
+		refreshData(v, data_override);
+		if (!v->installed2000)
 		{
-			const bool installed = launcherInstall2000(&d, message, sizeof message);
-			refreshData(v, data_override);
-			if (!installed || !v->installed2000)
-			{
-				showMessage(v, message);
-				return false;
-			}
+			openInstallMenu(v, NULL);   // INSTALL: the install dialog
+			return false;
 		}
 	}
 
@@ -1024,6 +1606,21 @@ static LauncherStep confirmFocus(LauncherView *v, const char *data_override)
 
 static LauncherStep handleKey(LauncherView *v, const SDL_KeyboardEvent *key, const char *data_override)
 {
+	if (v->overlay >= OVERLAY_INSTALL)
+	{
+		const int n = v->button_count;
+		if (key->scancode == SDL_SCANCODE_DOWN && n > 0)
+			v->button_selected = (v->button_selected + 1) % n;
+		else if (key->scancode == SDL_SCANCODE_UP && n > 0)
+			v->button_selected = (v->button_selected + n - 1) % n;
+		else if ((key->scancode == SDL_SCANCODE_RETURN || key->scancode == SDL_SCANCODE_KP_ENTER ||
+		          key->scancode == SDL_SCANCODE_SPACE) && !key->repeat && n > 0)
+			return runAction(v, v->button_action[v->button_selected], data_override) ? STEP_CHOSEN : STEP_CONTINUE;
+		else if (key->scancode == SDL_SCANCODE_ESCAPE)
+			dialogBack(v, data_override);
+		return STEP_CONTINUE;
+	}
+
 	if (v->overlay != OVERLAY_NONE)
 	{
 		if (key->scancode == SDL_SCANCODE_DOWN && v->scroll < v->scroll_max)
@@ -1087,6 +1684,7 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 		const char *dir = userDirGet();
 		snprintf(view.user_dir, sizeof view.user_dir, "%s", dir[0] != '\0' ? dir : "(current folder)");
 	}
+	view.dialogs = dialogsAvailable();
 	refreshData(&view, data_override);
 	if (initial_error != NULL)
 		showMessage(&view, initial_error);
@@ -1121,7 +1719,10 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 			case SDL_EVENT_WINDOW_FOCUS_GAINED:
 				windowHasFocus = true;
 				// The player may have put the data in place meanwhile.
-				refreshData(&view, data_override);
+				if (view.overlay == OVERLAY_MANUAL)
+					scanForFiles(&view, data_override);
+				else if (!view.job)
+					refreshData(&view, data_override);
 				break;
 
 			case SDL_EVENT_JOYSTICK_ADDED:
@@ -1151,6 +1752,22 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 				if (click ? ev.button.button != SDL_BUTTON_LEFT : (ev.motion.xrel == 0 && ev.motion.yrel == 0))
 					break;  // a still pointer must not undo the keyboard's choice
 
+				if (view.overlay >= OVERLAY_INSTALL)
+				{
+					float dx = click ? ev.button.x : ev.motion.x;
+					float dy = click ? ev.button.y : ev.motion.y;
+					SDL_RenderCoordinatesFromWindow(r, dx, dy, &dx, &dy);
+					for (int k = 0; k < view.button_count; ++k)
+					{
+						if (!rectContains(&view.button_rect[k], (int)dx, (int)dy))
+							continue;
+						view.button_selected = k;
+						if (click && runAction(&view, view.button_action[k], data_override))
+							step = STEP_CHOSEN;
+						break;
+					}
+					break;
+				}
 				if (click && view.overlay != OVERLAY_NONE)
 				{
 					view.overlay = OVERLAY_NONE;
@@ -1192,6 +1809,9 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 			got = step == STEP_CONTINUE && SDL_PollEvent(&ev);
 		}
 
+		pickerTick(&view);
+		installTick(&view, data_override);
+
 		// A slow triangle wave for the selected button's glow.
 		{
 			const int phase = (int)(SDL_GetTicks() % 2400);
@@ -1204,6 +1824,10 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 		SDL_RenderPresent(r);
 	}
 
+	// Leaving mid-install (quit, or a choice made meanwhile) stops the job and
+	// removes its partial files before the process goes on.
+	pickerDisarm(&view);
+	installerShutdown();
 	texturesFree(&tex);
 
 	if (step == STEP_QUIT)
@@ -1240,9 +1864,11 @@ int launcherRegressMain(int argc, char *argv[])
 	const int fields = sscanf(spec, "%dx%d,%15[^,],%d,%15s", &w, &h, data, &panel, extra);
 	if (fields < 4 || w < 64 || h < 64 || w > 8192 || h > 8192 || (panel != 1 && panel != 2) ||
 	    (strcmp(data, "installed") != 0 && strcmp(data, "missing") != 0) ||
-	    (fields == 5 && strcmp(extra, "about") != 0 && strcmp(extra, "message") != 0))
+	    (fields == 5 && strcmp(extra, "about") != 0 && strcmp(extra, "message") != 0 &&
+	     strcmp(extra, "install") != 0 && strcmp(extra, "install-nodlg") != 0 && strcmp(extra, "progress") != 0 &&
+	     strcmp(extra, "nocurl") != 0 && strcmp(extra, "success") != 0 && strcmp(extra, "manual") != 0))
 	{
-		logError("Bad --regress-launcher; expected WxH,installed|missing,1|2[,about|message].");
+		logError("Bad --regress-launcher; expected WxH,installed|missing,1|2[,about|message|install|install-nodlg|progress|nocurl|success|manual].");
 		return EXIT_FAILURE;
 	}
 
@@ -1275,12 +1901,33 @@ int launcherRegressMain(int argc, char *argv[])
 		view.overlay = OVERLAY_ABOUT;
 	else if (strcmp(extra, "message") == 0)
 	{
-		Launcher2000Data d;
-		memset(&d, 0, sizeof d);
-		snprintf(d.suggested_dir, sizeof d.suggested_dir, "tyrian2000");
-		launcherInstall2000(&d, view.message, sizeof view.message);
+		installHintMessage("", "tyrian2000", view.message, sizeof view.message);
 		view.overlay = OVERLAY_MESSAGE;
 	}
+
+	// The install screens, with fixed strings and fixed installer values: no
+	// system query, no timing, no network.
+	view.fixed = true;
+	view.dialogs = strcmp(extra, "install-nodlg") != 0 && strcmp(extra, "manual") != 0;
+	snprintf(view.install_dir, sizeof view.install_dir, "user/data-tyrian2000");
+	snprintf(view.suggested_dir, sizeof view.suggested_dir, "tyrian2000");
+	view.job_kind = ACT_DOWNLOAD;
+	if (strcmp(extra, "install") == 0 || strcmp(extra, "install-nodlg") == 0)
+		openInstallMenu(&view, NULL);
+	else if (strcmp(extra, "progress") == 0)
+	{
+		view.progress.state = INSTALLER_DOWNLOADING;
+		view.progress.bytesDone = 2306867;
+		view.progress.bytesTotal = INSTALLER_EXPECTED_SIZE;
+		snprintf(view.progress.message, sizeof view.progress.message, "Downloading the Tyrian 2000 data...");
+		showProgress(&view);
+	}
+	else if (strcmp(extra, "nocurl") == 0)
+		showFailure(&view, "The download needs the curl program, which was not found on this system. Install the data manually with a .zip file or an existing folder.", true);
+	else if (strcmp(extra, "success") == 0)
+		showSuccess(&view, "user/data-tyrian2000", false);
+	else if (strcmp(extra, "manual") == 0)
+		openManual(&view, "File pickers are not available here.");
 
 	launcherDraw(r, &tex, &view, w, h);
 
@@ -1331,4 +1978,99 @@ int launcherRegressMain(int argc, char *argv[])
 	SDL_DestroyRenderer(r);
 	SDL_DestroySurface(target);
 	return EXIT_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// --launcher-flow: the install controller with no window.
+
+static const char *overlayName(LauncherOverlay o)
+{
+	switch (o)
+	{
+	case OVERLAY_NONE: return "none";
+	case OVERLAY_ABOUT: return "about";
+	case OVERLAY_MESSAGE: return "message";
+	case OVERLAY_INSTALL: return "install";
+	case OVERLAY_PROGRESS: return "progress";
+	case OVERLAY_RESULT: return "result";
+	case OVERLAY_MANUAL: return "manual";
+	}
+	return "?";
+}
+
+bool launcherFlowRequested(int argc, char *argv[])
+{
+	return regressArg(argc, argv, "--launcher-flow") != NULL;
+}
+
+int launcherFlowMain(int argc, char *argv[])
+{
+	const char *request = regressArg(argc, argv, "--launcher-flow");
+	const char *spec = installerCliSpecArgument(argc, argv);
+	if (spec != NULL && !installerLoadTestSpec(spec))
+	{
+		logError("launcher-flow: the test spec could not be read.");
+		return EXIT_FAILURE;
+	}
+
+	static LauncherView view;
+	memset(&view, 0, sizeof view);
+	view.selected = VARIANT_TYRIAN2000;
+	view.skip_validate = true;
+	view.dialogs = false;
+	installerInstallDirectory(view.install_dir, sizeof view.install_dir);
+	snprintf(view.suggested_dir, sizeof view.suggested_dir, "tyrian2000");
+
+	const char *arg = strchr(request, '=');
+	arg = arg != NULL ? arg + 1 : "";
+	bool installs = true;
+
+	if (strcmp(request, "download") == 0)
+		installBegin(&view, ACT_DOWNLOAD, NULL);
+	else if (strncmp(request, "zip=", 4) == 0)
+		installBegin(&view, ACT_ZIP, arg);
+	else if (strncmp(request, "folder=", 7) == 0)
+		installBegin(&view, ACT_FOLDER, arg);
+	else if (strcmp(request, "scan") == 0)
+		scanForFiles(&view, NULL);
+	else if (strncmp(request, "picker-", 7) == 0)
+	{
+		// The file dialog's callback, fed the way SDL does: NULL on failure,
+		// an empty list when cancelled, else the chosen path.
+		const bool zip = strncmp(request, "picker-zip=", 11) == 0;
+		const unsigned generation = pickerArm(&view, zip ? ACT_ZIP : ACT_FOLDER);
+		const char *const chosen[2] = { arg, NULL };
+		const char *const none[1] = { NULL };
+		if (zip || strncmp(request, "picker-folder=", 14) == 0)
+			pickerCallback((void *)(uintptr_t)generation, chosen, 0);
+		else if (strcmp(request, "picker-cancel") == 0)
+			pickerCallback((void *)(uintptr_t)generation, none, 0), installs = false;
+		else if (strcmp(request, "picker-error") == 0)
+			pickerCallback((void *)(uintptr_t)generation, NULL, 0), installs = false;
+		else
+		{
+			logError("launcher-flow: unknown request '%s'.", request);
+			return EXIT_FAILURE;
+		}
+		pickerTick(&view);
+	}
+	else
+	{
+		logError("launcher-flow: unknown request '%s'.", request);
+		return EXIT_FAILURE;
+	}
+
+	const Uint64 start = SDL_GetTicks();
+	while ((view.job || view.overlay == OVERLAY_PROGRESS) && SDL_GetTicks() - start < 120000)
+	{
+		installTick(&view, NULL);
+		SDL_Delay(20);
+	}
+	installerShutdown();
+
+	InstallerStatus status;
+	installerDetect(&status);
+	logInfo("launcher-flow: overlay=%s title=\"%s\" installed=%d", overlayName(view.overlay), view.title, status.installed ? 1 : 0);
+	logInfo("launcher-flow: %s", view.overlay == OVERLAY_PROGRESS ? view.progress.message : view.body);
+	return installs && !status.installed ? EXIT_FAILURE : EXIT_SUCCESS;
 }
