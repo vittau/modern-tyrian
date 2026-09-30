@@ -41,7 +41,7 @@ extract it and run:
 | Platform | Download | Run |
 | --- | --- | --- |
 | Linux / Steam Deck | `…-linux-x86_64.tar.gz` or `…-linux-arm64.tar.gz` | `./opentyrian` |
-| Windows | `…-windows-x86_64.zip` or `…-windows-arm64.zip` | `opentyrian.exe` |
+| Windows (x64; also runs on Windows on ARM) | `…-windows-x86_64.zip` | `opentyrian.exe` |
 | macOS (Intel + Apple silicon) | `…-macos-universal.zip` | `OpenTyrian.app` |
 
 The launcher accepts keyboard, mouse and gamepad input. Choose **INSTALL** on

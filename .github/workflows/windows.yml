@@ -17,9 +17,12 @@ jobs:
     strategy:
       fail-fast: false     # one arch failing must not cancel the other
       matrix:
+        # x86_64 only.  Windows on ARM runs this build through the OS's x64
+        # emulation; the native arm64 job (windows-11-arm, CLANGARM64,
+        # mingw-w64-clang-aarch64) was dropped in 2026-09 for its low adoption
+        # and its slow, flaky emulated MSYS2 setup.
         include:
           - { runner: windows-latest, arch: x86_64, msystem: UCRT64,     prefix: mingw-w64-ucrt-x86_64 }
-          - { runner: windows-11-arm, arch: arm64,  msystem: CLANGARM64, prefix: mingw-w64-clang-aarch64 }
     defaults:
       run:
         shell: msys2 {0}
