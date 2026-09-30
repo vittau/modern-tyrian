@@ -294,7 +294,7 @@ As mesmas regras do plano geral valem aqui:
   - [x] download interrompido;
   - [x] zip corrompido rejeitado;
   - [x] dados errados (os do 2.1 apontados como 2000) rejeitados.
-- [ ] Testes do instalador verdes no Windows (curl falso em C em vez de script shell; em validação no CI).
+- [x] Testes do instalador verdes no Windows (`916ee80`). O curl falso agora é um programa em C, apontado por caminho absoluto no spec de teste, e tem uma proteção que impede o acesso à rede. Também foi corrigido um bug real do Windows: arquivos somente leitura copiados de uma pasta não podiam ser removidos.
 
 **Resultado:** o usuário instala o 2000 sem conhecimento técnico.
 
@@ -598,7 +598,7 @@ As mesmas regras do plano geral valem aqui:
 - **CI no Windows:**
   - Os hashes do launcher saíam com CRLF (`fopen "w"`); corrigido com `"wb"` (`da4fcb1`). Os pixels são idênticos nos três sistemas.
   - O `%zu` não passa no `-Werror` do MinGW e o `python3` faltava no MSYS2 (`4991bbd`).
-  - Os testes do instalador usavam um curl falso em shell, que o `CreateProcess` não executa, e acabavam no curl real (rede). Estão sendo trocados por um stub em C apontado por caminho absoluto no spec de teste. A 1ª rodada passou nos três sistemas no branch `ci/instwin`.
+  - Os testes do instalador usavam um curl falso em shell, que o `CreateProcess` não executa, e acabavam no curl real (rede). Foram trocados por um stub em C apontado por caminho absoluto no spec de teste, e duas rodadas no branch `ci/instwin` passaram nos três sistemas. O merge é o `916ee80`.
 - **Pausas e modelos:**
   - A cota do Codex acabou com os 4 workers GPT-6.1 Sol perto do fim, e eles foram concluídos por workers Sonnet 5.5.
   - Depois o limite do Claude fechou os terminais dos workers Sonnet. As sessões foram retomadas com `claude --resume` e religadas a novos dispatches, sem perda.
