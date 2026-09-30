@@ -4,10 +4,12 @@
 #   ./docs/screenshots/capture.sh        # from the repository root
 #
 # Needs ./opentyrian built (`make`) and the game data in ./data
-# (`./get_data.sh`). Writes BMPs to a temporary directory for render.py;
-# the CRT hero PNG comes directly from the game's presenter. No game data is
-# committed; the screenshots are of the freeware Tyrian 2.1 running in this
-# port.
+# (`./get_data.sh`), plus cjpeg from libjpeg-turbo 3 or later (it reads PNG).
+# Writes BMPs to a temporary directory for render.py; the CRT hero comes
+# directly from the game's presenter as a PNG that cjpeg turns into hero.jpg
+# at quality 95 with full-resolution chroma, so the NTSC colour fringes
+# survive. No game data is committed; the screenshots are of the freeware
+# Tyrian 2.1 running in this port.
 #
 # The hero and comparison frames come from episode 4, level 16 (SAVARA IV),
 # started through the episode script (`--regress-script`) so `playDemo` is
@@ -30,7 +32,9 @@ cd "$root"
     --regress-lighting=high --regress-vfx=high \
     --regress-crt=scanlines+ntsc --regress-crt-window=1280x720 \
     --regress-snapshot=500:"$out/hero.bmp" \
-    --regress-present-png=500:"$root/docs/screenshots/hero.png" --no-sound
+    --regress-present-png=500:"$out/hero.png" --no-sound
+cjpeg -quality 95 -sample 1x1 -optimize \
+    -outfile "$root/docs/screenshots/hero.jpg" "$out/hero.png"
 
 # 2. Menu/shop screen: the in-game Game Menu, widened to the Modern canvas.
 ./opentyrian --regress-screen=game-menu --regress-modern --regress-aspect=16:9 \

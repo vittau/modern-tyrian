@@ -6,7 +6,8 @@ Usage:  python3 docs/screenshots/render.py BMP_DIR
 BMP_DIR must contain arcade.bmp, deck.bmp, menu.bmp, classic.bmp and modern.bmp as
 produced by docs/screenshots/capture.sh. Writes arcade.png, menu.png,
 classic-vs-modern.png and savara-deck-16x10.png next to this script.
-The game writes hero.png directly from its presented CRT output.
+The game writes the hero directly from its presented CRT output (capture.sh
+encodes it as hero.jpg).
 
 Nearest-neighbour only, with the original 1.2 pixel aspect (each source pixel
 is drawn 1.2x taller than wide), so the screenshots look like the real screen.
