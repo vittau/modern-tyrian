@@ -28,9 +28,13 @@
 #include "opentyr.h"
 #include "palette.h"
 #include "picload.h"
+#include "game_rules.h"
 #include "game_schema.h"
+#include "helptext.h"
 #include "sprite.h"
 #include "video.h"
+
+#include <assert.h>
 
 char episode_name[6][31];
 char difficulty_name[7][21];
@@ -80,9 +84,8 @@ bool gameplaySelect(void)
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
-			// Network play and, until Phase 4, Timed Battle are not selectable.
-			const bool disabled = strings->gameplay_choices[i] == GAMEPLAY_NETWORK ||
-			                      strings->gameplay_choices[i] == GAMEPLAY_TIMED_BATTLE;
+			// Network play is not selectable.
+			const bool disabled = strings->gameplay_choices[i] == GAMEPLAY_NETWORK;
 
 			drawFontHvShadow(VGAScreen, x, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 		}
@@ -195,6 +198,7 @@ bool gameplaySelect(void)
 			{
 			case GAMEPLAY_FULL_GAME:
 			case GAMEPLAY_ARCADE:
+			case GAMEPLAY_TIMED_BATTLE:
 			case GAMEPLAY_ARCADE_2P:
 			{
 				JE_playSampleNum(S_SELECT);
@@ -203,9 +207,9 @@ bool gameplaySelect(void)
 
 				onePlayerAction = choice == GAMEPLAY_ARCADE;
 				twoPlayerMode = choice == GAMEPLAY_ARCADE_2P;
+				timedBattleMode = choice == GAMEPLAY_TIMED_BATTLE;
 				return true;
 			}
-			case GAMEPLAY_TIMED_BATTLE:  // Phase 4: Timed Battle selection and rules
 			case GAMEPLAY_NETWORK:
 			{
 				JE_playSampleNum(S_SPRING);
@@ -386,6 +390,176 @@ bool episodeSelect(void)
 			{
 				JE_playSampleNum(S_SPRING);
 			}
+		}
+
+		if (cancel)
+		{
+			fade_black(15);
+
+			return false;
+		}
+	}
+}
+
+// Tyrian 2000: pick the battle of a Timed Battle.  Each battle belongs to an
+// episode (GameTimedBattleRules); the fork could not tell how the original maps
+// them and hard-codes the first to episode 1 and the others to episode 5.
+bool timedBattleSelect(void)
+{
+	const GameTimedBattleRules *const rules = gameRules()->timed_battle;
+	assert(rules != NULL);
+
+	if (shopSpriteSheet.data == NULL)
+		JE_loadCompShapes(&shopSpriteSheet, '1');  // need mouse pointer sprites
+
+	bool restart = true;
+
+	const size_t menuItemsCount = rules->battle_count;
+	size_t selectedIndex = 0;
+
+	const int xCenter = 320 / 2;
+	const int yMenuHeader = 20;
+	const int yMenuItems = 54;
+	const int dyMenuItems = 24;
+	const int hMenuItem = 13;
+	int wMenuItem[TIMED_BATTLES_MAX] = { 0 };
+
+	for (; ; )
+	{
+		setFrameCount(1);
+
+		if (restart)
+		{
+			JE_loadPic(VGAScreen2, 2, false);
+
+			// Draw header.
+			drawFontHvShadowAligned(VGAScreen2, xCenter, yMenuHeader, timedBattleName[0], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
+		}
+
+		// Restore background and header.
+		memcpy(VGAScreen->pixels, VGAScreen2->pixels, (size_t)VGAScreen->pitch * VGAScreen->h);
+
+		// Draw menu items.
+		for (size_t i = 0; i < menuItemsCount; ++i)
+		{
+			const char *const text = timedBattleName[i + 1];
+
+			wMenuItem[i] = JE_textWidth(text, FONT_NORMAL);
+			const int x = xCenter - wMenuItem[i] / 2;
+			const int y = yMenuItems + dyMenuItems * i;
+
+			const bool selected = i == selectedIndex;
+
+			drawFontHvShadow(VGAScreen, x, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
+		}
+
+		if (restart)
+		{
+			mouseCursor = MOUSE_POINTER_NORMAL;
+
+			fade_palette(colors, 10, 0, 255);
+
+			restart = false;
+		}
+
+		JE_mouseStart();
+		JE_showVGA();
+		JE_mouseReplace();
+
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
+
+		// Handle interaction.
+
+		bool action = false;
+		bool cancel = false;
+
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
+		{
+			// Find menu item that was hovered or clicked.
+			for (size_t i = 0; i < menuItemsCount; ++i)
+			{
+				const int xMenuItem = xCenter - wMenuItem[i] / 2;
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i])
+				{
+					const int yMenuItem = yMenuItems + dyMenuItems * i;
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
+					{
+						if (selectedIndex != i)
+						{
+							JE_playSampleNum(S_CURSOR);
+
+							selectedIndex = i;
+						}
+
+						if (mouseInput.button == SDL_BUTTON_LEFT)
+							action = true;
+
+						break;
+					}
+				}
+			}
+
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
+			{
+				JE_playSampleNum(S_SPRING);
+
+				cancel = true;
+			}
+		}
+		else if (keyboardGetInput(&keyboardInput))
+		{
+			switch (keyboardInput.scancode)
+			{
+			case SDL_SCANCODE_UP:
+			{
+				JE_playSampleNum(S_CURSOR);
+
+				selectedIndex = selectedIndex == 0
+					? menuItemsCount - 1
+					: selectedIndex - 1;
+				break;
+			}
+			case SDL_SCANCODE_DOWN:
+			{
+				JE_playSampleNum(S_CURSOR);
+
+				selectedIndex = selectedIndex == menuItemsCount - 1
+					? 0
+					: selectedIndex + 1;
+				break;
+			}
+			case SDL_SCANCODE_SPACE:
+			case SDL_SCANCODE_RETURN:
+			{
+				action = true;
+				break;
+			}
+			case SDL_SCANCODE_ESCAPE:
+			{
+				JE_playSampleNum(S_SPRING);
+
+				cancel = true;
+				break;
+			}
+			default:
+				break;
+			}
+		}
+
+		if (action)
+		{
+			JE_playSampleNum(S_SELECT);
+
+			fade_black(10);
+
+			JE_initEpisode(rules->battle_episode[selectedIndex]);
+			initial_episode_num = episodeNum;
+			timeBattleSelection = (JE_byte)(selectedIndex + 1);
+			return true;
 		}
 
 		if (cancel)

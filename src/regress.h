@@ -95,6 +95,10 @@ extern int regress_front_power;           // -1 = not overridden
 // the data, so no text of it is kept anywhere.
 extern int regress_loadout_widest;
 
+// --regress-xmas: run with Christmas mode on (regress runs otherwise pin it off
+// and skip its prompt), to cover the Christmas shape and voice files.
+extern int regress_xmas;
+
 // Applies the --regress-front-weapon/--regress-front-power overrides to player
 // 1's item set.  Called after JE_initPlayerData() on the --regress-script path;
 // a no-op when neither override was requested.

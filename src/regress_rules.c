@@ -7,6 +7,7 @@
 #include "episodes.h"
 #include "game_rules.h"
 #include "game_schema.h"
+#include "highscores.h"
 #include "keyboard.h"
 #include "joystick.h"
 #include "logging.h"
@@ -298,6 +299,70 @@ static void punch_fixture(void)
 	logInfo("Rule coverage: Flying Punch centre trail and explosion 54 ran.");
 }
 
+// Timed Battle rules that need no menus: events 84 and 85 run only in the mode,
+// the timer keeps running when the player dies, the timer text truncates, and the
+// battles have boards of their own.
+static void timed_fixture(void)
+{
+	const GameTimedBattleRules *const battle = gameRules()->timed_battle;
+	require(battle != NULL && battle->battle_count == 3, "Tyrian 2000 has three Timed Battles");
+
+	timedBattleMode = true;
+	memset(enemy, 0, sizeof enemy);
+	levelTimer = false; levelTimerCountdown = 0; levelTimerJumpTo = 0;
+	memset(&eventRec[0], 0, sizeof eventRec[0]);
+	eventRec[0].eventtype = 84;
+	eventRec[0].eventdat = 1;
+	eventRec[0].eventdat2 = 456;
+	eventRec[0].eventdat3 = 90;
+	eventLoc = 1;
+	JE_eventSystem();
+	require(levelTimer && levelTimerCountdown == 9000 && levelTimerJumpTo == 456, "84 copies event 67's timer in a Timed Battle");
+
+	enemy[0].linknum = 7; enemy[0].enemydie = 42;
+	enemy[99].linknum = 7; enemy[99].enemydie = 42;
+	enemy[50].linknum = 8; enemy[50].enemydie = 42;
+	event(85, 55, 7);
+	require(enemy[0].enemydie == 55 && enemy[99].enemydie == 55 && enemy[50].enemydie == 42,
+	        "85 changes the death type of linked enemies in a Timed Battle");
+
+	// The player dies, the battle timer keeps counting; elsewhere it stops.
+	youAreCheating = false;
+	for (int mode = 1; mode >= 0; --mode)
+	{
+		timedBattleMode = mode != 0;
+		levelTimer = true;
+		player[0].is_alive = true;
+		player[0].shield = 0;
+		player[0].armor = 1;
+		JE_playerDamage(255, &player[0]);
+		require(!player[0].is_alive, "the player dies");
+		require(levelTimer == (mode != 0), "the level timer survives the player's death only in a Timed Battle");
+	}
+	player[0].is_alive = true;
+	player[0].armor = 10;
+
+	char text[16];
+	gameFormatLevelTimer(text, sizeof text, 1235);
+	require(strcmp(text, "12.3") == 0, "the timer shows truncated tenths");
+	gameFormatLevelTimer(text, sizeof text, 5);
+	require(strcmp(text, "0.0") == 0, "the timer shows 0.0 under a tenth");
+
+	// Each battle has its own board, apart from the episode boards.
+	for (unsigned int i = 1; i <= battle->battle_count; ++i)
+	{
+		highScoreSet(highScoreTimedBoard(i), 0, 1000 * (JE_longint)i, "T", 1);
+		for (unsigned int j = 1; j <= highScoreEpisodes(); ++j)
+			require(highScoreTimedBoard(i) != highScoreBoard(j, false) && highScoreTimedBoard(i) != highScoreBoard(j, true),
+			        "a Timed Battle board is not an episode board");
+	}
+	for (unsigned int i = 1; i <= battle->battle_count; ++i)
+		require(highScoreValue(highScoreTimedBoard(i), 0) == 1000 * (JE_longint)i, "Timed Battle boards do not overlap");
+
+	timedBattleMode = false;
+	logInfo("Rule coverage: Timed Battle events, death and boards ran.");
+}
+
 void regress_rules_run(void)
 {
 	if (!regress_rule_fixture) return;
@@ -312,6 +377,7 @@ void regress_rules_run(void)
 	else if (!strcmp(regress_rule_fixture, "sidekicks")) sidekicks_fixture();
 	else if (!strcmp(regress_rule_fixture, "twiddle")) twiddle_fixture();
 	else if (!strcmp(regress_rule_fixture, "punch")) punch_fixture();
+	else if (!strcmp(regress_rule_fixture, "timed")) timed_fixture();
 	else require(false, "unknown rule fixture");
 	eventRec[0] = saved;
 	eventLoc = saved_loc;

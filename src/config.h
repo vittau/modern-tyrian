@@ -150,7 +150,8 @@ extern JE_boolean galagaMode;
 extern JE_boolean extraGame;
 extern JE_boolean twoPlayerMode, twoPlayerLinked, onePlayerAction, superTyrian, trentWin;
 extern JE_byte superArcadeMode;
-extern bool timedBattleMode;  // Tyrian 2000 Timed Battle (Phase 4); false in every other mode
+extern bool timedBattleMode;  // Tyrian 2000 Timed Battle; false in every other mode
+extern JE_byte timeBattleSelection;  // the battle picked from the menu, 1-based (meaningful in Timed Battle only)
 extern JE_byte superArcadePowerUp;
 extern JE_real linkGunDirec;
 extern JE_byte inputDevice[2];

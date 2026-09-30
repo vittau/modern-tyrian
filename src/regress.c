@@ -17,6 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 #include "regress.h"
+#include "regress_flow.h"
 
 #include "config.h"
 #include "drawlist.h"
@@ -93,6 +94,7 @@ int regress_reverse_y = 0;
 int regress_front_weapon = -1;
 int regress_front_power = -1;
 int regress_loadout_widest = 0;
+int regress_xmas = 0;
 
 // Width of an item name as the HUD draws it: the data pads names with spaces.
 static int trimmed_name_width(const char *name)
@@ -272,7 +274,8 @@ static void regress_note_smoothness(void)
 
 bool regress_active(void)
 {
-	return regress_demo != 0 || regress_scenario_active() || regress_screen_active() || regress_script_active();
+	return regress_demo != 0 || regress_scenario_active() || regress_screen_active() || regress_script_active() ||
+	       regress_flow_active();
 }
 
 bool regress_realtime_active(void)
@@ -344,6 +347,7 @@ bool regress_scan_args(int argc, char *argv[])
 	static const char *const audio_option    = "--regress-audio";
 	static const char *const screen_option   = "--regress-screen";
 	static const char *const script_option   = "--regress-script";
+	static const char *const flow_option     = "--regress-flow";
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -351,7 +355,8 @@ bool regress_scan_args(int argc, char *argv[])
 		    arg_is_option(argv[i], scenario_option, strlen(scenario_option)) ||
 		    arg_is_option(argv[i], audio_option, strlen(audio_option)) ||
 		    arg_is_option(argv[i], screen_option, strlen(screen_option)) ||
-		    arg_is_option(argv[i], script_option, strlen(script_option)))
+		    arg_is_option(argv[i], script_option, strlen(script_option)) ||
+		    arg_is_option(argv[i], flow_option, strlen(flow_option)))
 			return true;
 	}
 
@@ -793,6 +798,9 @@ void regress_begin_scenario(void)
 
 void regress_init(void)
 {
+	if (regress_flow_active())
+		regress_flow_init();
+
 	// Headless by default.  Respect a driver the caller set explicitly.  The
 	// real-time pacing benchmark opens a real window on purpose.
 	if (!regress_realtime_active() && SDL_getenv("SDL_VIDEO_DRIVER") == NULL)

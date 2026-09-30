@@ -150,6 +150,9 @@ static int regress_start_cube = 0;
 static int regress_start_sel = 0;
 static JE_byte mouse_parent_menu = MENU_OPTIONS;
 
+// True while JE_itemScreen() runs (the regression flows steer through it).
+static bool itemScreenRunning;
+
 static JE_byte planetAni, planetAniWait;
 static JE_byte currentDotNum, currentDotWait;
 static JE_real navX, navY, newNavX, newNavY;
@@ -320,9 +323,21 @@ static void nav_regress_prepare(void)
 	planetAniWait = 3;
 }
 
+bool JE_itemScreenState(int *menu, int *sel)
+{
+	if (itemScreenRunning)
+	{
+		*menu = curMenu;
+		*sel = curSel[curMenu];
+	}
+	return itemScreenRunning;
+}
+
 void JE_itemScreen(void)
 {
 	bool quit = false;
+
+	itemScreenRunning = true;
 
 	if (shopSpriteSheet.data == NULL)
 		JE_loadCompShapes(&shopSpriteSheet, '1');
@@ -1824,6 +1839,8 @@ void JE_itemScreen(void)
 		}
 
 	} while (!(quit || gameLoaded || jumpSection));
+
+	itemScreenRunning = false;
 
 #ifdef WITH_NETWORK
 	if (!quit && isNetworkGame)

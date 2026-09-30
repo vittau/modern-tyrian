@@ -34,6 +34,7 @@
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "regress_rules.h"
 #include "vfx.h"
 #include "xmas.h"
@@ -124,6 +125,8 @@ const Options *JE_paramOptions(void)
 		{ 312, 0,   "regress-front-power",  true },
 		{ 320, 0,   "regress-rules",        true },
 		{ 350, 0,   "regress-loadout",  true },
+		{ 360, 0,   "regress-flow",     true },
+		{ 361, 0,   "regress-xmas",     false },
 		
 		{ 305, 0,   "deadzone",          true },
 		
@@ -196,6 +199,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("                               (repeatable; the Modern canvas with --regress-modern)");
 			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
 			logInfo("  --regress-loadout=widest     Equip the items with the widest names (HUD fit check)");
+			logInfo("  --regress-xmas               Run a regress case with Christmas mode on");
+			logInfo("  --regress-flow=NAME[:K=V,..] Play a scripted path through the real menus and levels");
+			logInfo("                               (battle, episode, list-levels; see src/regress_flow.h)");
 			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
 			logInfo("  --regress-screen=NAME        Render one non-gameplay screen headless and exit");
 			logInfo("                               (title, episode-select, gameplay-select, high-scores,");
@@ -699,6 +705,14 @@ void JE_paramCheck(int argc, char *argv[])
 
 		case 320: // --regress-rules=events|spawn|sidekicks|twiddle|punch
 			regress_rule_fixture = option.arg;
+			break;
+
+		case 361: // --regress-xmas
+			regress_xmas = 1;
+			break;
+
+		case 360: // --regress-flow=NAME[:key=value,...]
+			regress_flow = option.arg;
 			break;
 
 		case 350: // --regress-loadout=widest

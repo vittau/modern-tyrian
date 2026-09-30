@@ -217,6 +217,38 @@ static void check_highscores(void)
 	}
 }
 
+static void check_timed_battle(void)
+{
+	const int t2k = gameVariantCurrent()->id == VARIANT_TYRIAN2000;
+	const GameTimedBattleRules *const battle = gameRules()->timed_battle;
+	char text[16];
+
+	check((battle != NULL) == t2k, "only Tyrian 2000 has Timed Battle");
+	check(highScoreTimedBattles() == (t2k ? 3u : 0u), "Timed Battle boards follow the rules");
+
+	gameFormatLevelTimer(text, sizeof text, 1235);
+	check(strcmp(text, t2k ? "12.3" : "12.4") == 0, "level timer: truncated in 2000, rounded in 2.1");
+	gameFormatLevelTimer(text, sizeof text, 6000);
+	check(strcmp(text, "60.0") == 0, "level timer at a full minute");
+
+	if (!t2k)
+		return;
+
+	check(battle->battle_episode[0] == 1 && battle->battle_episode[1] == 5 && battle->battle_episode[2] == 5,
+	      "battle 1 is played from episode 1, the others from episode 5");
+	check(battle->time_bonus == 100 && battle->life_bonus == 1000, "time and life bonus");
+
+	memset(variantHighScores, 0, sizeof variantHighScores);
+	for (unsigned int i = 1; i <= battle->battle_count; ++i)
+	{
+		highScoreSet(highScoreTimedBoard(i), 1, (JE_longint)i * 10, "x", 1);
+		check(highScoreTimedBoard(i) == i - 1, "Timed Battle boards come first in the save");
+	}
+	for (unsigned int i = 1; i <= battle->battle_count; ++i)
+		check(highScoreValue(highScoreTimedBoard(i), 1) == (JE_longint)i * 10, "Timed Battle boards do not overlap");
+	check(highScoreBoard(1, false) == gameSchema()->save_suffix_timed_boards, "episode boards follow the Timed Battle boards");
+}
+
 int main(void)
 {
 	static const GameVariant variants[] = { VARIANT_TYRIAN21, VARIANT_TYRIAN2000 };
@@ -232,6 +264,7 @@ int main(void)
 		check_shots();
 		check_cash();
 		check_highscores();
+		check_timed_battle();
 	}
 
 	gameVariantSelect(VARIANT_TYRIAN21);

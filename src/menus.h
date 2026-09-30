@@ -29,6 +29,7 @@ extern char gameplay_name[GAMEPLAY_NAME_COUNT][26];
 
 bool gameplaySelect(void);
 bool episodeSelect(void);
+bool timedBattleSelect(void);  // Tyrian 2000: which Timed Battle
 bool difficultySelect(void);
 
 #endif /* MENUS_H */

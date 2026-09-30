@@ -25,6 +25,7 @@
 #include "nortsong.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "video.h"
 
 #include <SDL3/SDL.h>
@@ -100,6 +101,17 @@ bool keyboardGetInput(KeyboardInput *out_input)
 	}
 
 	return false;
+}
+
+// Regression flows only: hands the game a key press as if the player made it.
+void keyboardPushInput(const KeyboardInput *input)
+{
+	if (keyboardInputsCount < COUNTOF(keyboardInputs))
+	{
+		keyboardInputs[keyboardInputsBack] = *input;
+		keyboardInputsBack = keyboardInputsBack == COUNTOF(keyboardInputs) - 1 ? 0 : keyboardInputsBack + 1;
+		keyboardInputsCount += 1;
+	}
 }
 
 void keyboardClearInput(void)
@@ -408,10 +420,29 @@ void handleSdlEvents(void)
 				break;
 		}
 	}
+
+	// --regress-flow, Destruct: it polls without waiting, so hand out a key here.
+	if (regress_flow_feeds_polls() && keyboardInputsCount == 0)
+		regress_flow_supply_input();
+}
+
+// Input that is already there, without asking a regression flow for more.
+static bool hasInputQueued(InputFlags flags)
+{
+	return keyboardHasInput() || mouseHasInput(flags);
+}
+
+static bool getInputQueued(void)
+{
+	return keyboardGetInput(NULL) || mouseGetInput(INPUT_NO_MOTION, NULL);
 }
 
 bool hasInput(InputFlags flags)
 {
+	// --regress-flow: the game is waiting for a key, so the flow presses one.
+	if (regress_flow_active() && !hasInputQueued(flags))
+		regress_flow_supply_input();
+
 	// --regress-screen: the harness reuses the game's own menu loops, which
 	// block on input.  Report input as available so those waits return and the
 	// loop redraws; the --regress-frames cap then ends the run.  handleSdlEvents
@@ -425,10 +456,13 @@ bool hasInput(InputFlags flags)
 
 bool getInput(void)
 {
+	if (regress_flow_active() && !hasInputQueued(INPUT_NO_MOTION))
+		regress_flow_supply_input();
+
 	if (regress_screen_active())
 		return true;
 
-	return keyboardGetInput(NULL) || mouseGetInput(INPUT_NO_MOTION, NULL);
+	return getInputQueued();
 }
 
 void waitUntilHasInput(InputFlags flags)
@@ -496,7 +530,11 @@ bool waitUntilHasInputOrElapsed(void)
 		push_joysticks_as_keyboard();
 		handleSdlEvents();
 
-		if (hasInput(INPUT_NO_MOTION))
+		// A flow that walks a whole episode presses through the timed screens too.
+		if (regress_flow_presses_through() && !hasInputQueued(INPUT_NO_MOTION))
+			regress_flow_supply_input();
+
+		if (regress_screen_active() || hasInputQueued(INPUT_NO_MOTION))
 			return true;
 
 		Uint32 delay = getFrameCountTicks();
@@ -523,7 +561,10 @@ bool waitUntilGetInputOrElapsed(void)
 		push_joysticks_as_keyboard();
 		handleSdlEvents();
 
-		if (getInput())
+		if (regress_flow_presses_through() && !hasInputQueued(INPUT_NO_MOTION))
+			regress_flow_supply_input();
+
+		if (regress_screen_active() || getInputQueued())
 			return true;
 
 		Uint32 delay = getFrameCountTicks();
