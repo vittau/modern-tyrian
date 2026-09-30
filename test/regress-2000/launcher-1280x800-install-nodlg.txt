@@ -1,1 +1,1 @@
-launcher 1280x800,missing,2,install-nodlg frame=1dd40a6ef475637b
+launcher 1280x800,missing,2,install-nodlg frame=75db7162220e8fe5

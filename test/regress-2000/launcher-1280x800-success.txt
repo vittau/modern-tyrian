@@ -1,1 +1,1 @@
-launcher 1280x800,missing,2,success frame=9e79b79b9c6dcfd7
+launcher 1280x800,missing,2,success frame=ad5ad8b9a7c3c5c6

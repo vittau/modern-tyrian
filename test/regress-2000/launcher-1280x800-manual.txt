@@ -1,1 +1,1 @@
-launcher 1280x800,missing,2,manual frame=c64f11477703c6a6
+launcher 1280x800,missing,2,manual frame=927ec98397c3c665
