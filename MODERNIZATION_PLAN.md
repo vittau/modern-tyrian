@@ -609,3 +609,12 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-09-29 — Release v0.2.1
 - **Release v0.2.1** no commit `6e76162`, a pedido do usuário. É uma versão de correções sobre a v0.2.0: as telas de remapeamento não estouram mais a largura, e o HUD do 1P não mostra "Player 1". A CI passou nos três sistemas e anexou os cinco pacotes. O `master` continua em `a81e640` e só avança se o usuário pedir.
+
+### 2026-09-30 — Moldura chanfrada no HUD Modern
+- **Moldura de vidro em volta do playfield (`c752fde`)**, a pedido do usuário, a partir de uma imagem de referência.
+  - **O que foi desenhado:** filete duplo na junção painel/playfield (branco-ciano encostado no jogo, laranja por fora), um leve clareamento quente do painel perto da borda, dois glints fixos por lado (linhas 11 e 133), sombra interna nas 6 colunas das bordas e nas 3 linhas de baixo do playfield, e uma borda sutil no topo da faixa de mensagem.
+  - **Decisão do usuário:** tudo na grade lógica do canvas, sem desenho em resolução de tela. O filete fica com 1 px lógico e entra nos hashes da regressão.
+  - **Ordem:** filete e glints depois do ambilight e antes do HUD, então texto e barras ficam por cima. A sombra vem depois da amostragem do ambilight, e a borda da faixa só toca o fundo, nunca os glyphs.
+  - **Escopo:** só o modo painel do Modern. Em 4:3 os painéis teriam 28 px, abaixo do mínimo de 51 (`MODERN_HUD_MIN_PANEL_WIDTH`), então o 4:3 segue no fallback sem painéis e não muda. Classic, telas fora do gameplay e todos os baselines de estado continuam idênticos.
+  - **Regressão:** mudaram 15 baselines Modern do 2.1, 15 do 2000 e os dois agregados de pausa Modern em `final-regression.txt` de cada variante. As suítes passam com 166 e 153 casos.
+  - **Worker:** Codex `gpt-6.1-sol` (esforço medium), despachado por `--inject`.
