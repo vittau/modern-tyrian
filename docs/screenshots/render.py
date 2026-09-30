@@ -3,9 +3,10 @@
 
 Usage:  python3 docs/screenshots/render.py BMP_DIR
 
-BMP_DIR must contain hero.bmp, arcade.bmp, deck.bmp, menu.bmp, classic.bmp and modern.bmp as
-produced by docs/screenshots/capture.sh.  Writes hero.png, menu.png and
+BMP_DIR must contain arcade.bmp, deck.bmp, menu.bmp, classic.bmp and modern.bmp as
+produced by docs/screenshots/capture.sh. Writes arcade.png, menu.png,
 classic-vs-modern.png and savara-deck-16x10.png next to this script.
+The game writes hero.png directly from its presented CRT output.
 
 Nearest-neighbour only, with the original 1.2 pixel aspect (each source pixel
 is drawn 1.2x taller than wide), so the screenshots look like the real screen.
@@ -88,14 +89,13 @@ def write_png(path, width, height, rows):
 
 def main():
     bmp_dir = sys.argv[1] if len(sys.argv) > 1 else HERE
-    hero = read_bmp(os.path.join(bmp_dir, "hero.bmp"))
     arcade = read_bmp(os.path.join(bmp_dir, "arcade.bmp"))
     menu = read_bmp(os.path.join(bmp_dir, "menu.bmp"))
     classic = read_bmp(os.path.join(bmp_dir, "classic.bmp"))
     modern = read_bmp(os.path.join(bmp_dir, "modern.bmp"))
 
     # Full-window shots: the Modern canvas is 427x200 logical pixels.
-    for name, (w, h, rows) in (("hero.png", hero), ("arcade.png", arcade), ("menu.png", menu)):
+    for name, (w, h, rows) in (("arcade.png", arcade), ("menu.png", menu)):
         out, oh = scale(rows, w, h, 1280, 720)
         write_png(os.path.join(HERE, name), 1280, oh, out)
 

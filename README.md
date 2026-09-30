@@ -24,8 +24,8 @@ install **Tyrian 2000** separately through the launcher.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/hero.png" alt="Tyrian 2.1 SAVARA IV in 16:9 with the Modern bevelled glass HUD, lighting and effects" width="100%">
-  <br><sub>SAVARA IV · Modern HUD · 16:9</sub>
+  <img src="docs/screenshots/hero.png" alt="Tyrian 2.1 SAVARA IV in 16:9 with the Modern HUD and both CRT filters: scanlines and NTSC" width="100%">
+  <br><sub>SAVARA IV · Modern HUD · CRT Both · 16:9</sub>
 </p>
 
 <p align="center">

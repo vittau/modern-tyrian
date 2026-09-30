@@ -4,8 +4,8 @@
 #   ./docs/screenshots/capture.sh        # from the repository root
 #
 # Needs ./opentyrian built (`make`) and the game data in ./data
-# (`./get_data.sh`).  Writes the BMPs to a temporary directory, then renders
-# them into the PNGs next to this script with render.py.  No game data is
+# (`./get_data.sh`). Writes BMPs to a temporary directory for render.py;
+# the CRT hero PNG comes directly from the game's presenter. No game data is
 # committed; the screenshots are of the freeware Tyrian 2.1 running in this
 # port.
 #
@@ -24,11 +24,13 @@ out="${TMPDIR:-/tmp}/opentyrian-screenshots"
 mkdir -p "$out"
 cd "$root"
 
-# 1. Hero: Modern 16:9, lighting and VFX at High, frame 500.
+# 1. Hero: Modern 16:9, lighting and VFX at High, CRT Both, frame 500.
 ./opentyrian --regress-script=4:16 --regress-seed=32402394 --regress-frames=520 \
     --constant --regress-modern --regress-aspect=16:9 \
     --regress-lighting=high --regress-vfx=high \
-    --regress-snapshot=500:"$out/hero.bmp" --no-sound
+    --regress-crt=scanlines+ntsc --regress-crt-window=1280x720 \
+    --regress-snapshot=500:"$out/hero.bmp" \
+    --regress-present-png=500:"$root/docs/screenshots/hero.png" --no-sound
 
 # 2. Menu/shop screen: the in-game Game Menu, widened to the Modern canvas.
 ./opentyrian --regress-screen=game-menu --regress-modern --regress-aspect=16:9 \
