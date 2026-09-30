@@ -266,15 +266,21 @@ static int modern_last_insert_l = 0, modern_last_insert_r = 0;
 // Glass frame dimensions are logical pixels; strengths use Q8 (256 == full).
 #define MODERN_BEVEL_LIFT_W 8
 #define MODERN_BEVEL_LIFT 44
-#define MODERN_BEVEL_COLD 0xd7e8f0
+#define MODERN_BEVEL_COLD 0x9bc9e8
 #define MODERN_BEVEL_WARM 0xeb9650
 #define MODERN_BEVEL_RIM 205
-#define MODERN_BEVEL_OUTER_RIM 100
-#define MODERN_BEVEL_GLINT_W 20
+#define MODERN_BEVEL_OUTER_RIM 130
+#define MODERN_BEVEL_GLINT_W 26
 #define MODERN_BEVEL_GLINT_H 4
-#define MODERN_BEVEL_GLINT_Y0 11
-#define MODERN_BEVEL_GLINT_Y1 133
-#define MODERN_BEVEL_GLINT 180
+#define MODERN_BEVEL_BLOOM_H 200
+#define MODERN_BEVEL_HOT 0xfafeff
+#define MODERN_BEVEL_BLOOM_OUTER 180
+#define MODERN_BEVEL_BLOOM_SPREAD 95
+#define MODERN_BEVEL_BLOOM_FRINGE 35
+#define MODERN_BEVEL_BLOOM_SPILL 48
+#define MODERN_BEVEL_HAZE_W 15
+#define MODERN_BEVEL_HAZE_H 8
+#define MODERN_BEVEL_HAZE 18
 #define MODERN_BEVEL_GLINT_GREEN 220
 #define MODERN_BEVEL_GLINT_BLUE 180
 #define MODERN_BEVEL_GLINT_DECAY 220
@@ -284,6 +290,21 @@ static int modern_last_insert_l = 0, modern_last_insert_r = 0;
 #define MODERN_BEVEL_BOTTOM_H 3
 #define MODERN_BEVEL_BOTTOM_SHADOW 154
 #define MODERN_BEVEL_STRIP 24
+#define MODERN_BEVEL_STRIP_TINT 0xd7e8f0
+
+// Rows, additive peak, streak length, rim bloom radius and Q8 bloom peak; deliberately unequal.
+typedef struct
+{
+	int row, strength, length, radius, bloom;
+} ModernBevelGlint;
+
+static const ModernBevelGlint modern_bevel_glints[2][2] =
+{
+	{ { 11, 210, 26, 48, 256 }, { 133, 125, 18, 56, 224 } },
+	{ { 38, 180, 22, 50, 248 }, { 166, 105, 15, 40, 208 } }
+};
+
+static int modern_bevel_bloom[2][MODERN_BEVEL_BLOOM_H];
 
 static void modern_bevel_panels(ModernFrame *frame, int playfield_x);
 static void modern_bevel_shadow(ModernFrame *frame, int playfield_x);
@@ -1760,7 +1781,8 @@ static void modern_bevel_panels(ModernFrame *frame, int playfield_x)
 {
 	static bool ready = false;
 	static int lift[MODERN_BEVEL_LIFT_W];
-	static int glint[MODERN_BEVEL_GLINT_H + 1][MODERN_BEVEL_GLINT_W];
+	static int haze[2][MODERN_BEVEL_BLOOM_H][MODERN_BEVEL_HAZE_W];
+	static int streak[2][MODERN_BEVEL_BLOOM_H][MODERN_BEVEL_GLINT_W];
 	if (!ready)
 	{
 		for (int d = 0; d < MODERN_BEVEL_LIFT_W; ++d)
@@ -1769,16 +1791,45 @@ static void modern_bevel_panels(ModernFrame *frame, int playfield_x)
 			lift[d] = MODERN_BEVEL_LIFT * t * t /
 				(MODERN_BEVEL_LIFT_W * MODERN_BEVEL_LIFT_W);
 		}
-		int vertical = MODERN_BEVEL_GLINT;
-		for (int dy = 0; dy <= MODERN_BEVEL_GLINT_H; ++dy)
+		// Cache the long quadratic rim bloom and short exponential streak once.
+		for (int side = 0; side < 2; ++side)
 		{
-			int horizontal = vertical;
-			for (int d = 0; d < MODERN_BEVEL_GLINT_W; ++d)
+			for (int i = 0; i < 2; ++i)
 			{
-				glint[dy][d] = horizontal;
-				horizontal = horizontal * MODERN_BEVEL_GLINT_DECAY >> 8;
+				const ModernBevelGlint *g = &modern_bevel_glints[side][i];
+				for (int y = 0; y < MODERN_BEVEL_BLOOM_H; ++y)
+				{
+					const int dy = abs(y - g->row);
+					if (dy < g->radius)
+					{
+						const int r2 = g->radius * g->radius;
+						const int strength = g->bloom * (r2 - dy * dy) / r2;
+						modern_bevel_bloom[side][y] = MAX(modern_bevel_bloom[side][y], strength);
+					}
+					if (dy < MODERN_BEVEL_HAZE_H)
+					{
+						const int t = MODERN_BEVEL_HAZE_H - dy;
+						for (int d = 0; d < MODERN_BEVEL_HAZE_W; ++d)
+						{
+							const int u = MODERN_BEVEL_HAZE_W - d;
+							const int strength = MODERN_BEVEL_HAZE * t * t * u * u /
+								(MODERN_BEVEL_HAZE_H * MODERN_BEVEL_HAZE_H * MODERN_BEVEL_HAZE_W * MODERN_BEVEL_HAZE_W);
+							haze[side][y][d] = MAX(haze[side][y][d], strength);
+						}
+					}
+					if (dy <= MODERN_BEVEL_GLINT_H)
+					{
+						int strength = g->strength;
+						for (int k = 0; k < dy; ++k)
+							strength = strength * MODERN_BEVEL_GLINT_VERTICAL_DECAY >> 8;
+						for (int d = 0; d < MIN(g->length, MODERN_BEVEL_GLINT_W); ++d)
+						{
+							streak[side][y][d] = MAX(streak[side][y][d], strength);
+							strength = strength * MODERN_BEVEL_GLINT_DECAY >> 8;
+						}
+					}
+				}
 			}
-			vertical = vertical * MODERN_BEVEL_GLINT_VERTICAL_DECAY >> 8;
 		}
 		ready = true;
 	}
@@ -1787,10 +1838,10 @@ static void modern_bevel_panels(ModernFrame *frame, int playfield_x)
 	for (int y = 0; y < frame->h; ++y)
 	{
 		Uint32 *row = frame->pixels + (size_t)y * frame->w;
-		const int dy = MIN(abs(y - MODERN_BEVEL_GLINT_Y0), abs(y - MODERN_BEVEL_GLINT_Y1));
-		for (int d = 0; d < MODERN_BEVEL_GLINT_W; ++d)
+		for (int side = 0; side < 2; ++side)
 		{
-			for (int side = 0; side < 2; ++side)
+			const int glow = y < MODERN_BEVEL_BLOOM_H ? modern_bevel_bloom[side][y] : 0;
+			for (int d = 0; d < MODERN_BEVEL_GLINT_W; ++d)
 			{
 				const int x = side == 0 ? playfield_x - 1 - d : right_x + d;
 				if (x < 0 || x >= frame->w)
@@ -1798,13 +1849,25 @@ static void modern_bevel_panels(ModernFrame *frame, int playfield_x)
 				Uint32 p = row[x];
 				if (d < MODERN_BEVEL_LIFT_W)
 					p = modern_bevel_blend(p, MODERN_BEVEL_WARM, lift[d]);
+				if (y < MODERN_BEVEL_BLOOM_H && d < MODERN_BEVEL_HAZE_W)
+					p = modern_bevel_blend(p, MODERN_BEVEL_WARM, haze[side][y][d]);
 				if (d == 0)
-					p = modern_bevel_blend(p, MODERN_BEVEL_COLD, MODERN_BEVEL_RIM);
-				else if (d == 1)
-					p = modern_bevel_blend(p, MODERN_BEVEL_WARM, MODERN_BEVEL_OUTER_RIM);
-				if (dy <= MODERN_BEVEL_GLINT_H)
 				{
-					const int strength = glint[dy][d];
+					p = modern_bevel_blend(p, MODERN_BEVEL_COLD, MODERN_BEVEL_RIM);
+					p = modern_bevel_blend(p, MODERN_BEVEL_HOT, glow);
+				}
+				else if (d == 1)
+				{
+					p = modern_bevel_blend(p, MODERN_BEVEL_WARM, MODERN_BEVEL_OUTER_RIM);
+					p = modern_bevel_blend(p, MODERN_BEVEL_HOT, glow * MODERN_BEVEL_BLOOM_OUTER >> 8);
+				}
+				else if (d == 2)
+					p = modern_bevel_blend(p, MODERN_BEVEL_HOT, glow * MODERN_BEVEL_BLOOM_SPREAD >> 8);
+				else if (d == 3)
+					p = modern_bevel_blend(p, MODERN_BEVEL_HOT, glow * MODERN_BEVEL_BLOOM_FRINGE >> 8);
+				const int strength = y < MODERN_BEVEL_BLOOM_H ? streak[side][y][d] : 0;
+				if (strength > 0)
+				{
 					const int r = MIN(255, (int)((p >> 16) & 255) + strength);
 					const int g = MIN(255, (int)((p >> 8) & 255) + (strength * MODERN_BEVEL_GLINT_GREEN >> 8));
 					const int b = MIN(255, (int)(p & 255) + (strength * MODERN_BEVEL_GLINT_BLUE >> 8));
@@ -1843,6 +1906,14 @@ static void modern_bevel_shadow(ModernFrame *frame, int playfield_x)
 			const int factor = (d < MODERN_BEVEL_SHADOW_W ? scale[d] : 256) * bottom_scale >> 8;
 			row[x] = modern_bevel_blend(row[x], 0, 256 - factor);
 		}
+		// A faint one-column spill follows the rim glow after the inner shadow.
+		if (y < MODERN_BEVEL_BLOOM_H)
+		{
+			row[0] = modern_bevel_blend(row[0], MODERN_BEVEL_HOT,
+				modern_bevel_bloom[0][y] * MODERN_BEVEL_BLOOM_SPILL >> 8);
+			row[MODERN_PLAYFIELD_W - 1] = modern_bevel_blend(row[MODERN_PLAYFIELD_W - 1], MODERN_BEVEL_HOT,
+				modern_bevel_bloom[1][y] * MODERN_BEVEL_BLOOM_SPILL >> 8);
+		}
 	}
 }
 
@@ -1856,7 +1927,7 @@ static void modern_bevel_strip(ModernFrame *frame, int playfield_x)
 	Uint32 *row = frame->pixels + (size_t)MODERN_PLAYFIELD_H * frame->w + playfield_x;
 	for (int x = 0; x < MIN(MODERN_PLAYFIELD_W, strip->w); ++x)
 		if (src[x] == 0)
-			row[x] = modern_bevel_blend(row[x], MODERN_BEVEL_COLD, MODERN_BEVEL_STRIP);
+			row[x] = modern_bevel_blend(row[x], MODERN_BEVEL_STRIP_TINT, MODERN_BEVEL_STRIP);
 }
 
 // Blurred, darkened background fill for non-gameplay frames (title, menus,
