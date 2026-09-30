@@ -380,7 +380,7 @@ void regress_flow_init(void)
 			pushKey(SDL_SCANCODE_RETURN);                              // the board
 		}
 	}
-	else if (flowIs("episode") || flowIs("save") || flowIs("mouse"))
+	else if (flowIs("episode") || flowIs("save") || flowIs("mouse") || flowIs("single-arcade"))
 	{
 		if (flowIs("save") && !userFilesEnabled())
 		{ logFatal("Save flow requires --regress-user-root."); exit(EXIT_FAILURE); }
@@ -398,8 +398,8 @@ void regress_flow_init(void)
 		}
 
 		pushKey(SDL_SCANCODE_RETURN);                                  // title: Start New Game
-		pushKeys(SDL_SCANCODE_DOWN, gameplayMenuSteps(GAMEPLAY_FULL_GAME));
-		pushKey(SDL_SCANCODE_RETURN);                                  // gameplay: Full Game
+		pushKeys(SDL_SCANCODE_DOWN, gameplayMenuSteps(flowIs("single-arcade") ? GAMEPLAY_ARCADE : GAMEPLAY_FULL_GAME));
+		pushKey(SDL_SCANCODE_RETURN);                                  // gameplay: Full Game or one-player Arcade
 		pushKeys(SDL_SCANCODE_DOWN, flowEpisode - 1);
 		pushKey(SDL_SCANCODE_RETURN);                                  // the episode
 		pushKey(SDL_SCANCODE_RETURN);                                  // difficulty: the default

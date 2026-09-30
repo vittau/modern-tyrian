@@ -41,6 +41,9 @@
 //        until the end of episode E has run and the next episode is set up (or,
 //        for the last episode, the credits have played).  to=L stops a
 //        multi-episode run at the end of episode L.
+//   single-arcade:ep=E[,ticks=T]
+//        One-player Arcade through the normal gameplay menu (not a secret ship).
+//        ticks=0 keeps the level running for --regress-frames/snapshot captures.
 //   save:ep=E[,ticks=T]
 //        Complete one level, save slot 1 through shop Options, quit to the
 //        title, Load slot 1, compare the persisted state, continue 40 ticks.

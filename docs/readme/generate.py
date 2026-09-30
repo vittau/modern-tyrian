@@ -290,7 +290,6 @@ def banner():
     <text x="{cx}" y="{py + 106}" font-size="15" fill="{CYAN_HI}" letter-spacing="6">OPEN TYRIAN</text>
     <text x="{cx + 3}" y="{py + 169}" font-size="47" fill="{BG_DEEP}" opacity="0.85">MODERN TYRIAN</text>
     <text x="{cx}" y="{py + 166}" font-size="47" fill="url(#gGold)" stroke="{GOLD_DARK}" stroke-width="1" filter="url(#glow)">MODERN TYRIAN</text>
-    <text x="{cx}" y="{py + 202}" font-size="10" fill="{INK}" letter-spacing="2.4">THE CLASSIC ARCADE SHOOTER, REFITTED FOR MODERN DISPLAYS</text>
   </g>
 
   <rect x="{fx + 40}" y="{fy + fh + 34}" width="{fw - 80}" height="2" fill="url(#rule)"/>

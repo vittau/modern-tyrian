@@ -84,7 +84,6 @@
     <text x="640.0" y="164" font-size="15" fill="#7dbee4" letter-spacing="6">OPEN TYRIAN</text>
     <text x="643.0" y="227" font-size="47" fill="#05070f" opacity="0.85">MODERN TYRIAN</text>
     <text x="640.0" y="224" font-size="47" fill="url(#gGold)" stroke="#9a4914" stroke-width="1" filter="url(#glow)">MODERN TYRIAN</text>
-    <text x="640.0" y="260" font-size="10" fill="#eef3fb" letter-spacing="2.4">THE CLASSIC ARCADE SHOOTER, REFITTED FOR MODERN DISPLAYS</text>
   </g>
 
   <rect x="190" y="354" width="900" height="2" fill="url(#rule)"/>

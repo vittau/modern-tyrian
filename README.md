@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme/banner.svg" alt="Modern Tyrian — the classic arcade shooter, refitted for modern displays" width="100%">
+  <img src="docs/readme/banner.svg" alt="Modern Tyrian" width="100%">
 </p>
 
 <p align="center">

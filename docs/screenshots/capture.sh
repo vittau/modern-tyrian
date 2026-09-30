@@ -48,11 +48,11 @@ cd "$root"
     --launcher-png="$root/docs/screenshots/launcher.png"
 
 # TYRIAN, entered through the real Arcade menus, with its lives HUD.
-./opentyrian --variant=2.1 --regress-flow=arcade:ship=1,ep=1,levels=0 \
-    --regress-frames=820 --constant \
+./opentyrian --variant=2.1 --regress-flow=single-arcade:ep=1,ticks=0 \
+    --regress-frames=520 --constant \
     --regress-modern --regress-aspect=16:9 \
     --regress-lighting=high --regress-vfx=high \
-    --regress-snapshot=800:"$out/arcade.bmp" --no-sound
+    --regress-snapshot=500:"$out/arcade.bmp" --no-sound
 
 # Native Deck aspect: SAVARA IV with its narrower Modern HUD.
 ./opentyrian --variant=2.1 --regress-script=4:16 --regress-seed=32402394 \
