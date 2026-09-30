@@ -19,10 +19,12 @@
 #include "modern.h"
 
 #include "config.h"
+#include "crt_filter.h"
 #include "fonthand.h"
 #include "logging.h"
 #include "modern_bloom.h"
 #include "opentyr.h"
+#include "regress.h"
 #include "video.h"
 
 #include <assert.h>
@@ -80,6 +82,7 @@ static ModernFrame modern_frame_state;
 
 // The canvas texture.  Created/recreated only by modern_set_canvas_size().
 static SDL_Texture *modern_texture = NULL;
+static void modern_crt_deinit(void);
 
 // True once modern_init() ran and the renderer exists.  The resize entry points
 // that the window/fullscreen code calls become no-ops until then.
@@ -888,6 +891,7 @@ void modern_update_canvas_size(void)
 void modern_deinit(void)
 {
 	modern_dialog_end();
+	modern_crt_deinit();
 	modern_ready = false;
 
 	if (modern_texture != NULL)
@@ -2024,25 +2028,111 @@ static void modern_fill_blurred_background(ModernFrame *frame, int frame_x)
 	}
 }
 
+// Separate filtered texture/buffer: the original canvas stays readable for
+// backdrops and Off keeps its original streaming texture/upload path.
+static SDL_Texture *modern_crt_texture;
+static Uint32 *modern_crt_pixels;
+static int modern_crt_w, modern_crt_h;
+
+static bool modern_crt_resize(int w, int h)
+{
+	if (modern_crt_texture != NULL && modern_crt_w == w && modern_crt_h == h)
+		return true;
+	Uint32 *pixels = malloc((size_t)w * h * sizeof(*pixels));
+	SDL_Texture *texture = SDL_CreateTexture(video_renderer(), SDL_PIXELFORMAT_XRGB8888,
+	                                        SDL_TEXTUREACCESS_STREAMING, w, h);
+	if (pixels == NULL || texture == NULL)
+	{
+		free(pixels);
+		SDL_DestroyTexture(texture);
+		logError("Failed to allocate CRT output (%dx%d): %s", w, h, SDL_GetError());
+		return false;
+	}
+	SDL_DestroyTexture(modern_crt_texture);
+	free(modern_crt_pixels);
+	modern_crt_texture = texture;
+	modern_crt_pixels = pixels;
+	modern_crt_w = w;
+	modern_crt_h = h;
+	return true;
+}
+
+static void modern_crt_deinit(void)
+{
+	SDL_DestroyTexture(modern_crt_texture);
+	modern_crt_texture = NULL;
+	free(modern_crt_pixels);
+	modern_crt_pixels = NULL;
+	modern_crt_w = modern_crt_h = 0;
+}
+
+static ModernFrame modern_output;
+static SDL_Texture *modern_output_texture;
+
+const ModernFrame *modern_prepare_output(int dst_h)
+{
+	ModernFrame *frame = &modern_frame_state;
+	const float content_aspect = ((float)frame->w / (float)frame->h) / MODERN_ORIGINAL_PIXEL_ASPECT;
+	SDL_Texture *output_texture = modern_texture;
+	const Uint32 *output_pixels = frame->pixels;
+	int output_w = frame->w, output_h = frame->h, output_pitch = frame->pitch;
+	if (presentation == PRESENTATION_MODERN && crt_filter_mode() != CRT_FILTER_OFF)
+	{
+		const SDL_Rect fit = video_fit_rect(content_aspect);
+		if (dst_h <= 0)
+			dst_h = fit.h;
+		const int w = crt_filter_output_width(frame->w);
+		const int h = crt_filter_output_height(frame->h, dst_h);
+		if (modern_crt_resize(w, h) && crt_filter_render(frame->pixels, frame->pitch / 4,
+		        frame->w, modern_crt_pixels, w, frame->h, h))
+		{
+			output_texture = modern_crt_texture;
+			output_pixels = modern_crt_pixels;
+			output_w = w;
+			output_h = h;
+			output_pitch = w * 4;
+		}
+		else if (regress_crt_mode >= 0)
+			logFatal("CRT regression could not render the requested filter.");
+	}
+
+	modern_output = *frame;
+	modern_output.pixels = (Uint32 *)output_pixels;
+	modern_output.w = output_w;
+	modern_output.h = output_h;
+	modern_output.pitch = output_pitch;
+	modern_output_texture = output_texture;
+	return &modern_output;
+}
+
 void modern_present_frame(void)
 {
 	ModernFrame *frame = &modern_frame_state;
 	assert(modern_texture != NULL);
 	assert(frame->pixels != NULL);
 
-	// Upload the canvas to the streaming texture, honoring both pitches.
+	const float content_aspect = ((float)frame->w / frame->h) / MODERN_ORIGINAL_PIXEL_ASPECT;
+	modern_prepare_output(regress_active() ? regress_crt_dst_h : 0);
+	const ModernFrame *output = &modern_output;
+	SDL_Texture *output_texture = modern_output_texture;
+	const Uint32 *output_pixels = output->pixels;
+	const int output_w = output->w, output_h = output->h, output_pitch = output->pitch;
+	if (regress_active())
+		regress_capture_crt_frame(output);
+
+	// Upload the finished image, honoring both pitches.
 	void *texture_pixels;
 	int texture_pitch;
-	if (SDL_LockTexture(modern_texture, NULL, &texture_pixels, &texture_pitch))
+	if (SDL_LockTexture(output_texture, NULL, &texture_pixels, &texture_pitch))
 	{
-		const size_t row_bytes = (size_t)frame->w * sizeof(Uint32);
-		for (int y = 0; y < frame->h; ++y)
+		const size_t row_bytes = (size_t)output_w * sizeof(Uint32);
+		for (int y = 0; y < output_h; ++y)
 		{
 			memcpy((Uint8 *)texture_pixels + (size_t)y * texture_pitch,
-			       (const Uint8 *)frame->pixels + (size_t)y * frame->pitch,
+			       (const Uint8 *)output_pixels + (size_t)y * output_pitch,
 			       row_bytes);
 		}
-		SDL_UnlockTexture(modern_texture);
+		SDL_UnlockTexture(output_texture);
 	}
 	else
 	{
@@ -2053,8 +2143,7 @@ void modern_present_frame(void)
 	// original 1.2 pixel aspect; the pixel_aspect and scaling_mode settings are
 	// Classic-only.  The canvas width already contains the pixel aspect, so the
 	// on-screen content aspect is canvas_aspect / 1.2.
-	const float content_aspect = ((float)frame->w / (float)frame->h) / MODERN_ORIGINAL_PIXEL_ASPECT;
-	SDL_Rect dst_rect = video_present_texture(modern_texture, frame->w, frame->h, content_aspect, SCALE_FIT);
+	SDL_Rect dst_rect = video_present_texture(output_texture, output_w, output_h, content_aspect, SCALE_FIT);
 
 	// Mouse mapping needs the canvas size and the offset of the game content
 	// inside it (the playfield offset on gameplay frames in panel mode, the

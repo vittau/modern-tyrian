@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include "backgrnd.h"
+#include "crt_filter.h"
 #include "episodes.h"
 #include "file.h"
 #include "game_rules.h"
@@ -37,8 +38,8 @@
 #include "opentyr.h"
 #include "player.h"
 #include "varz.h"
-#include "video.h"
 #include "vfx.h"
+#include "video.h"
 
 #define SAVE_FILES_SIZE (109 * SAVE_FILES_NUM)
 #define SAVE_FILE_SIZE (SAVE_FILES_SIZE + 100)
@@ -279,6 +280,7 @@ static void loadOpenTyrianConfig(void)
 	modern_aspect = MODERN_ASPECT_4_3;
 	modern_pixel_aspect = PIXEL_ASPECT_ORIGINAL;
 	interp_smooth_motion = true;
+	crt_filter_set_mode(CRT_FILTER_OFF);
 	modern_bloom_quality = MODERN_QUALITY_LOW;
 	modern_lighting_quality = MODERN_QUALITY_LOW;
 	vfx_level = VFX_LOW;
@@ -371,6 +373,10 @@ static void loadOpenTyrianConfig(void)
 		if (config_get_string_option(section, "smooth_motion", &smooth_motion_name))
 			set_smooth_motion_by_name(smooth_motion_name);
 		
+		const char *crt_name;
+		if (config_get_string_option(section, "crt_filter", &crt_name))
+			crt_filter_set_by_name(crt_name);
+
 		// One "lighting" key drives both bloom and dynamic lighting.  An old
 		// "bloom" key is read only as a fallback and, for compatibility, sets
 		// both effects too.
@@ -460,6 +466,7 @@ static void saveOpenTyrianConfig(void)
 
 	config_set_string_option(section, "pixel_aspect", modern_pixel_aspect_names[modern_pixel_aspect]);
 	config_set_string_option(section, "smooth_motion", interp_smooth_motion ? "on" : "off");
+	config_set_string_option(section, "crt_filter", crt_filter_names[crt_filter_mode()]);
 	config_set_string_option(section, "vfx", vfx_level_names[vfx_level]);
 
 	config_set_int_option(section, "starfield_speed_percent", starfield_speed_percent);

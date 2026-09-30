@@ -20,6 +20,7 @@ LIBS=$($PKG_CONFIG --libs $PACKAGES | sed 's/-L\/lib //g')
 cat > "$WORK/display_test.c" <<'C'
 #include "video.h"
 #include "modern.h"
+#include "crt_filter.h"
 #include "palette.h"
 #include "game_variant.h"
 #include <assert.h>
@@ -28,6 +29,7 @@ cat > "$WORK/display_test.c" <<'C'
 #include <string.h>
 
 static bool asynchronous;
+static int crt_window_height;
 static int pending_w, pending_h;
 bool display_test_set_size(SDL_Window *window, int w, int h)
 {
@@ -77,6 +79,11 @@ static void check_modal(ModernAspect aspect)
 {
 	modern_aspect = aspect;
 	video_apply_display_settings();
+	if (crt_window_height > 0) {
+		SDL_SetWindowSize(main_window, crt_window_height * 16 / 9, crt_window_height);
+		SDL_SyncWindow(main_window);
+		modern_update_canvas_size();
+	}
 	memset(VGAScreen->pixels, 2, (size_t)VGAScreen->pitch * VGAScreen->h);
 	modern_backdrop_set(1, VGAScreen->pixels, VGAScreen->pitch);
 	SDL_Surface *dialog = modern_dialog_begin(VGAScreen);
@@ -136,11 +143,31 @@ int main(void)
 		SDL_GetWindowSizeInPixels(main_window, &w, &h);
 		SDL_GetRenderOutputSize(video_renderer(), &rw, &rh);
 		assert(w == rw && h == rh);
-		check_modal(MODERN_ASPECT_21_9);
-		check_modal(MODERN_ASPECT_32_9);
+		for (int size = 0; size < 2; ++size) {
+			crt_window_height = size ? 2160 : 1080;
+			SDL_SetWindowSize(main_window, size ? 3840 : 1920, crt_window_height);
+			SDL_SyncWindow(main_window);
+			for (int mode = 0; mode < CRT_FILTER_MODE_COUNT; ++mode) {
+				crt_filter_set_mode(mode);
+				check_modal(MODERN_ASPECT_21_9);
+				const ModernFrame *canvas = modern_current_frame();
+				SDL_Rect fit = video_fit_rect(((float)canvas->w / canvas->h) / MODERN_ORIGINAL_PIXEL_ASPECT);
+				const ModernFrame *output = modern_prepare_output(0);
+				assert(output->w == crt_filter_output_width(canvas->w));
+				assert(output->h == crt_filter_output_height(canvas->h, fit.h));
+				Uint32 *pixels = output->pixels;
+				assert(modern_prepare_output(0)->pixels == pixels);
+				check_modal(MODERN_ASPECT_32_9);
+			}
+		}
+		crt_filter_set_mode(CRT_FILTER_BOTH);
+		presentation = PRESENTATION_CLASSIC;
+		assert(modern_prepare_output(1080)->pixels == modern_current_frame()->pixels);
+		presentation = PRESENTATION_MODERN;
+		crt_filter_set_mode(CRT_FILTER_OFF);
 	}
 	deinit_video();
-	puts("PASS display: async fullscreen/windowed, resize, aspect, launcher sizing, modal centre and mouse mapping (both variants)");
+	puts("PASS display: async fullscreen/windowed, resize, aspect, launcher sizing, modal centre, CRT runtime rebuild/reuse and mouse mapping in all modes (both variants)");
 	return 0;
 }
 C
@@ -170,3 +197,35 @@ echo 'PASS display: first launcher frame matches steady 21:9 and 32:9 output'
 	--regress-aspect=32:9 --regress-frames=3 --regress-out="$WORK/quit.txt" > "$WORK/quit.log" 2>&1
 cmp "$WORK/quit.txt" "$ROOT/test/regress/display-quit-32x9.txt"
 echo 'PASS display: quit modal 32:9 frame hash'
+
+"$BIN" --regress-crt-check > "$WORK/crt-fixture.log" 2>&1
+for height in 400 600 1200 1080 2160 150 1079 2161; do
+	grep "CRT fixture PASS: dst=$height " "$WORK/crt-fixture.log" >/dev/null || exit 1
+done
+# Keep guards portable: grep is available on the MSYS2/macOS baseline.
+"$BIN" --data="$DATA" --regress-screen=setup-crt-picker --regress-modern \
+	--regress-crt=off --regress-out="$WORK/crt-menu.txt" > "$WORK/crt-menu.log" 2>&1
+grep 'CRT menu coverage: .*chosen=Scanl + NTSC' "$WORK/crt-menu.log" >/dev/null
+grep 'CRT coverage: mode=off' "$WORK/crt-menu.log" >/dev/null
+echo 'PASS display: real CRT menu/picker and 13 CRT synthetic fixture checks'
+
+for mode in off scanlines ntsc scanlines+ntsc; do
+	"$BIN" --data="$DATA" --regress-level=1:16 --regress-frames=40 --regress-modern \
+		--regress-crt="$mode" --regress-crt-height=1080 --regress-out="$WORK/crt-$mode.txt" \
+		--regress-state-out="$WORK/state-$mode.txt" > "$WORK/crt-$mode.log" 2>&1
+	grep "CRT coverage: mode=$mode " "$WORK/crt-$mode.log" >/dev/null
+	cmp "$WORK/state-off.txt" "$WORK/state-$mode.txt"
+done
+echo 'PASS display: all CRT modes preserve game-state/RNG hashes'
+
+mkdir -p "$WORK/config-root"
+for mode in off scanlines ntsc scanlines+ntsc unknown; do
+	printf "section 'video'\n\titem 'crt_filter' '%s'\n" "$mode" > "$WORK/config-root/opentyrian.cfg"
+	"$BIN" --variant=2.1 --regress-user-root="$WORK/config-root" --regress-user-files > "$WORK/config.log" 2>&1
+	[ "$mode" != unknown ] || mode=off
+	grep -F "item 'crt_filter' '$mode'" "$WORK/config-root/opentyrian.cfg" >/dev/null
+done
+rm "$WORK/config-root/opentyrian.cfg"
+"$BIN" --variant=2.1 --regress-user-root="$WORK/config-root" --regress-user-files > "$WORK/config.log" 2>&1
+grep -F "item 'crt_filter' 'off'" "$WORK/config-root/opentyrian.cfg" >/dev/null
+echo 'PASS display: CRT shared config roundtrip (4 modes), unknown and missing default off'

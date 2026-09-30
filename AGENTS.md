@@ -28,7 +28,7 @@ Plans and journals are in Portuguese, in `MODERNIZATION_PLAN.md` (the general mo
 
 ```sh
 make                         # release;  `make debug` = -O0 -Werror, asserts on (run `make clean` between them)
-make regress                 # 2.1: 166 cases + guards, ~1–3 min
+make regress                 # 2.1: 172 cases + guards, ~1–3 min
 make regress-2000 TYRIAN2000_DATA=<dir>   # 2000: ~150 cases, needs the 2000 data (clear error if missing)
 tools/regress.sh --update                 # regenerate 2.1 baselines (intentional output changes only)
 tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --only-launcher for launcher hashes
@@ -39,6 +39,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   - scenarios: `demo=N`, `level=E:L`, `script=E:L`, `screen=<name>`, `modern`, `aspect=`, `detail=`, `frames=N`, `players=N`, `seed=`;
   - `flow=` is a virtual keyboard that walks the real menus: Full Game, Timed Battle, arcade, Super Tyrian, Destruct;
   - `rules=<fixture>`, `items-new`, `fire`, `demo-hud-check`, `gameplay-check`, `data-audit`, `boss`, `handoff`, `gamepad`, `xmas`, `user-root=`/`user-files`.
+  - CRT: `crt=off|scanlines|ntsc|scanlines+ntsc` (Modern filtered-output hashes), `crt-check` (synthetic fixtures + measurements), `crt-height=N`, `crt-window=WxH`, `present-png=FRAME:FILE` (2.1 only).
   - Launcher-only flags are parsed before `params.c`: `--regress-launcher=WxH,installed|missing,1|2[,about|message|…]`, `--launcher-png=`, `--launcher-flow=`.
 - **`params.c` option-id ranges.** Pick a new range; beware getopt prefix matching (`--regress-loadout-new` broke `--regress-loadout`).
 
@@ -53,6 +54,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   | 370–379 | Phase 7 |
   | 380–399 | Phase 8 |
   | 400–409 | display |
+  | 410–419 | CRT filter |
 
 - **Guards run by `make regress`:**
   - `check_no_t2000_data.sh`, `check_variant_bootstrap.sh`, `check_user_paths.sh`, `check_game_rules.sh`;
@@ -84,6 +86,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
    - The HUD uses semantic labels.
    - Attract demos follow the active mode's HUD.
    - Modals over the widened pic-1 layout use `modern_dialog_begin/end`.
+   - **CRT filter** (`crt_filter.c`, `ntsc.c`): Modern-only, after canvas capture and all passes in `modern_present_frame`; read-only canvas, original Fit rect/mouse map. Output width follows NTSC, scanline height is `2*src` only for `dst % (2*src) == 0`, otherwise native Fit height (or `src` below `2*src`); buffer/texture resize only on dimension changes, ~16 MiB NTSC table built lazily and freed at shutdown. See `docs/CRT.md`.
    - Window changes must settle with `SDL_SyncWindow` before geometry is read, because Cocoa is asynchronous.
 
 ## Data, saves, installer

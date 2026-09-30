@@ -159,6 +159,9 @@
     <ClCompile Include="..\src\memwriter.c" />
     <ClCompile Include="..\src\menus.c" />
     <ClCompile Include="..\src\modern.c" />
+    <ClCompile Include="..\src\ntsc.c" />
+    <ClCompile Include="..\src\crt_filter.c" />
+    <ClCompile Include="..\src\regress_crt.c" />
     <ClCompile Include="..\src\modern_bloom.c" />
     <ClCompile Include="..\src\modern_hud.c" />
     <ClCompile Include="..\src\mouse.c" />
@@ -240,6 +243,8 @@
     <ClInclude Include="..\src\memwriter.h" />
     <ClInclude Include="..\src\menus.h" />
     <ClInclude Include="..\src\modern.h" />
+    <ClInclude Include="..\src\ntsc.h" />
+    <ClInclude Include="..\src\crt_filter.h" />
     <ClInclude Include="..\src\modern_bloom.h" />
     <ClInclude Include="..\src\modern_hud.h" />
     <ClInclude Include="..\src\mouse.h" />

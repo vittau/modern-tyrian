@@ -18,6 +18,7 @@
  */
 #include "video.h"
 
+#include "crt_filter.h"
 #include "drawlist.h"
 #include "keyboard.h"
 #include "logging.h"
@@ -121,6 +122,12 @@ void init_video(void)
 	init_renderer();
 	init_texture();
 	modern_init();
+	if (regress_active() && regress_crt_window_w > 0)
+	{
+		SDL_SetWindowSize(main_window, regress_crt_window_w, regress_crt_window_h);
+		SDL_SyncWindow(main_window);
+		modern_update_canvas_size();
+	}
 
 	SDL_ShowWindow(main_window);
 
@@ -132,6 +139,7 @@ void init_video(void)
 void deinit_video(void)
 {
 	modern_deinit();
+	crt_filter_quit();
 	deinit_texture();
 
 	if (scaled_target != NULL)
@@ -698,6 +706,13 @@ static void present_sharp_bilinear(SDL_Texture *texture, int src_w, int src_h, c
 	SDL_RenderTexture(main_window_renderer, scaled_target, NULL, &dst_frect);
 }
 
+SDL_Rect video_fit_rect(float content_aspect)
+{
+	int w, h;
+	window_size_in_pixels(&w, &h);
+	return fit_rect(w, h, content_aspect);
+}
+
 SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float content_aspect, ScalingMode mode)
 {
 	// The window size in native pixels: on HiDPI this is what makes the final
@@ -739,11 +754,12 @@ SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float
 
 	case SCALE_FIT:
 	default:
-		dst = fit_rect(win_w, win_h, content_aspect);
+		dst = video_fit_rect(content_aspect);
 		present_sharp_bilinear(texture, src_w, src_h, &dst);
 		break;
 	}
 
+	regress_capture_presented_frame(main_window_renderer);
 	SDL_RenderPresent(main_window_renderer);
 	return dst;
 }

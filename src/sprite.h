@@ -79,6 +79,22 @@ static inline Uint16 get_sprite_height(unsigned int table, unsigned int index)
 	return (sprite_exists(table, index) ? sprite(table, index)->height : 0);
 }
 
+// Palette transform used by the font renderer's blit_sprite_hv path. Preserve
+// its byte wrap and clipping before applying the requested hue bank.
+static inline Uint8 sprite_hv_color(Uint8 pixel, Uint8 hue, Sint8 value)
+{
+	Uint8 brightness = (pixel & 0x0f) + value;
+	if (brightness > 0x0f)
+		brightness = brightness >= 0x1f ? 0x00 : 0x0f;
+	return (Uint8)((hue << 4) | brightness);
+}
+
+// Font/sprite shadows either paint black or halve the destination brightness.
+static inline Uint8 sprite_dark_color(Uint8 pixel, bool black)
+{
+	return black ? 0x00 : (Uint8)((pixel & 0xf0) | ((pixel & 0x0f) / 2));
+}
+
 void load_sprites_file(unsigned int table, const char *filename);
 void load_sprites(unsigned int table, File *file);
 void free_sprites(unsigned int table);

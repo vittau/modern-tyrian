@@ -72,6 +72,7 @@ SDL_Renderer *video_renderer(void);
 // canvas display aspect.  `mode` is the fit strategy; Modern always passes
 // SCALE_FIT.  Center and Integer draw with nearest-neighbour; Fit uses the
 // sharp-bilinear path.
+SDL_Rect video_fit_rect(float content_aspect);
 SDL_Rect video_present_texture(SDL_Texture *texture, int src_w, int src_h, float content_aspect, ScalingMode mode);
 // Records the presented output rectangle (native pixels) for mouse mapping.
 void video_set_last_output_rect(const SDL_Rect *rect);

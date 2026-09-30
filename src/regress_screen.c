@@ -482,7 +482,7 @@ void regress_screen_run(void)
 		for (;;)
 			JE_showVGA();
 	}
-	else if (screen_is("setup"))
+	else if (screen_is("setup") || screen_is("setup-crt-picker"))
 	{
 		// The in-game Setup screen's Graphics submenu, which carries the
 		// presentation/aspect/pixel-aspect/smooth-motion pickers.

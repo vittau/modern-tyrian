@@ -140,6 +140,15 @@
     <ClCompile Include="..\src\modern.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\ntsc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\crt_filter.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\regress_crt.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\modern_bloom.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -373,6 +382,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\ntsc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\crt_filter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern_bloom.h">

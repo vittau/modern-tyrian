@@ -35,6 +35,7 @@
 #include "loudness.h"
 #include "mainint.h"
 #include "modern.h"
+#include "crt_filter.h"
 #include "modern_bloom.h"
 #include "mtrand.h"
 #include "opentyr.h"
@@ -174,6 +175,10 @@ const char *regress_state_out_path = NULL;
 int regress_players = 1;
 int regress_arcade = 0;
 const char *regress_screen = NULL;
+int regress_crt_mode = -1;
+bool regress_crt_check;
+int regress_crt_dst_h;
+
 int regress_replay_check = 0;
 int regress_interp_check = 0;
 int regress_interp_smoothness = 0;
@@ -596,6 +601,7 @@ bool regress_scan_args(int argc, char *argv[])
 		    arg_is_option(argv[i], screen_option, strlen(screen_option)) ||
 		    arg_is_option(argv[i], script_option, strlen(script_option)) ||
 		    arg_is_option(argv[i], flow_option, strlen(flow_option)) ||
+		    arg_is_option(argv[i], "--regress-crt-check", strlen("--regress-crt-check")) ||
 		    arg_is_option(argv[i], "--regress-user-files", strlen("--regress-user-files")))
 			return true;
 	}
@@ -918,7 +924,7 @@ void regress_capture_modern_frame(void)
 	const bool write_frame = regress_out != NULL;
 	Uint64 hash = fnv_offset_basis;
 
-	if (write_frame)
+	if (write_frame && regress_crt_mode < 0)
 	{
 		// Hash the visible XRGB bytes of each row, honoring the canvas pitch.
 		// The palette is already applied to the canvas, so it is not hashed
@@ -932,14 +938,41 @@ void regress_capture_modern_frame(void)
 		}
 	}
 
-	if (regress_has_snapshots())
+	if (regress_has_snapshots() && regress_crt_mode < 0)
 		regress_save_snapshots_modern(frame);
 
 	regress_check_gameplay_composition();
 	regress_check_demo_hud(NULL);
 	regress_check_smooth_effects();
 	regress_note_smoothness();
-	regress_emit_records(write_frame, hash);
+	if (regress_crt_mode < 0) regress_emit_records(write_frame, hash);
+}
+
+void regress_capture_crt_frame(const ModernFrame *frame)
+{
+	if (regress_crt_mode < 0) return;
+	Uint64 hash = fnv_offset_basis;
+	for (int y = 0; y < frame->h; ++y)
+		hash_bytes(&hash, (const Uint8 *)frame->pixels + (size_t)y * frame->pitch, (size_t)frame->w * 4);
+	if (regress_frame == 0)
+		logInfo("CRT coverage: mode=%s canvas=%dx200 output=%dx%d phase=0", crt_filter_names[regress_crt_mode],
+		        modern_current_frame()->w, frame->w, frame->h);
+	if (regress_has_snapshots()) regress_save_snapshots_modern(frame);
+	regress_emit_records(regress_out != NULL, hash);
+}
+
+int regress_crt_window_w, regress_crt_window_h;
+const char *regress_present_png;
+unsigned long regress_present_png_frame;
+void regress_capture_presented_frame(SDL_Renderer *renderer)
+{
+	if (!regress_active() || regress_present_png == NULL || regress_frame == 0 ||
+	    regress_frame - 1 != regress_present_png_frame) return;
+	SDL_Surface *surface = SDL_RenderReadPixels(renderer, NULL);
+	if (surface == NULL || !SDL_SavePNG(surface, regress_present_png))
+		logFatal("Failed to save presented PNG: %s", SDL_GetError());
+	SDL_DestroySurface(surface);
+	logInfo("CRT presented PNG: frame=%lu path=%s", regress_frame - 1, regress_present_png);
 }
 
 void regress_begin_scenario(void)
@@ -1164,6 +1197,9 @@ void regress_init(void)
 	// the requested duration.
 	if (regress_realtime_active())
 		interp_bench_start(regress_bench_seconds);
+
+	crt_filter_set_mode(regress_crt_mode >= 0 ? regress_crt_mode : CRT_FILTER_OFF);
+	crt_filter_reset_phase();
 
 	// Bloom and dynamic lighting are pinned OFF for every existing case so the
 	// baselines stay byte-for-byte unchanged; --regress-lighting opts a run into

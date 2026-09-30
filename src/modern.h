@@ -410,9 +410,14 @@ SDL_Surface *modern_screen_begin(void);
 // canvas and runs the registered passes, in order.  No allocation.
 void modern_build_frame(SDL_Surface *src_surface);
 
+// Prepares the read-only canvas for upload; advances NTSC once per call.
+// dst_h=0 uses the native Fit height. Called once per presented frame; filtered
+// buffer/texture allocation occurs only when output dimensions change.
+const ModernFrame *modern_prepare_output(int dst_h);
+
 // Uploads the canvas to its streaming texture and presents it on the window,
-// honoring the current scaling mode.  Updates the mouse mapping rectangle.
-// No allocation.
+// honoring the current scaling mode. Updates the mouse mapping rectangle.
+// Applies the optional CRT pass through modern_prepare_output().
 void modern_present_frame(void);
 
 // The canvas built by the last modern_build_frame(), for the regression

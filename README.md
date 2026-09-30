@@ -75,7 +75,7 @@ Both games support Modern mode:
 - **Widescreen** from 4:3 to 32:9, with automatic display aspect detection.
 - **Bevelled glass HUD** with glowing edges, light glints and inset shadows,
   for campaign and arcade modes, including two players.
-- **Smooth motion** at the display refresh rate, bloom, dynamic lighting and VFX.
+- **Smooth motion** at the display refresh rate, bloom, dynamic lighting and VFX, plus optional half-row scanlines and Blargg NTSC CRT filtering.
 - **Sharp scaling and HiDPI output**, preserving the original pixel aspect.
 - **Gamepad support**, remappable buttons, analog movement and hot-plugging.
 - **Nuked-OPL3 audio** for the original FM music.

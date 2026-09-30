@@ -162,9 +162,9 @@ static bool blit_font_edge(SDL_Surface *surface, int x, int y, unsigned int tabl
 				case DL_SPRITE_BLIT: *pixel = data; break;
 				case DL_SPRITE_BLEND: *pixel = (data & 0xf0) | (((*pixel & 0x0f) + (data & 0x0f)) / 2); break;
 				case DL_SPRITE_HV_UNSAFE: *pixel = (hue << 4) | ((data & 0x0f) + value); break;
-				case DL_SPRITE_HV: *pixel = (hue << 4) | v; break;
+				case DL_SPRITE_HV: *pixel = sprite_hv_color(data, hue, value); break;
 				case DL_SPRITE_HV_BLEND: *pixel = (hue << 4) | (((*pixel & 0x0f) + v) / 2); break;
-				case DL_SPRITE_DARK: *pixel = black ? 0 : ((*pixel & 0xf0) | ((*pixel & 0x0f) / 2)); break;
+				case DL_SPRITE_DARK: *pixel = sprite_dark_color(*pixel, black); break;
 				}
 			}
 			++column;
@@ -391,7 +391,6 @@ void blit_sprite_hv(SDL_Surface *surface, int x, int y, unsigned int table, unsi
 	if (blit_font_edge(surface, x, y, table, index, DL_SPRITE_HV, hue, value, false))
 		return;
 
-	hue <<= 4;
 	
 	const Sprite * const cur_sprite = sprite(table, index);
 	
@@ -431,11 +430,7 @@ void blit_sprite_hv(SDL_Surface *surface, int x, int y, unsigned int table, unsi
 				return;
 			if (pixels >= pixels_ll)
 			{
-				Uint8 temp_value = (*data & 0x0f) + value;
-				if (temp_value > 0xf)
-					temp_value = (temp_value >= 0x1f) ? 0x0 : 0xf;
-				
-				*pixels = hue | temp_value;
+				*pixels = sprite_hv_color(*data, hue, value);
 			}
 			
 			pixels++;
@@ -574,7 +569,7 @@ void blit_sprite_dark(SDL_Surface *surface, int x, int y, unsigned int table, un
 			if (pixels >= pixels_ul)
 				return;
 			if (pixels >= pixels_ll)
-				*pixels = black ? 0x00 : ((*pixels & 0xf0) | ((*pixels & 0x0f) / 2));
+				*pixels = sprite_dark_color(*pixels, black);
 			
 			pixels++;
 			x_offset++;

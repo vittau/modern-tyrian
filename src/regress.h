@@ -20,6 +20,7 @@
 #define REGRESS_H
 
 #include <SDL3/SDL.h>
+#include "modern.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -224,6 +225,17 @@ bool regress_has_snapshots(void);
 // (XRGB8888), hashing the visible w*4 bytes of each row and walking the pitch.
 // The palette is already baked into those bytes.  Also emits the frame's state
 // hash when --regress-state-out is set.
+// CRT is pinned Off unless explicitly requested. Filter hashes are captured
+// in the presenter after the normal canvas checks; game-state capture is shared.
+extern int regress_crt_mode;
+extern bool regress_crt_check;
+int regress_crt_selfcheck(void);
+extern int regress_crt_dst_h;
+extern int regress_crt_window_w, regress_crt_window_h;
+extern const char *regress_present_png;
+extern unsigned long regress_present_png_frame;
+void regress_capture_presented_frame(SDL_Renderer *renderer);
+void regress_capture_crt_frame(const ModernFrame *frame);
 void regress_capture_modern_frame(void);
 
 // State-hash stream (--regress-state-out=FILE): one "<frame_index> <hash>" line

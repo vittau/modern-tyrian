@@ -504,6 +504,11 @@ run_case() {
 		return
 	fi
 
+	case "$label" in modern-crt-*|modern-screen-setup-crt-picker)
+		if ! grep -q 'CRT coverage:' "$log"; then
+			echo "FAIL $label: missing CRT execution coverage"; failures=$((failures + 1)); return
+		fi ;;
+	esac
 	if [ ! -f "$out" ]; then
 		echo "FAIL $label: no output written (${elapsed}s)"
 		dump_failure_log "$log"
@@ -825,6 +830,19 @@ run_case "modern-screen-quit-21x9" \
 pairs=$((pairs + 1))
 run_case "modern-screen-ship-specs-21x9" \
 	--regress-screen=ship-specs --regress-modern --regress-aspect=21:9
+
+# --- Modern CRT output (hash the exact upload, phase reset at run start) -------
+for crt in off scanlines ntsc scanlines+ntsc; do
+	pairs=$((pairs + 1))
+	run_case "modern-crt-$crt" --regress-level=1:16 --regress-frames=120 \
+		--regress-modern --regress-aspect=16:9 --regress-crt="$crt" --regress-crt-height=1080
+	done
+pairs=$((pairs + 1))
+run_case "modern-crt-both-2160" --regress-level=1:16 --regress-frames=120 \
+	--regress-modern --regress-aspect=16:9 --regress-crt=scanlines+ntsc --regress-crt-height=2160
+pairs=$((pairs + 1))
+run_case "modern-screen-setup-crt-picker" --regress-screen=setup-crt-picker \
+	--regress-modern --regress-aspect=16:9 --regress-crt=off
 
 # --- modern bloom + dynamic lighting -----------------------------------------
 #

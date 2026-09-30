@@ -20,6 +20,7 @@
 
 #include "bootstrap.h"
 #include "config.h"
+#include "crt_filter.h"
 #include "demo.h"
 #include "destruct.h"
 #include "editship.h"
@@ -160,6 +161,60 @@ static const char *getSmoothMotionPickerItem(size_t i, char *buffer, size_t buff
 	return i == 0 ? "On" : "Off";
 }
 
+static void drawCrtValue(SDL_Surface *surface, int x, int y, const char *text, Sint8 value)
+{
+	const Uint8 hue = 15;
+	const int shadowDist = 2;
+	drawFontHvShadow(surface, x, y, text, FONT_NORMAL, hue, value, false, shadowDist);
+	const char *plus = strchr(text, '+');
+	if (plus != NULL)
+	{
+		// The normal font's '+' is a blank 2x2 placeholder. Draw a 3x3 cross
+		// inside its measured 3px advance; surrounding spaces remain intact.
+		char prefix[32];
+		size_t length = (size_t)(plus - text);
+		assert(length < sizeof prefix);
+		memcpy(prefix, text, length);
+		prefix[length] = '\0';
+		const int px = x + JE_textWidth(prefix, FONT_NORMAL);
+		const int py = y + 3;
+		static const int crossX[] = { 1, 0, 1, 2, 1 };
+		static const int crossY[] = { 0, 1, 1, 1, 2 };
+
+		// Reuse blit_sprite_hv/blit_sprite_dark's palette transforms (sprite.h),
+		// as drawFontHvShadow does through drawFontHv/drawFontDark. The cross
+		// uses a full-brightness source stroke and a destination-darkening shadow.
+		const Uint8 color = sprite_hv_color(0x0f, hue, value);
+		for (size_t i = 0; i < COUNTOF(crossX); ++i)
+		{
+			Uint8 *shadow = (Uint8 *)surface->pixels +
+			                (py + crossY[i] + shadowDist) * surface->pitch + px + crossX[i] + shadowDist;
+			*shadow = sprite_dark_color(*shadow, false);
+		}
+		for (size_t i = 0; i < COUNTOF(crossX); ++i)
+		{
+			Uint8 *pixel = (Uint8 *)surface->pixels +
+			               (py + crossY[i]) * surface->pitch + px + crossX[i];
+			*pixel = color;
+		}
+	}
+}
+
+static size_t getCrtPickerItemsCount(void)
+{
+	return CRT_FILTER_MODE_COUNT;
+}
+
+static const char *getCrtPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	(void)buffer;
+	(void)bufferSize;
+	static const char *const labels[] = { "Off", "Scanlines", "NTSC", "Scanlines + NTSC" };
+	// Measure with the loaded menu font, including its character spacing.
+	return i == CRT_FILTER_BOTH && JE_textWidth(labels[i], FONT_NORMAL) > 95
+	       ? "Scanl + NTSC" : labels[i];
+}
+
 static size_t getLightingPickerItemsCount(void)
 {
 	return (size_t)MODERN_QUALITY_MAX;
@@ -204,6 +259,7 @@ void setupMenu(void)
 		MENU_ITEM_ASPECT,
 		MENU_ITEM_PIXEL_ASPECT,
 		MENU_ITEM_SMOOTH_MOTION,
+		MENU_ITEM_CRT,
 		MENU_ITEM_LIGHTING,
 		MENU_ITEM_VFX,
 		MENU_ITEM_MUSIC_VOLUME,
@@ -231,7 +287,7 @@ void setupMenu(void)
 	typedef struct
 	{
 		const char *header;
-		const MenuItem items[10];
+		const MenuItem items[11];
 	} Menu;
 
 	static const Menu menus[] = {
@@ -255,6 +311,7 @@ void setupMenu(void)
 				{ MENU_ITEM_ASPECT, "Aspect:", "Change the Modern aspect ratio.", getAspectPickerItemsCount, getAspectPickerItem, true },
 				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
+				{ MENU_ITEM_CRT, "CRT Filter:", "Change the Modern CRT filter.", getCrtPickerItemsCount, getCrtPickerItem, true },
 				{ MENU_ITEM_LIGHTING, "Lighting:", "Change the Modern bloom and lighting level.", getLightingPickerItemsCount, getLightingPickerItem, true },
 				{ MENU_ITEM_VFX, "Effects:", "Change the Modern VFX level.", getVfxPickerItemsCount, getVfxPickerItem, true },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
@@ -289,6 +346,28 @@ void setupMenu(void)
 	}
 	MenuItemId currentPicker = MENU_ITEM_NONE;
 	size_t pickerSelectedIndex = 0;
+	if (regress_screen != NULL && strcmp(regress_screen, "setup-crt-picker") == 0)
+	{
+		size_t visibleIndex = 0;
+		for (const MenuItem *item = menus[MENU_GRAPHICS].items; item->id != (MenuItemId)-1; ++item)
+		{
+			const bool classicOnly = item->id == MENU_ITEM_SCALING_MODE || item->id == MENU_ITEM_PIXEL_ASPECT;
+			if (classicOnly && presentation == PRESENTATION_MODERN)
+				continue;
+			if (item->id == MENU_ITEM_CRT)
+			{
+				selectedMenuItemIndexes[MENU_GRAPHICS] = visibleIndex;
+				break;
+			}
+			++visibleIndex;
+		}
+		currentPicker = MENU_ITEM_CRT;
+		pickerSelectedIndex = (size_t)crt_filter_mode();
+	}
+	if (regress_screen != NULL && strncmp(regress_screen, "setup", 5) == 0)
+		logInfo("CRT menu coverage: full label=%d px, short label=%d px, value column=95 px, chosen=%s",
+		        JE_textWidth("Scanlines + NTSC", FONT_NORMAL), JE_textWidth("Scanl + NTSC", FONT_NORMAL),
+		        getCrtPickerItem(CRT_FILTER_BOTH, buffer, sizeof buffer));
 
 	const int xCenter = 320 / 2;
 	const int yMenuHeader = 4;
@@ -409,6 +488,10 @@ void setupMenu(void)
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, interp_smooth_motion ? "On" : "Off", FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
+			case MENU_ITEM_CRT:
+				drawCrtValue(VGAScreen, xMenuItemValue, y, getCrtPickerItem((size_t)crt_filter_mode(), buffer, sizeof buffer), (Sint8)(-3 + (selected ? 2 : 0) + (disabled ? -4 : 0)));
+				break;
+
 			case MENU_ITEM_LIGHTING:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_quality_names[modern_lighting_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
@@ -458,7 +541,10 @@ void setupMenu(void)
 
 				const char *value = selectedMenuItem->getPickerItem(i, buffer, sizeof buffer);
 
-				drawFontHvShadow(VGAScreen, xMenuItemValue, y, value, FONT_NORMAL, 15, -3 + (selected ? 2 : 0), false, 2);
+				if (currentPicker == MENU_ITEM_CRT)
+					drawCrtValue(VGAScreen, xMenuItemValue, y, value, (Sint8)(-3 + (selected ? 2 : 0)));
+				else
+					drawFontHvShadow(VGAScreen, xMenuItemValue, y, value, FONT_NORMAL, 15, -3 + (selected ? 2 : 0), false, 2);
 			}
 		}
 
@@ -537,6 +623,7 @@ void setupMenu(void)
 									case MENU_ITEM_ASPECT:
 									case MENU_ITEM_PIXEL_ASPECT:
 									case MENU_ITEM_SMOOTH_MOTION:
+									case MENU_ITEM_CRT:
 									case MENU_ITEM_LIGHTING:
 									case MENU_ITEM_VFX:
 									{
@@ -771,6 +858,11 @@ void setupMenu(void)
 					pickerSelectedIndex = interp_smooth_motion ? 0 : 1;
 					break;
 				}
+				case MENU_ITEM_CRT:
+					JE_playSampleNum(S_CLICK);
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = (size_t)crt_filter_mode();
+					break;
 				case MENU_ITEM_LIGHTING:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -954,6 +1046,9 @@ void setupMenu(void)
 					interp_smooth_motion = pickerSelectedIndex == 0;
 					break;
 				}
+				case MENU_ITEM_CRT:
+					crt_filter_set_mode((int)pickerSelectedIndex);
+					break;
 				case MENU_ITEM_LIGHTING:
 				{
 					// One picker drives both effects.
@@ -1112,6 +1207,8 @@ int main(int argc, char *argv[])
 	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
+	if (regress_crt_check)
+		return regress_crt_selfcheck();
 
 	if (launcher)
 	{

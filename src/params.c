@@ -30,6 +30,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "modern.h"
+#include "crt_filter.h"
 #include "modern_bloom.h"
 #include "network.h"
 #include "opentyr.h"
@@ -80,6 +81,11 @@ const Options *JE_paramOptions(void)
 		{ 'r', 'r', "record",            false },
 		{ 'l', 'l', "loot",              false },
 		
+		{ 410, 0, "regress-crt", true },
+		{ 411, 0, "regress-crt-check", false },
+		{ 412, 0, "regress-crt-height", true },
+		{ 413, 0, "regress-crt-window", true },
+		{ 414, 0, "regress-present-png", true },
 		{ 258, 0,   "regress-demo",      true },
 		{ 259, 0,   "regress-out",       true },
 		{ 260, 0,   "regress-detail",    true },
@@ -161,6 +167,30 @@ void JE_paramCheck(int argc, char *argv[])
 		
 		switch (option.value)
 		{
+		case 410:
+			if (!crt_filter_set_by_name(option.arg)) logFatal("Unknown CRT filter '%s'.", option.arg);
+			regress_crt_mode = crt_filter_mode();
+			break;
+		case 411:
+			regress_crt_check = true;
+			break;
+		case 412:
+			regress_crt_dst_h = atoi(option.arg);
+			if (regress_crt_dst_h < 1) logFatal("CRT height must be positive.");
+			break;
+		case 413:
+			if (sscanf(option.arg, "%dx%d", &regress_crt_window_w, &regress_crt_window_h) != 2 ||
+			    regress_crt_window_w < 1 || regress_crt_window_h < 1)
+				logFatal("CRT window must be positive WIDTHxHEIGHT.");
+			break;
+		case 414:
+		{
+			char *end;
+			regress_present_png_frame = strtoul(option.arg, &end, 10);
+			if (end == option.arg || *end != ':' || end[1] == '\0') logFatal("Presented PNG must be FRAME:FILE.");
+			regress_present_png = end + 1;
+			break;
+		}
 		case INVALID_OPTION:
 		case AMBIGUOUS_OPTION:
 		case OPTION_MISSING_ARG:
@@ -825,6 +855,13 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 	}
 	
+	if (regress_crt_mode >= 0 && (!regress_active() || !regress_modern))
+		logFatal("--regress-crt requires a Modern regression run.");
+	if ((regress_crt_window_w > 0 || regress_present_png != NULL || regress_crt_dst_h > 0) && !regress_active())
+		logFatal("CRT output controls are regress-only.");
+	if (regress_present_png != NULL && gameVariantCurrent()->id != VARIANT_TYRIAN21)
+		logFatal("Presented PNG capture is restricted to Tyrian 2.1.");
+
 	if (regress_rule_fixture != NULL && !regress_scenario_active())
 	{
 		logError("%s: --regress-rules requires --regress-level", argv[0]);
