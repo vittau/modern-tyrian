@@ -194,6 +194,10 @@ def main():
         f.write(open(os.path.join(out, "valid.spec")).read())
         f.write("cancel-after-ms 700\n")
 
+    # Only the download plumbing: keeps the canonical size, hash and manifest.
+    with open(os.path.join(out, "download-only.spec"), "w") as f:
+        f.write("# synthetic test spec: canonical manifest, downloader only\n")
+
 
 if __name__ == "__main__":
     main()

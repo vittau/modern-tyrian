@@ -7,7 +7,8 @@
 # (HOME, XDG_DATA_HOME, APPDATA and the copied binary all live under OUTDIR).
 # Synthetic archives and folders come from tools/installer_fixtures.py, the test
 # spec (`--install-2000-spec`) swaps the canonical size/SHA-256/manifest for
-# theirs, and a stub `curl` on PATH stands in for the network.  No original
+# theirs, and a C stub (tools/curl_stub.c, named in the spec by absolute path,
+# so PATH plays no part) stands in for curl and the network.  No original
 # Tyrian 2000 file is needed or produced.  DATA21_DIR (Tyrian 2.1) is only used
 # for the "2.1 data given as Tyrian 2000" case.
 set -uo pipefail
@@ -28,6 +29,21 @@ URL="https://www.camanis.net/tyrian/tyrian2000.zip"
 failures=0
 checks=0
 
+# Windows (MSYS2) runs the game as a native program: it logs Windows paths and
+# takes the downloader path from the spec file as-is.
+case "$(uname -s)" in
+	MINGW*|MSYS*|CYGWIN*) WINDOWS=1; EXE=.exe ;;
+	*) WINDOWS=0; EXE= ;;
+esac
+# native PATH: the path in the form the game sees and logs, forward slashes
+native() { if [ "$WINDOWS" = 1 ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+
+# The downloader stub: built once, then the only "curl" any run can reach.
+CC_BIN=$(command -v "${CC:-cc}" || command -v gcc || command -v clang || true)
+[ -n "$CC_BIN" ] || { echo "FAIL installer: no C compiler for the curl stub"; exit 1; }
+"$CC_BIN" -O0 -o "$OUT/curl-stub$EXE" "$ROOT/tools/curl_stub.c" || { echo "FAIL installer: could not build the curl stub"; exit 1; }
+STUB_EXE="$(native "$OUT/curl-stub$EXE")"
+
 fail() {
 	echo "FAIL installer/$CASE: $*"
 	[ -n "${LOG:-}" ] && [ -f "$LOG" ] && sed 's/^/    | /' "$LOG" | tail -n 12
@@ -39,31 +55,14 @@ check() { checks=$((checks + 1)); }
 
 new_sandbox() {
 	CASE=$1
+	unset STUB_MODE STUB_ZIP STUB_DOWNLOADER    # a case must ask for a downloader behaviour
 	SB="$OUT/$1"
 	rm -rf "$SB"
 	mkdir -p "$SB/home" "$SB/xdg" "$SB/appdata" "$SB/cwd" "$SB/bin" "$SB/stubs" "$SB/empty"
 	cp "$SOURCE_BIN" "$SB/bin/opentyrian"
-	cat > "$SB/stubs/curl" <<'STUB'
-#!/bin/sh
-# Test stand-in for curl: never touches the network.
-echo "$@" >> "$STUB_LOG"
-out=""
-while [ $# -gt 0 ]; do
-	case "$1" in
-		--output) out=$2; shift ;;
-		--proto|--proto-redir|--connect-timeout|--speed-limit|--speed-time) shift ;;
-	esac
-	shift
-done
-echo $$ > "$STUB_PID"
-case "$STUB_MODE" in
-	serve) cp "$STUB_ZIP" "$out" ;;
-	partial) head -c 1000 "$STUB_ZIP" > "$out"; exit 18 ;;
-	slow) head -c 1000 "$STUB_ZIP" > "$out"; exec sleep 30 ;;
-	fail22) exit 22 ;;
-esac
-STUB
-	chmod +x "$SB/stubs/curl"
+	# Tripwires: a "curl" on PATH and beside the game both record the call and fail.
+	cp "$OUT/curl-stub$EXE" "$SB/stubs/curl$EXE"
+	cp "$OUT/curl-stub$EXE" "$SB/bin/curl$EXE"
 	case "$(uname -s)" in
 		Darwin) INSTALL="$SB/home/Library/Application Support/OpenTyrian/data-tyrian2000" ;;
 		MINGW*|MSYS*|CYGWIN*) INSTALL="$SB/appdata/OpenTyrian/data-tyrian2000" ;;
@@ -73,24 +72,55 @@ STUB
 	LOG=""
 }
 
-# run LABEL args...: sets RC and LOG.  STUB_MODE / STUB_ZIP / STUB_PATH pick the curl behaviour.
+# stub_spec SRC DEST: copies a test spec to DEST with the downloader line for the
+# stub (or STUB_DOWNLOADER) appended; prints DEST in the form the game can open.
+# Anything that starts the game with a spec (run, or a launcher-flow case) goes
+# through this, so the downloader is always named by absolute path.
+stub_spec() {
+	cp "$1" "$2"
+	printf '\ndownloader %s\n' "${STUB_DOWNLOADER:-$STUB_EXE}" >> "$2"
+	native "$2"
+}
+
+# run LABEL args...: sets RC and LOG.  STUB_MODE / STUB_ZIP pick the downloader
+# behaviour; STUB_DOWNLOADER replaces the downloader path (default: the stub).
+# Every test spec gets a "downloader" line appended, and a download without a
+# spec is refused here, so no run can start the real curl.
 run() {
-	local label=$1 bin=${BIN_OVERRIDE:-$SB/bin/opentyrian}
+	local label=$1 bin=${BIN_OVERRIDE:-$SB/bin/opentyrian} arg has_spec=0 has_download=0
+	local args=()
 	shift
 	LOG="$SB/$label.log"
+	for arg in "$@"; do
+		case "$arg" in
+			--install-2000-spec=*)
+				has_spec=1
+				arg="--install-2000-spec=$(stub_spec "${arg#--install-2000-spec=}" "$SB/$label.spec")" ;;
+			--install-2000=download) has_download=1 ;;
+		esac
+		args+=("$arg")
+	done
+	if [ "$has_download" = 1 ] && [ "$has_spec" = 0 ]; then
+		echo "FAIL installer/$CASE: harness error: a download run needs a test spec"; exit 1
+	fi
+	rm -f "$SB/trip"
 	(
 		cd "$SB/cwd" || exit 99
 		env HOME="$SB/home" XDG_DATA_HOME="$SB/xdg" APPDATA="$SB/appdata" \
 			TYRIAN2000_DATA= \
-			PATH="${STUB_PATH:-$SB/stubs:$PATH}" SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-			STUB_LOG="$SB/curl.log" STUB_PID="$SB/stub.pid" STUB_MODE="${STUB_MODE:-serve}" STUB_ZIP="${STUB_ZIP:-}" \
-			"$bin" "$@"
+			PATH="$SB/stubs:$PATH" SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
+			STUB_LOG="$SB/curl.log" STUB_PID="$SB/stub.pid" STUB_TRIP="$SB/trip" STUB_MODE="${STUB_MODE:-}" STUB_ZIP="${STUB_ZIP:-}" \
+			"$bin" "${args[@]}"
 	) > "$LOG" 2>&1
 	RC=$?
+	check
+	[ ! -e "$SB/trip" ] || fail "an unexpected downloader (curl from PATH?) was started"
 }
 
 expect_rc() { check; [ "$RC" -eq "$1" ] || fail "expected exit $1, got $RC"; }
 expect_log() { check; grep -Fq -- "$1" "$LOG" || fail "log lacks: $1"; }
+# a path in the log: the game logs Windows paths (any mix of slashes, any drive-letter case)
+expect_log_path() { check; tr '\\' / < "$LOG" | grep -Fqi -- "$(native "$1")" || fail "log lacks the path: $(native "$1")"; }
 expect_no_log() { check; ! grep -Fq -- "$1" "$LOG" || fail "log unexpectedly has: $1"; }
 expect_not_installed() { check; [ ! -e "$INSTALL" ] || fail "something was installed at $INSTALL"; }
 expect_clean() {
@@ -112,6 +142,12 @@ expect_files_match() {  # SPEC: every "size crc name" line is installed and matc
 	done < "$spec"
 	check
 	[ "$n" -gt 0 ] || fail "spec listed no files"
+}
+# process_alive PID: the stub's native pid; MSYS kill cannot see native pids
+process_alive() {
+	[ -n "$1" ] || return 1
+	if [ "$WINDOWS" = 1 ]; then tasklist //FI "PID eq $1" //NH 2>/dev/null | grep -Eq "(^|[[:space:]])$1([[:space:]]|$)"
+	else kill -0 "$1" 2>/dev/null; fi
 }
 tree_sum() { (cd "$1" && find . -type f -print0 | sort -z | xargs -0 cksum) 2>/dev/null; }
 
@@ -145,7 +181,7 @@ new_sandbox clean-install
 run detect-before --install-2000=detect
 expect_rc 1
 expect_log "Tyrian 2000 is not installed"
-expect_log "$INSTALL"                      # the documented per-user location
+expect_log_path "$INSTALL"                 # the documented per-user location
 run install --install-2000="$FIX/valid.zip" --install-2000-spec="$FIX/valid.spec"
 expect_rc 0
 expect_log "Tyrian 2000 data installed."
@@ -253,7 +289,7 @@ expect_clean
 CASE=download-command
 check; grep -Fq -- "$URL" "$SB/curl.log" || fail "curl was not given $URL"
 check; grep -Fq -- "--proto =https" "$SB/curl.log" || fail "curl was not restricted to https"
-check; grep -Fq -- "--output $PARENT/tyrian2000.zip.part" "$SB/curl.log" || fail "the download did not go to a temp file beside the install location"
+check; tr '\\' / < "$SB/curl.log" | grep -Fqi -- "--output $(native "$PARENT")/tyrian2000.zip.part" || fail "the download did not go to a temp file beside the install location"
 
 new_sandbox wrong-sha
 STUB_ZIP="$FIX/valid.zip" STUB_MODE=serve
@@ -263,7 +299,7 @@ expect_log "$VERIFY_MESSAGE"
 expect_not_installed
 expect_clean
 CASE=wrong-size
-run wrong-size --install-2000=download
+run wrong-size --install-2000=download --install-2000-spec="$FIX/download-only.spec"
 expect_rc 1
 expect_log "$VERIFY_MESSAGE"
 expect_not_installed
@@ -296,7 +332,7 @@ expect_rc 1
 expect_log "Installation cancelled. Nothing was installed."
 expect_not_installed
 expect_clean
-check; ! kill -0 "$(cat "$SB/stub.pid" 2>/dev/null)" 2>/dev/null || fail "curl was left running after the cancel"
+check; ! process_alive "$(cat "$SB/stub.pid" 2>/dev/null)" || fail "curl was left running after the cancel"
 
 new_sandbox concurrent
 STUB_ZIP="$FIX/valid.zip" STUB_MODE=slow
@@ -315,14 +351,14 @@ expect_not_installed
 expect_clean
 
 new_sandbox no-curl
-STUB_ZIP="$FIX/valid.zip" STUB_MODE=serve STUB_PATH="$SB/empty"
+STUB_ZIP="$FIX/valid.zip" STUB_MODE=serve STUB_DOWNLOADER="$(native "$SB/empty")/no-such-curl$EXE"
 run no-curl --install-2000=download --install-2000-spec="$FIX/valid.spec"
 expect_rc 1
 expect_log "curl program, which was not found"
 expect_log "Install the data manually"
 expect_not_installed
 expect_clean
-unset STUB_PATH
+unset STUB_DOWNLOADER
 
 # --- 6. manual install from folders ---------------------------------------------------------------------
 
@@ -333,6 +369,19 @@ expect_no_log "non-canonical"
 expect_files_match "$FIX/folders.spec"
 expect_clean
 check; [ "$(ls "$FIX/folder-plain" | wc -l | tr -d ' ')" -eq 24 ] || fail "the source folder was modified"
+
+# Read-only source files (CD, GOG, read-only share): installing twice must still
+# be able to remove the first install's backup (Windows keeps the attribute).
+new_sandbox folder-readonly
+cp -R "$FIX/folder-plain" "$SB/ro-source"
+chmod a-w "$SB"/ro-source/*
+run readonly-first --install-2000="$SB/ro-source" --install-2000-spec="$FIX/folders.spec"
+expect_rc 0
+run readonly-second --install-2000="$SB/ro-source" --install-2000-spec="$FIX/folders.spec"
+expect_rc 0
+expect_files_match "$FIX/folders.spec"
+expect_clean
+chmod -R u+w "$SB/ro-source"
 
 new_sandbox folder-gog
 run gog --install-2000="$FIX/folder-gog" --install-2000-spec="$FIX/folders.spec"
@@ -394,7 +443,7 @@ unset BIN_OVERRIDE
 expect_rc 0
 check; [ -f "$SB/portable/data-tyrian2000/tyrian1.lvl" ] || fail "portable mode did not install beside the executable"
 check; [ ! -e "$INSTALL" ] || fail "portable mode also wrote to the per-user location"
-expect_log "$SB/portable/data-tyrian2000"
+expect_log_path "$SB/portable/data-tyrian2000"
 
 echo "installer: $checks checks, $failures failures"
 [ "$failures" -eq 0 ]

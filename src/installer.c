@@ -101,6 +101,11 @@ static Manifest manifest =
 // Test spec only: makes the headless run cancel itself after this many ms.
 static unsigned cliCancelAfterMs = 0;
 
+// Test spec only: the downloader executable, by absolute path.  A run with a
+// test spec never looks `curl` up on PATH, so the tests cannot reach the network.
+static bool testSpecActive = false;
+static char testDownloader[INSTALLER_PATH_MAX] = "";
+
 bool installerLoadTestSpec(const char *path)
 {
 	SDL_IOStream *io = SDL_IOFromFile(path, "rb");
@@ -115,6 +120,7 @@ bool installerLoadTestSpec(const char *path)
 	Manifest spec = { entries, 0, manifest.archiveSize, "" };
 	snprintf(spec.archiveSha256, sizeof spec.archiveSha256, "%s", manifest.archiveSha256);
 	bool ok = entries != NULL;
+	char downloader[INSTALLER_PATH_MAX] = "";
 
 	for (char *line = text; ok && line != NULL && *line != '\0';)
 	{
@@ -136,6 +142,8 @@ bool installerLoadTestSpec(const char *path)
 			spec.archiveSize = number;
 		else if (sscanf(line, "cancel-after-ms %llu", &number) == 1)
 			cliCancelAfterMs = (unsigned)number;
+		else if (strncmp(line, "downloader ", 11) == 0 && line[11] != '\0' && strlen(line + 11) < sizeof downloader)
+			snprintf(downloader, sizeof downloader, "%s", line + 11);
 		else if (sscanf(line, "archive-sha256 %79s", hex) == 1 && strlen(hex) == 64 && strspn(hex, "0123456789abcdef") == 64)
 			snprintf(spec.archiveSha256, sizeof spec.archiveSha256, "%s", hex);
 		else if (sscanf(line, "%llu %lu %n", &number, &crc, &nameAt) >= 2 && nameAt > 0 && line[nameAt] != '\0' &&
@@ -157,7 +165,14 @@ bool installerLoadTestSpec(const char *path)
 		line = next;
 	}
 	SDL_free(text);
-	if (!ok || spec.count == 0)
+	// A spec without entries (only a downloader) keeps the canonical manifest.
+	if (ok && spec.count == 0 && downloader[0] != '\0')
+	{
+		free(entries);
+		spec.entries = manifest.entries;
+		spec.count = manifest.count;
+	}
+	else if (!ok || spec.count == 0)
 	{
 		for (size_t i = 0; i < spec.count; ++i)
 			SDL_free((void *)entries[i].name);
@@ -165,6 +180,8 @@ bool installerLoadTestSpec(const char *path)
 		return false;
 	}
 	manifest = spec;
+	testSpecActive = true;
+	snprintf(testDownloader, sizeof testDownloader, "%s", downloader);
 	return true;
 }
 
@@ -280,6 +297,23 @@ static bool isLink(const char *path)
 #endif
 }
 
+// Windows keeps a copied file's read-only attribute (files from a CD, GOG or a
+// read-only share), and DeleteFile refuses such a file.  Elsewhere this is a no-op.
+static void clearReadOnly(const char *path)
+{
+#ifdef TARGET_WIN32
+	wchar_t *wide = (wchar_t *)SDL_iconv_string("UTF-16LE", "UTF-8", path, strlen(path) + 1);
+	if (wide == NULL)
+		return;
+	DWORD attributes = GetFileAttributesW(wide);
+	if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY) != 0)
+		SetFileAttributesW(wide, attributes & ~(DWORD)FILE_ATTRIBUTE_READONLY);
+	SDL_free(wide);
+#else
+	(void)path;
+#endif
+}
+
 typedef struct
 {
 	char **names;
@@ -338,6 +372,9 @@ static bool removeTree(const char *path)
 		return true;
 	if (isLink(path))
 		return false;
+	clearReadOnly(path);
+	if (SDL_RemovePath(path))
+		return true;
 	if (!pathInfo(path, NULL))
 		return true;
 	if (!isDirectory(path))
@@ -769,6 +806,7 @@ static bool copyFolder(const char *source, const char *temp, Failure *failure)
 			if (!ok) break;
 			if (!joinPath(to, sizeof to, temp, manifest.entries[i].name) || !SDL_CopyFile(from, to))
 				ok = failWith(failure, INSTALLER_ERROR_IO, "Could not copy %s. Check the free space and permissions, then try again.", manifest.entries[i].name);
+			clearReadOnly(to);
 			done += manifest.entries[i].size;
 			progressBytes(done < total ? done : total, total);
 			break;
@@ -1070,9 +1108,15 @@ static bool download(const Paths *paths, Failure *failure)
 {
 	progressSet(INSTALLER_DOWNLOADING, "Downloading the Tyrian 2000 data...", 0, manifest.archiveSize);
 
+	if (testSpecActive && testDownloader[0] == '\0')
+	{
+		logError("install: the test spec names no downloader; refusing to run curl from PATH.");
+		return failWith(failure, INSTALLER_ERROR_NO_CURL,
+		                "The download needs the curl program, which was not found on this system. Install the data manually: " MESSAGE_MANUAL);
+	}
 	const char *args[] =
 	{
-		"curl", "--disable", "--fail", "--location", "--silent", "--show-error",
+		testSpecActive ? testDownloader : "curl", "--disable", "--fail", "--location", "--silent", "--show-error",
 		"--proto", "=https", "--proto-redir", "=https",
 		"--connect-timeout", "20", "--speed-limit", "1000", "--speed-time", "30",
 		"--output", paths->part, INSTALLER_DOWNLOAD_URL, NULL
