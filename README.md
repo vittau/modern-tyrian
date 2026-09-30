@@ -163,6 +163,9 @@ packaged. Long interpolation and smoothness sweeps run only in the manual
 
 ## <img src="docs/readme/h-credits.svg" alt="Credits and licence" width="100%">
 
+> [!NOTE]
+> Modern Tyrian was developed with the assistance of **Claude**, **Codex** and **OpenCode**.
+
 - **Tyrian** was developed by **Eclipse Software** (Jason Emery and
   contributors) and published by Epic MegaGames in 1995; it was released as
   freeware in 2004. The freeware 2.1 data is redistributed under its own
