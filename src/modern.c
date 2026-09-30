@@ -263,6 +263,31 @@ static ModernFrameKind modern_last_kind = MODERN_FRAME_BLUR;
 static int modern_last_split_l = 0, modern_last_split_r = 0;
 static int modern_last_insert_l = 0, modern_last_insert_r = 0;
 
+// Glass frame dimensions are logical pixels; strengths use Q8 (256 == full).
+#define MODERN_BEVEL_LIFT_W 8
+#define MODERN_BEVEL_LIFT 44
+#define MODERN_BEVEL_COLD 0xd7e8f0
+#define MODERN_BEVEL_WARM 0xeb9650
+#define MODERN_BEVEL_RIM 205
+#define MODERN_BEVEL_OUTER_RIM 100
+#define MODERN_BEVEL_GLINT_W 20
+#define MODERN_BEVEL_GLINT_H 4
+#define MODERN_BEVEL_GLINT_Y0 11
+#define MODERN_BEVEL_GLINT_Y1 133
+#define MODERN_BEVEL_GLINT 180
+#define MODERN_BEVEL_GLINT_GREEN 220
+#define MODERN_BEVEL_GLINT_BLUE 180
+#define MODERN_BEVEL_GLINT_DECAY 220
+#define MODERN_BEVEL_GLINT_VERTICAL_DECAY 104
+#define MODERN_BEVEL_SHADOW_W 6
+#define MODERN_BEVEL_SHADOW 115
+#define MODERN_BEVEL_BOTTOM_H 3
+#define MODERN_BEVEL_BOTTOM_SHADOW 154
+#define MODERN_BEVEL_STRIP 24
+
+static void modern_bevel_panels(ModernFrame *frame, int playfield_x);
+static void modern_bevel_shadow(ModernFrame *frame, int playfield_x);
+static void modern_bevel_strip(ModernFrame *frame, int playfield_x);
 static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right_edge,
                                     int left_width, int right_x, int right_width);
 static void modern_fill_blurred_background(ModernFrame *frame, int frame_x);
@@ -1021,11 +1046,15 @@ void modern_build_frame(SDL_Surface *src_surface)
 		modern_fill_side_panels(frame, playfield_x, playfield_x + MODERN_PLAYFIELD_W - 1,
 		                        playfield_x, right_x, frame->w - right_x);
 
+		modern_bevel_panels(frame, playfield_x);
+		modern_bevel_shadow(frame, playfield_x);
+
 		if (bar_interp)
 			modern_hud_draw_interpolated_bars(bar_alpha);
 
 		modern_composite_hud(frame, playfield_x);
 		modern_composite_message(frame, playfield_x);
+		modern_bevel_strip(frame, playfield_x);
 		modern_last_hud_filtered = modern_hud_fade_active();
 
 		// Mouse mapping follows the playfield on gameplay frames.
@@ -1712,6 +1741,122 @@ static void modern_fill_side_panels(ModernFrame *frame, int left_edge, int right
 		for (int x = 0; x < right_width; ++x)
 			row[right_x + x] = modern_panel_pixel(rr, rg, rb, modern_panel_scale_scratch[x]);
 	}
+}
+
+// Blend over the ambilight rather than replacing its colour at the seam.
+static Uint32 modern_bevel_blend(Uint32 pixel, Uint32 tint, int strength)
+{
+	Uint32 result = 0;
+	for (int shift = 0; shift <= 16; shift += 8)
+	{
+		const int a = (pixel >> shift) & 255;
+		const int b = (tint >> shift) & 255;
+		result |= (Uint32)((a * (256 - strength) + b * strength) >> 8) << shift;
+	}
+	return result;
+}
+
+static void modern_bevel_panels(ModernFrame *frame, int playfield_x)
+{
+	static bool ready = false;
+	static int lift[MODERN_BEVEL_LIFT_W];
+	static int glint[MODERN_BEVEL_GLINT_H + 1][MODERN_BEVEL_GLINT_W];
+	if (!ready)
+	{
+		for (int d = 0; d < MODERN_BEVEL_LIFT_W; ++d)
+		{
+			const int t = MODERN_BEVEL_LIFT_W - d;
+			lift[d] = MODERN_BEVEL_LIFT * t * t /
+				(MODERN_BEVEL_LIFT_W * MODERN_BEVEL_LIFT_W);
+		}
+		int vertical = MODERN_BEVEL_GLINT;
+		for (int dy = 0; dy <= MODERN_BEVEL_GLINT_H; ++dy)
+		{
+			int horizontal = vertical;
+			for (int d = 0; d < MODERN_BEVEL_GLINT_W; ++d)
+			{
+				glint[dy][d] = horizontal;
+				horizontal = horizontal * MODERN_BEVEL_GLINT_DECAY >> 8;
+			}
+			vertical = vertical * MODERN_BEVEL_GLINT_VERTICAL_DECAY >> 8;
+		}
+		ready = true;
+	}
+
+	const int right_x = playfield_x + MODERN_PLAYFIELD_W;
+	for (int y = 0; y < frame->h; ++y)
+	{
+		Uint32 *row = frame->pixels + (size_t)y * frame->w;
+		const int dy = MIN(abs(y - MODERN_BEVEL_GLINT_Y0), abs(y - MODERN_BEVEL_GLINT_Y1));
+		for (int d = 0; d < MODERN_BEVEL_GLINT_W; ++d)
+		{
+			for (int side = 0; side < 2; ++side)
+			{
+				const int x = side == 0 ? playfield_x - 1 - d : right_x + d;
+				if (x < 0 || x >= frame->w)
+					continue;
+				Uint32 p = row[x];
+				if (d < MODERN_BEVEL_LIFT_W)
+					p = modern_bevel_blend(p, MODERN_BEVEL_WARM, lift[d]);
+				if (d == 0)
+					p = modern_bevel_blend(p, MODERN_BEVEL_COLD, MODERN_BEVEL_RIM);
+				else if (d == 1)
+					p = modern_bevel_blend(p, MODERN_BEVEL_WARM, MODERN_BEVEL_OUTER_RIM);
+				if (dy <= MODERN_BEVEL_GLINT_H)
+				{
+					const int strength = glint[dy][d];
+					const int r = MIN(255, (int)((p >> 16) & 255) + strength);
+					const int g = MIN(255, (int)((p >> 8) & 255) + (strength * MODERN_BEVEL_GLINT_GREEN >> 8));
+					const int b = MIN(255, (int)(p & 255) + (strength * MODERN_BEVEL_GLINT_BLUE >> 8));
+					p = ((Uint32)r << 16) | ((Uint32)g << 8) | (Uint32)b;
+				}
+				row[x] = p;
+			}
+		}
+	}
+}
+
+// Shade only copied playfield pixels, after ambilight sampling, with no top edge.
+static void modern_bevel_shadow(ModernFrame *frame, int playfield_x)
+{
+	static bool ready = false;
+	static int scale[MODERN_BEVEL_SHADOW_W];
+	if (!ready)
+	{
+		for (int d = 0; d < MODERN_BEVEL_SHADOW_W; ++d)
+			scale[d] = MODERN_BEVEL_SHADOW + (256 - MODERN_BEVEL_SHADOW) * d /
+				(MODERN_BEVEL_SHADOW_W - 1);
+		ready = true;
+	}
+	for (int y = 0; y < MIN(frame->h, MODERN_PLAYFIELD_H); ++y)
+	{
+		Uint32 *row = frame->pixels + (size_t)y * frame->w + playfield_x;
+		const int bottom = MODERN_PLAYFIELD_H - 1 - y;
+		const int bottom_scale = bottom < MODERN_BEVEL_BOTTOM_H
+			? MODERN_BEVEL_BOTTOM_SHADOW + (256 - MODERN_BEVEL_BOTTOM_SHADOW) * bottom /
+				(MODERN_BEVEL_BOTTOM_H - 1) : 256;
+		for (int x = 0; x < MODERN_PLAYFIELD_W; ++x)
+		{
+			const int d = MIN(x, MODERN_PLAYFIELD_W - 1 - x);
+			if (d >= MODERN_BEVEL_SHADOW_W && bottom_scale == 256)
+				continue;
+			const int factor = (d < MODERN_BEVEL_SHADOW_W ? scale[d] : 256) * bottom_scale >> 8;
+			row[x] = modern_bevel_blend(row[x], 0, 256 - factor);
+		}
+	}
+}
+
+// The strip lip brightens its background only; message glyphs remain intact.
+static void modern_bevel_strip(ModernFrame *frame, int playfield_x)
+{
+	const SDL_Surface *strip = modern_hud_message_surface();
+	if (strip == NULL || frame->h <= MODERN_PLAYFIELD_H)
+		return;
+	const Uint8 *src = strip->pixels;
+	Uint32 *row = frame->pixels + (size_t)MODERN_PLAYFIELD_H * frame->w + playfield_x;
+	for (int x = 0; x < MIN(MODERN_PLAYFIELD_W, strip->w); ++x)
+		if (src[x] == 0)
+			row[x] = modern_bevel_blend(row[x], MODERN_BEVEL_COLD, MODERN_BEVEL_STRIP);
 }
 
 // Blurred, darkened background fill for non-gameplay frames (title, menus,
