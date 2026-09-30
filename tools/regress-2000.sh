@@ -179,6 +179,13 @@ for size in 1280x720 1280x800; do
 done
 run_case launcher launcher-1280x800-about --regress-launcher=1280x800,installed,2,about
 run_case launcher launcher-1280x800-message --regress-launcher=1280x800,missing,2,message
+# The install flow: the choice dialog (with and without file pickers), a
+# mid-download frame at fixed fake progress, the no-curl error, success, and
+# the place-the-files screen for a system without a file dialog.
+for extra in install install-nodlg progress nocurl success manual; do
+	run_case launcher "launcher-1280x800-$extra" "--regress-launcher=1280x800,missing,2,$extra"
+done
+run_case launcher launcher-1920x1080-install --regress-launcher=1920x1080,missing,2,install
 if [ "$LAUNCHER_ONLY" -eq 1 ]; then
 	if [ "$failures" -eq 0 ]; then
 		echo "All $cases launcher cases passed."
