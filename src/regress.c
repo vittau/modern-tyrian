@@ -19,6 +19,7 @@
 #include "regress.h"
 
 #include "config.h"
+#include "demo.h"
 #include "drawlist.h"
 #include "episodes.h"
 #include "fonthand.h"
@@ -28,6 +29,7 @@
 #include "keyboard.h"
 #include "logging.h"
 #include "loudness.h"
+#include "mainint.h"
 #include "modern.h"
 #include "modern_bloom.h"
 #include "mtrand.h"
@@ -73,6 +75,9 @@ int regress_interp_check = 0;
 int regress_interp_smoothness = 0;
 int regress_smooth_alphas = 5;
 int regress_gameplay_check = 0;
+int regress_demo_hud_check = 0;
+int regress_loadout_new = 0;
+int regress_fire = 0;
 int regress_parallax_check = 0;
 int regress_smooth_effects_check = 0;
 int regress_realtime = 0;
@@ -138,6 +143,56 @@ static void apply_widest_loadout(PlayerItems *items)
 	items->sidekick[LEFT_SIDEKICK] = (JE_byte)side;
 	items->sidekick[RIGHT_SIDEKICK] = (JE_byte)side2;
 	items->generator = (JE_byte)gen;
+}
+
+// The most distinctive items of the variant's data, picked by their properties
+// so no id is hard-coded: the highest ship, the Flying Punch sidekick (its
+// weapon has the 198 trail) and a chargeable sidekick.  On 2.1 (no Punch) the
+// right sidekick is a plain one, so the option stays usable on both variants.
+static void apply_new_items_loadout(PlayerItems *items)
+{
+	const GameDataSchema *schema = gameSchema();
+	unsigned int punch = 0, punch_sidekick = 0, charged = 0, plain = 0;
+
+	for (unsigned int w = 1; w <= schema->weapon_max && punch == 0; ++w)
+		if (weapons[w].trail == 198 && weapons[w].multi > 1)
+			punch = w;
+	for (unsigned int i = 1; i <= schema->sidekick_max; ++i)
+	{
+		if (punch != 0 && options[i].wpnum == punch && punch_sidekick == 0)
+			punch_sidekick = i;
+		if (options[i].wport == 0 || options[i].ammo != 0)
+			continue;
+		if (options[i].pwr > 0 && charged == 0)
+			charged = i;
+		if (options[i].pwr == 0)
+			plain = i;
+	}
+	if (punch_sidekick == 0)
+		punch_sidekick = plain;
+
+	items->ship = (JE_byte)schema->ship_max;
+	items->weapon[FRONT_WEAPON].power = 5;
+	items->weapon[REAR_WEAPON].id = 15;   // Vulcan Cannon: the same id in both variants
+	items->weapon[REAR_WEAPON].power = 3;
+	items->sidekick[LEFT_SIDEKICK] = (JE_byte)(charged != 0 ? charged : 1);
+	items->sidekick[RIGHT_SIDEKICK] = (JE_byte)(punch_sidekick != 0 ? punch_sidekick : 2);
+	items->generator = (JE_byte)MIN(4u, schema->generator_max);
+}
+
+// --regress-fire: a scenario has no recorded input, so this holds the fire
+// button, pulses both sidekick buttons and sweeps the ship across the playfield.
+// It is a pure function of the tick count, so runs stay reproducible.
+void regress_scenario_input(void)
+{
+	static unsigned long tick = 0;
+	const unsigned long phase = tick++ % 480;
+
+	button[0] = true;
+	button[1] = (tick / 30) % 2 == 0;
+	button[2] = (tick / 45) % 2 == 0;
+	button[3] = false;
+	player[0].x += phase < 240 ? 1 : -1;
 }
 
 void regress_apply_loadout(void)
@@ -252,6 +307,77 @@ static void regress_check_gameplay_composition(void)
 				         "did not follow it", regress_frame, levelBrightness);
 			regress_gameplay_filter_missing++;
 		}
+	}
+}
+
+// Attract-demo HUD assertion (--regress-demo-hud-check): a played demo (or
+// scenario) follows the active mode's HUD.  While the level is presented,
+// Modern with side panels must compose the gameplay panels with both panels
+// holding HUD pixels; Classic (and Modern without room for panels) must keep
+// the original sidebar and never the panels.  A run that never saw an in-level
+// frame fails, so the check cannot pass by observing nothing.
+static unsigned long regress_demohud_frames = 0;
+static unsigned long regress_demohud_bad = 0;
+static bool regress_demohud_filled = false;  // a frame with both panels drawn was seen
+static char regress_demohud_first[160] = "";
+
+static void regress_demohud_fail(const char *what)
+{
+	if (regress_demohud_bad == 0)
+		snprintf(regress_demohud_first, sizeof regress_demohud_first, "frame %lu: %s",
+		         regress_frame, what);
+	regress_demohud_bad++;
+}
+
+static bool regress_surface_has_pixels(const SDL_Surface *surface)
+{
+	if (surface == NULL)
+		return false;
+
+	for (int y = 0; y < surface->h; ++y)
+	{
+		const Uint8 *row = (const Uint8 *)surface->pixels + (size_t)y * surface->pitch;
+		for (int x = 0; x < surface->w; ++x)
+			if (row[x] != 0)
+				return true;
+	}
+	return false;
+}
+
+// `classic_surface` is the presented 320x200 frame of a non-Modern present, else NULL.
+static void regress_check_demo_hud(const SDL_Surface *classic_surface)
+{
+	if (!regress_demo_hud_check || !playDemo || !modern_in_level_period())
+		return;
+
+	if (classic_surface == NULL && modern_hud_in_panels())
+	{
+		regress_demohud_frames++;
+		if (!modern_last_frame_gameplay_panels())
+			regress_demohud_fail("Modern demo frame without the side panels");
+		else if (regress_surface_has_pixels(modern_hud_surface(0)) &&
+		         regress_surface_has_pixels(modern_hud_surface(1)))
+			regress_demohud_filled = true;
+		else if (regress_demohud_filled)  // the level-intro fade-in precedes the first HUD
+			regress_demohud_fail("Modern demo frame with an empty HUD panel");
+		return;
+	}
+
+	// Classic frame, or Modern without panels: the original sidebar stays.
+	regress_demohud_frames++;
+	if (modern_last_frame_gameplay_panels())
+		regress_demohud_fail("classic demo frame composed the Modern panels");
+	else if (classic_surface != NULL)
+	{
+		bool sidebar = false;
+		for (int y = 0; y < classic_surface->h && !sidebar; ++y)
+		{
+			const Uint8 *row = (const Uint8 *)classic_surface->pixels + (size_t)y * classic_surface->pitch;
+			for (int x = 264; x < vga_width; ++x)
+				if (row[x] != 0) { sidebar = true; break; }
+		}
+		if (!sidebar)
+			regress_demohud_fail("classic demo frame without the classic sidebar");
 	}
 }
 
@@ -653,6 +779,7 @@ void regress_capture_frame(SDL_Surface *surface)
 	if (regress_has_snapshots())
 		regress_save_snapshots_8bit(surface);
 
+	regress_check_demo_hud(surface);
 	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
 }
@@ -689,6 +816,7 @@ void regress_capture_modern_frame(void)
 		regress_save_snapshots_modern(frame);
 
 	regress_check_gameplay_composition();
+	regress_check_demo_hud(NULL);
 	regress_check_smooth_effects();
 	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
@@ -776,6 +904,13 @@ void regress_begin_scenario(void)
 		player[1].weapon_mode = 2;
 		player[1].cash = 6789;
 		player[1].last_items = player[1].items;
+	}
+
+	if (regress_loadout_new)
+	{
+		apply_new_items_loadout(&player[0].items);
+		if (regress_players == 2)
+			apply_new_items_loadout(&player[1].items);
 	}
 
 	if (regress_loadout_widest)
@@ -1120,6 +1255,23 @@ void regress_finish(void)
 		if (regress_gameplay_filter_missing != 0)
 		{
 			logError("Gameplay fade check FAILED: %s", regress_gameplay_filter_first);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_demo_hud_check)
+	{
+		logInfo("Demo HUD check: %lu in-level frames, %lu with the wrong HUD.",
+		        regress_demohud_frames, regress_demohud_bad);
+		if (regress_demohud_frames == 0 ||
+		    (modern_hud_in_panels() && !regress_demohud_filled))
+		{
+			logError("Demo HUD check FAILED: no in-level frame with the HUD was presented");
+			exit(EXIT_FAILURE);
+		}
+		if (regress_demohud_bad != 0)
+		{
+			logError("Demo HUD check FAILED: %s", regress_demohud_first);
 			exit(EXIT_FAILURE);
 		}
 	}

@@ -197,8 +197,15 @@ for d in 1 2 3 4 5; do
 done
 
 # Classic and Modern frames of the first demo.
-run_case frames "demo1-d$MODERN_DETAIL" --regress-demo=1 --regress-detail="$MODERN_DETAIL"
-run_case frames "modern-demo1-d$MODERN_DETAIL" --regress-demo=1 $M
+run_case frames "demo1-d$MODERN_DETAIL" --regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-demo-hud-check
+run_case frames "modern-demo1-d$MODERN_DETAIL" --regress-demo=1 $M --regress-demo-hud-check
+
+# The attract demos follow the active mode's HUD (--regress-demo-hud-check): the
+# Classic runs above keep the original sidebar; these Modern runs must compose
+# the side panels, filled, on every in-level frame, at each wide aspect.
+run_case frames "modern-demo1-16x9-d$MODERN_DETAIL" --regress-demo=1 $M --regress-aspect=16:9 --regress-demo-hud-check
+run_case frames "modern-demo2-21x9-d$MODERN_DETAIL" --regress-demo=2 $M --regress-aspect=21:9 --regress-demo-hud-check
+run_case frames "modern-demo3-16x10-d$MODERN_DETAIL" --regress-demo=3 $M --regress-aspect=16:10 --regress-demo-hud-check
 
 # Direct level starts: episode 1 level 1, and episode 5 (levels 1 and 7).
 run_case frames "e1-level1-d$MODERN_DETAIL" --regress-level=1:1 --regress-detail="$MODERN_DETAIL" --regress-frames=900
@@ -206,6 +213,33 @@ run_case frames "e5-level1-d$MODERN_DETAIL" --regress-level=5:1 --regress-detail
 run_case frames "e5-level7-d$MODERN_DETAIL" --regress-level=5:7 --regress-detail="$MODERN_DETAIL" --regress-frames=900
 run_case frames "modern-e5-level1-d$MODERN_DETAIL" --regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
 run_case state "state-e5-level1-d$MODERN_DETAIL" --regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
+
+# Wide gameplay with the newest items: the highest ship, a chargeable sidekick and
+# the Flying Punch (trail 198, explosion 54), firing and sweeping, with lighting,
+# bloom and particles on so the tag buffer and coloured light see the 2000 shots.
+# The 1P/2P runs also draw the HUD with the charging sidekick display.
+L="--regress-items-new --regress-fire --regress-lighting=high --regress-bloom=high --regress-vfx=high"
+run_case frames "modern-lit-e5-level1-21x9-d$MODERN_DETAIL" --regress-level=5:1 --regress-modern $L \
+	--regress-frames=700 --regress-aspect=21:9 --regress-gameplay-check
+run_case frames "modern-lit-e5-level8-16x9-d$MODERN_DETAIL" --regress-level=5:8 --regress-modern $L \
+	--regress-frames=700 --regress-aspect=16:9 --regress-gameplay-check
+run_case frames "modern-lit-e4-level5-32x9-d$MODERN_DETAIL" --regress-level=4:5 --regress-modern $L \
+	--regress-frames=500 --regress-aspect=32:9
+run_case frames "modern-hud-2000items-2p-16x9-d$MODERN_DETAIL" --regress-level=5:1 --regress-modern $L \
+	--regress-players=2 --regress-frames=400 --regress-aspect=16:9
+run_case frames "modern-hud-2000items-1p-21x9-d$MODERN_DETAIL" --regress-level=1:1 --regress-modern $L \
+	--regress-frames=400 --regress-aspect=21:9
+run_case frames "e5-level1-2000items-classic-d$MODERN_DETAIL" --regress-level=5:1 --regress-detail="$MODERN_DETAIL" \
+	--regress-items-new --regress-fire --regress-frames=400
+
+# Episode 5's ending (script section 19: pictures, text, flash) in Classic and
+# in Modern at 16:9 and 21:9.  The frame cap ends the run before the scene waits
+# for a key.
+run_case frames "script-e5-ending-classic" --regress-script=5:19 --regress-frames=600
+for aspect in 16:9 21:9; do
+	run_case frames "modern-script-e5-ending-${aspect/:/x}" --regress-script=5:19 --regress-modern \
+		--regress-aspect="$aspect" --regress-frames=600
+done
 
 # Tyrian 2000 gameplay rules (src/game_rules.c), as logic/RNG hashes over enough
 # frames to reach the events.  Which rule each level exercises:
