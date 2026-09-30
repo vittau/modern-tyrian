@@ -103,6 +103,10 @@ extern int regress_loadout_new;
 extern int regress_fire;
 void regress_scenario_input(void);
 
+// --regress-xmas: run with Christmas mode on (regress runs otherwise pin it off
+// and skip its prompt), to cover the Christmas shape and voice files.
+extern int regress_xmas;
+
 // Applies the --regress-front-weapon/--regress-front-power overrides to player
 // 1's item set.  Called after JE_initPlayerData() on the --regress-script path;
 // a no-op when neither override was requested.

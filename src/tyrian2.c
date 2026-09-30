@@ -52,6 +52,7 @@
 #include "pcxmast.h"
 #include "picload.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "shots.h"
 #include "sprite.h"
 #include "vga256d.h"
@@ -672,6 +673,15 @@ start_level:
 			fade_black(10);
 			modern_set_gameplay_hold(false);
 
+			if (timedBattleMode)
+			{
+				// Game over in a Timed Battle: no backup save to fall back on,
+				// back to the title (fork 832f2d0).
+				regress_flow_coverage("Timed Battle game over, back to the title.");
+				mainLevel = 0;
+				return;
+			}
+
 			JE_loadGame(twoPlayerMode ? 22 : 11);
 			if (doNotSaveBackup)
 			{
@@ -715,6 +725,8 @@ start_level_first:
 
 	if (mainLevel == 0)  // if quit itemscreen
 		return;          // back to titlescreen
+
+	regress_flow_level_begin();
 
 	// From here until the next level load, every presented frame belongs to
 	// this level's gameplay presentation (intro, fades, gameplay, end).
@@ -929,7 +941,7 @@ start_level_first:
 	set_volume(tyrMusicVolume, fxVolume);
 
 	/*Save backup game*/
-	if (!playDemo && !doNotSaveBackup)
+	if (!playDemo && !doNotSaveBackup && !timedBattleMode)
 	{
 		temp = twoPlayerMode ? 22 : 11;
 		JE_saveGame(temp, "LAST LEVEL    ");
@@ -2117,9 +2129,16 @@ draw_player_shot_loop_end:
 	{
 		levelTimerCountdown--;
 		if (levelTimerCountdown == 0)
+		{
+			regress_flow_coverage("level timer expired%s.", timedBattleMode ? " (Timed Battle)" : "");
 			JE_eventJump(levelTimerJumpTo);
+		}
 
-		if (levelTimerCountdown > 200)
+		if (timedBattleMode)
+		{
+			// No warning sounds in a Timed Battle (fork 7a3ff18).
+		}
+		else if (levelTimerCountdown > 200)
 		{
 			if (levelTimerCountdown % 100 == 0)
 				soundQueue[7] = S_WARNING;
@@ -2132,7 +2151,7 @@ draw_player_shot_loop_end:
 			soundQueue[7] = S_WARNING;
 		}
 
-		sprintf(buffer, "%.1f", levelTimerCountdown / 100.0f);
+		gameFormatLevelTimer(buffer, sizeof buffer, levelTimerCountdown);
 		if (modern_hud_in_panels())
 		{
 			modern_hud_draw_timer(helpLabelText(GAME_LABEL_TIMER), buffer, (levelTimerCountdown % 20) / 3);
@@ -2142,6 +2161,15 @@ draw_player_shot_loop_end:
 			JE_textShade (VGAScreen, 140, 6, helpLabelText(GAME_LABEL_TIMER), 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
 			JE_dString (VGAScreen, 100, 2, buffer, SMALL_FONT_SHAPES);
 		}
+	}
+
+	// Regression flows: end the level as completed (what event 11 does) or kill
+	// the player after a number of ticks.
+	if (regress_flow_level_tick() && !endLevel)
+	{
+		readyToEndLevel = false;
+		endLevel = true;
+		levelEnd = 40;
 	}
 
 	/*GAME OVER*/
@@ -2692,6 +2720,7 @@ new_game:
 						break;
 
 					case 'Q':  // End of episode.
+						regress_flow_episode_end(episodeNum);
 						ESCPressed = false;
 						temp = secretHint + (mt_rand() % 3) * 3;
 
@@ -3063,6 +3092,28 @@ new_game:
 					case 'M':  // Play music track.
 						temp = atoi(s + 3);
 						play_song(temp - 1);
+						break;
+
+					case 'T':  // Timed Battle: jump to the section of the selected battle.
+						if (timedBattleMode)
+						{
+							// One 3-character field per battle, after "]T[", e.g.
+							// "]T[ 43 44 45 ...": the field of battle N starts at 3 * N.
+							mainLevel = atoi(s + (timeBattleSelection * 3));
+							jumpSection = true;
+							regress_flow_coverage("Timed Battle %u starts at section %u.", (unsigned)timeBattleSelection, (unsigned)mainLevel);
+						}
+						break;
+
+					case 'q':  // Timed Battle: end of the battle.  Score it, then back to the title.
+						if (timedBattleMode)
+						{
+							regress_flow_coverage("Timed Battle %u over, cash %lu.", (unsigned)timeBattleSelection, (unsigned long)player[0].cash);
+							JE_highScoreCheck();
+							mainLevel = 0;
+							fileClose(&episodeFile);
+							return;
+						}
 						break;
 					}
 				}
@@ -3703,7 +3754,16 @@ bool newGame(void)
 {
 	if (gameplaySelect())
 	{
-		if (episodeSelect() && difficultySelect())
+		if (timedBattleMode)
+		{
+			// One-player arcade, with a battle to pick before the difficulty.
+			onePlayerAction = true;
+			if (timedBattleSelect() && difficultySelect())
+				gameLoaded = true;
+			else
+				timedBattleMode = false;  // backed out: nothing left of the mode
+		}
+		else if (episodeSelect() && difficultySelect())
 			gameLoaded = true;
 
 		initialDifficulty = difficultyLevel;
@@ -3774,6 +3834,7 @@ bool newSuperArcadeGame(unsigned int i)
 		onePlayerAction = true;
 		superArcadeMode = i + 1;
 		timedBattleMode = false;
+		regress_flow_coverage("arcade ship %u chosen (ship item %u, episode %u).", i + 1, (unsigned)player[0].items.ship, (unsigned)episodeNum);
 		gameLoaded = true;
 		initialDifficulty = ++difficultyLevel;
 
@@ -3868,6 +3929,7 @@ bool newSuperTyrianGame(void)
 	onePlayerAction = true;
 	timedBattleMode = false;
 	gameLoaded = true;
+	regress_flow_coverage("Super Tyrian starts in episode %u.", (unsigned)episodeNum);
 	difficultyLevel = initialDifficulty;
 
 	player[0].cash = 0;

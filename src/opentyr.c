@@ -51,6 +51,7 @@
 #include "params.h"
 #include "picload.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "sprite.h"
 #include "tyrian2.h"
 #include "varz.h"
@@ -1180,7 +1181,7 @@ int main(int argc, char *argv[])
 		// Apply the regress pins after JE_paramCheck() so they win over any
 		// command-line option (including -x/-X, which set xmas).
 		regress_init();
-		xmas = false;
+		xmas = regress_xmas != 0;  // Christmas only when a regress case asks for it
 	}
 
 	logInfo("Presentation mode: %s.", presentation_names[presentation]);
@@ -1222,7 +1223,7 @@ int main(int argc, char *argv[])
 	loadPals();
 	JE_loadMainShapeTables(xmas ? "tyrianc.shp" : "tyrian.shp");
 
-	if (xmas && !xmas_prompt())
+	if (xmas && !regress_active() && !xmas_prompt())
 	{
 		xmas = false;
 
@@ -1274,6 +1275,14 @@ int main(int argc, char *argv[])
 		// --regress-frames frames and exit (see src/regress_screen.c).  This
 		// never returns.
 		regress_screen_run();
+		return EXIT_SUCCESS;
+	}
+
+	if (regress_flow_active())
+	{
+		// A scripted walk through the menus and levels, from the title screen on.
+		// This never returns.
+		regress_flow_run();
 		return EXIT_SUCCESS;
 	}
 

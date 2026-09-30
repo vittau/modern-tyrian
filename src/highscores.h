@@ -35,6 +35,11 @@ unsigned int highScoreEpisodes(void);
 // The board of an episode (1-based) for one or two players.
 unsigned int highScoreBoard(unsigned int episode, bool twoPlayer);
 
+// Timed Battle boards, one per battle on the menu (Tyrian 2000; 0 elsewhere).
+// They hold the cash left at the end of a battle, for one player.
+unsigned int highScoreTimedBattles(void);
+unsigned int highScoreTimedBoard(unsigned int battle);  // battle is 1-based
+
 JE_longint highScoreValue(unsigned int board, unsigned int rank);
 const char *highScoreName(unsigned int board, unsigned int rank);
 JE_byte highScoreDifficulty(unsigned int board, unsigned int rank);

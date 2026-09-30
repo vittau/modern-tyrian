@@ -68,6 +68,7 @@ void init_keyboard(void);
 bool keyboardHasInput(void);
 bool keyboardGetInput(KeyboardInput *out_input);
 void keyboardClearInput(void);
+void keyboardPushInput(const KeyboardInput *input);  // --regress-flow only
 
 bool mouseHasInput(InputFlags flags);
 bool mouseGetInput(InputFlags flags, MouseInput *out_input);

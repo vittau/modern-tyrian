@@ -82,6 +82,24 @@ typedef struct
 	bool super_tyrian_pick_episode;
 } GameArcadeRules;
 
+// --- Timed Battle -----------------------------------------------------------
+
+// The Tyrian 2000 mode: one player, an arcade ship, a level timer that decides
+// when the battle ends, and a score that is only cash (fork 832f2d0, 7a3ff18,
+// 85a5a22, 3e395df, c954184).  The battles are picked from a menu and each one
+// belongs to an episode; the episode script then jumps to the battle's section
+// (]T) and ends with a high-score check (]q).
+#define TIMED_BATTLES_MAX 3
+
+typedef struct
+{
+	uint8_t battle_count;                    // battles on the menu (boards 0..battle_count-1)
+	uint8_t battle_episode[TIMED_BATTLES_MAX]; // episode each battle is played from
+	uint8_t score_picture;                   // backdrop of the name entry (tyrian.pic)
+	uint16_t time_bonus;                     // cash per full tenth of a second left on the timer
+	uint16_t life_bonus;                     // cash per life left
+} GameTimedBattleRules;
+
 // --- The rule set -----------------------------------------------------------
 
 typedef struct GameRules
@@ -125,6 +143,13 @@ typedef struct GameRules
 	const uint32_t *initial_cash;
 	// Hazudra Fodder completion may check the final episode's main boards.
 	bool final_episode_score;
+
+	// Timed Battle; NULL where the variant does not have it.
+	const GameTimedBattleRules *timed_battle;
+
+	// The level timer counts down in hundredths and shows whole tenths.  2.1
+	// prints a rounded float; Tyrian 2000 truncates (fork 83812e0).
+	bool timer_truncated_tenths;
 } GameRules;
 
 extern const GameRules gameRules21, gameRules2000;
@@ -144,6 +169,9 @@ const uint8_t *gameShipCombos(unsigned int ship);
 // Whether the main fire button fires a sidekick with unlimited ammo whose charge
 // stages number pwr (0: it does not charge).
 bool gameSidekickMainFire(unsigned int pwr);
+
+// Formats the level timer (a countdown in hundredths of a second) for the HUD.
+void gameFormatLevelTimer(char *buffer, size_t size, int countdown);
 
 // The trail a player shot leaves: the weapon's trail, or 255 (none) where the
 // variant limits it to the first tile of a multi-shot volley.  multiPos is the
