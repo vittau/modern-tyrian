@@ -23,10 +23,13 @@
 
 extern char episode_name[6][31];
 extern char difficulty_name[7][21];
-extern char gameplay_name[5][26];
+// Capacity: Tyrian 2000 has a header and five modes (Tyrian 2.1: header and four).
+#define GAMEPLAY_NAME_COUNT 6
+extern char gameplay_name[GAMEPLAY_NAME_COUNT][26];
 
 bool gameplaySelect(void);
 bool episodeSelect(void);
+bool timedBattleSelect(void);  // Tyrian 2000: which Timed Battle
 bool difficultySelect(void);
 
 #endif /* MENUS_H */

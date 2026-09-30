@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "file.h"
+#include "game_schema.h"
 #include "logging.h"
 #include "lvllib.h"
 #include "lvlmast.h"
@@ -90,15 +91,25 @@ void JE_loadItemDat(void)
 	Uint16 counts[7];
 	fileReadU16Array(&file, counts, COUNTOF(counts));
 
-	assert(counts[0] == WEAP_NUM);
-	assert(counts[1] == PORT_NUM);
-	assert(counts[2] == POWER_NUM);
-	assert(counts[3] == SHIP_NUM);
-	assert(counts[4] == OPTION_NUM);
-	assert(counts[5] == SHIELD_NUM);
-	assert(counts[6] == ENEMY_NUM);
+	const GameDataSchema *schema = gameSchema();
 
-	for (size_t i = 0; i < WEAP_NUM + 1; ++i)
+	// The header is not what sizes the tables (specials, and the second weapon
+	// and enemy banks, are not in it), but it must agree with the schema.
+	for (size_t i = 0; i < COUNTOF(counts); ++i)
+	{
+		assert(counts[i] == schema->item_header[i]);
+		if (counts[i] != schema->item_header[i])
+		{
+			logWarn("Item data '%s' header word %u is %u, but %s expects %u.",
+			        filename, (unsigned)i, (unsigned)counts[i],
+			        gameVariantCurrent()->display_name, (unsigned)schema->item_header[i]);
+			break;
+		}
+	}
+
+	// Each bank holds consecutive IDs; the IDs between banks have no bytes.
+	for (size_t bank = 0; bank < schema->weapon_bank_count; ++bank)
+	for (size_t i = schema->weapon_banks[bank].first; i <= schema->weapon_banks[bank].last; ++i)
 	{
 		fileReadU16Array(&file, &weapons[i].drain,           1);
 		fileReadU8Array( &file, &weapons[i].shotrepeat,      1);
@@ -123,7 +134,7 @@ void JE_loadItemDat(void)
 		fileReadU8Array( &file, &weapons[i].shipblastfilter, 1);
 	}
 	
-	for (size_t i = 0; i < PORT_NUM + 1; ++i)
+	for (size_t i = 0; i <= schema->port_max; ++i)
 	{
 		Uint8 nameLen = fileReadU8(&file);
 		fileReadCharArray(&file,  weaponPort[i].name,       30);
@@ -136,7 +147,7 @@ void JE_loadItemDat(void)
 		fileReadU16Array( &file, &weaponPort[i].poweruse,    1);
 	}
 
-	for (size_t i = 0; i < SPECIAL_NUM + 1; ++i)
+	for (size_t i = 0; i <= schema->special_max; ++i)
 	{
 		Uint8 nameLen = fileReadU8(&file);
 		fileReadCharArray(&file,  special[i].name,       30);
@@ -147,7 +158,7 @@ void JE_loadItemDat(void)
 		fileReadU16Array( &file, &special[i].wpn,         1);
 	}
 
-	for (size_t i = 0; i < POWER_NUM + 1; ++i)
+	for (size_t i = 0; i <= schema->generator_max; ++i)
 	{
 		Uint8 nameLen = fileReadU8(&file);
 		fileReadCharArray(&file,  powerSys[i].name,       30);
@@ -158,7 +169,7 @@ void JE_loadItemDat(void)
 		fileReadU16Array( &file, &powerSys[i].cost,        1);
 	}
 
-	for (size_t i = 0; i < SHIP_NUM + 1; ++i)
+	for (size_t i = 0; i <= schema->ship_max; ++i)
 	{
 		Uint8 nameLen = fileReadU8(&file);
 		fileReadCharArray(&file,  ships[i].name,          30);
@@ -172,7 +183,7 @@ void JE_loadItemDat(void)
 		fileReadU8Array(  &file, &ships[i].bigshipgraphic, 1);
 	}
 
-	for (size_t i = 0; i < OPTION_NUM + 1; ++i)
+	for (size_t i = 0; i <= schema->sidekick_max; ++i)
 	{
 		Uint8 nameLen = fileReadU8(&file);
 		fileReadCharArray(&file,  options[i].name,       30);
@@ -192,7 +203,7 @@ void JE_loadItemDat(void)
 		fileReadU8Array(  &file, &options[i].icongr,      1);
 	}
 
-	for (size_t i = 0; i < SHIELD_NUM + 1; ++i)
+	for (size_t i = 0; i <= schema->shield_max; ++i)
 	{
 		Uint8 nameLen = fileReadU8(&file);
 		fileReadCharArray(&file,  shields[i].name,       30);
@@ -203,7 +214,8 @@ void JE_loadItemDat(void)
 		fileReadU16Array( &file, &shields[i].cost,        1);
 	}
 	
-	for (size_t i = 0; i < ENEMY_NUM + 1; ++i)
+	for (size_t bank = 0; bank < schema->enemy_bank_count; ++bank)
+	for (size_t i = schema->enemy_banks[bank].first; i <= schema->enemy_banks[bank].last; ++i)
 	{
 		fileReadU8Array( &file, &enemyDat[i].ani,           1);
 		fileReadU8Array( &file,  enemyDat[i].tur,           3);
@@ -235,6 +247,9 @@ void JE_loadItemDat(void)
 		fileReadU16Array(&file, &enemyDat[i].eenemydie,     1);
 	}
 	
+	// Tyrian 2000: schema->item_trailer_bytes (77) follow the last enemy record.
+	// They are not an enemy and are deliberately left unread.
+
 	if (file.error)
 	{
 		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
@@ -265,7 +280,9 @@ void JE_scanForEpisodes(void)
 	{
 		char filename[13];
 		snprintf(filename, sizeof filename, "tyrian%d.lvl", i + 1);
-		episodeAvail[i] = dataFileExists(filename);
+		// An episode above the variant's episode count is never offered, even if
+		// its file is present (a 2.1 installation may hold a stray tyrian5.lvl).
+		episodeAvail[i] = i < EPISODE_AVAILABLE && dataFileExists(filename);
 	}
 }
 

@@ -21,9 +21,13 @@
 
 #include "opentyr.h"
 
-#define SFX_COUNT 29
+#include "game_schema.h"
+
+// Capacities: the largest variant.  The counts actually loaded come from the
+// selected GameDataSchema (sfx_count, voice_count).
+#define SFX_COUNT_MAX 31
 #define VOICE_COUNT 9
-#define SOUND_COUNT (SFX_COUNT + VOICE_COUNT)
+#define SOUND_COUNT (SFX_COUNT_MAX + VOICE_COUNT)
 
 enum
 {
@@ -58,18 +62,39 @@ enum
 	S_SHIELD_HIT       = 27,
 	S_CURSOR           = 28,
 	S_POWERUP          = 29,
-	V_CLEARED_PLATFORM = 30,  // "Cleared enemy platform."
-	V_BOSS             = 31,  // "Large enemy approaching."
-	V_ENEMIES          = 32,  // "Enemies ahead."
-	V_GOOD_LUCK        = 33,  // "Good luck."
-	V_LEVEL_END        = 34,  // "Level completed."
-	V_DANGER           = 35,  // "Danger."
-	V_SPIKES           = 36,  // "Warning: spikes ahead."
-	V_DATA_CUBE        = 37,  // "Data acquired."
-	V_ACCELERATE       = 38,  // "Unexplained speed increase."
+	// Tyrian 2000 inserts two more effects (30, 31) before the voices; those two
+	// slots are voices in Tyrian 2.1, so name voices only through V_*.
 };
 
-extern const char soundTitle[SOUND_COUNT][9];
-extern const JE_byte windowTextSamples[9];
+// Voices, in the order of voices.snd.  Their sound IDs shift with the number of
+// effects of the selected variant (29 + 1 + n in 2.1, 31 + 1 + n in 2000).
+enum
+{
+	VOICE_CLEARED_PLATFORM,  // "Cleared enemy platform."
+	VOICE_BOSS,              // "Large enemy approaching."
+	VOICE_ENEMIES,           // "Enemies ahead."
+	VOICE_GOOD_LUCK,         // "Good luck."
+	VOICE_LEVEL_END,         // "Level completed."
+	VOICE_DANGER,            // "Danger."
+	VOICE_SPIKES,            // "Warning: spikes ahead."
+	VOICE_DATA_CUBE,         // "Data acquired."
+	VOICE_ACCELERATE         // "Unexplained speed increase."
+};
+
+#define V_CLEARED_PLATFORM gameVoiceSound(VOICE_CLEARED_PLATFORM)
+#define V_BOSS             gameVoiceSound(VOICE_BOSS)
+#define V_ENEMIES          gameVoiceSound(VOICE_ENEMIES)
+#define V_GOOD_LUCK        gameVoiceSound(VOICE_GOOD_LUCK)
+#define V_LEVEL_END        gameVoiceSound(VOICE_LEVEL_END)
+#define V_DANGER           gameVoiceSound(VOICE_DANGER)
+#define V_SPIKES           gameVoiceSound(VOICE_SPIKES)
+#define V_DATA_CUBE        gameVoiceSound(VOICE_DATA_CUBE)
+#define V_ACCELERATE       gameVoiceSound(VOICE_ACCELERATE)
+
+extern const char soundTitle21[SFX_COUNT_MAX - 2 + VOICE_COUNT][9];
+extern const char soundTitle2000[SOUND_COUNT][9];
+
+// Sound ID (1-based) played for level warning text number id (1-based).
+JE_byte windowTextSample(unsigned int id);
 
 #endif /* SNDMAST_H */

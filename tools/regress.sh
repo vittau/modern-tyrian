@@ -251,6 +251,40 @@ mkdir -p "$BASELINE_DIR"
 rm -rf "$ACTUAL_DIR"
 mkdir -p "$ACTUAL_DIR"
 
+# No Tyrian 2000 file may land in the tree (metadata-only check, no game data).
+if ! "$ROOT/tools/check_no_t2000_data.sh"; then
+	echo "ERROR: a Tyrian 2000 data file is in the source tree"
+	exit 1
+fi
+
+if ! "$ROOT/tools/check_variant_bootstrap.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/variant-bootstrap"; then
+	echo "ERROR: variant/bootstrap checks failed"
+	exit 1
+fi
+
+if ! "$ROOT/tools/check_user_paths.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/user-paths"; then
+	echo "ERROR: user-path/migration checks failed"
+	exit 1
+fi
+
+if ! "$ROOT/tools/check_game_rules.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/rules-21"; then
+	echo "ERROR: game-rules checks failed"
+	exit 1
+fi
+
+if ! "$ROOT/tools/check_installer.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/installer"; then
+	echo "ERROR: Tyrian 2000 installer checks failed"
+	exit 1
+fi
+
+if ! "$ROOT/tools/check_final_regression.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/final-regression" ||
+   ! cmp "$BASELINE_DIR/final-regression.txt" "$ACTUAL_DIR/final-regression/final-regression.txt"; then
+	echo "ERROR: final matrix checks failed"
+	exit 1
+fi
+
+"$ROOT/tools/check_display.sh" "$BIN" "$DATA_DIR" || exit 1
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'
@@ -521,7 +555,12 @@ run_case() {
 for d in $DEMOS; do
 	for m in $LEVELS; do
 		pairs=$((pairs + 1))
-		run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		# --regress-demo-hud-check only observes: a Classic demo keeps the sidebar.
+		if [ "$d" = 1 ] && [ "$m" = "$MODERN_DETAIL" ]; then
+			run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m" --regress-demo-hud-check
+		else
+			run_case "demo$d-d$m" --regress-demo="$d" --regress-detail="$m"
+		fi
 	done
 done
 
@@ -697,7 +736,7 @@ pairs=$((pairs + 1))
 
 SCREENS=(
 	title episode-select high-scores game-menu upgrade purchase options
-	cube-list cube-reader keyboard joystick load-save solid setup
+	cube-list cube-reader keyboard keyboard-long joystick joystick-multi load-save solid setup
 )
 
 for s in "${SCREENS[@]}"; do
@@ -706,6 +745,13 @@ for s in "${SCREENS[@]}"; do
 		--regress-screen="$s" --regress-modern --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_case "screen-$s" --regress-screen="$s"
+done
+
+# Two simultaneous mappings must leave the pic-1 border free at every width.
+for aspect in 21:9 32:9; do
+	pairs=$((pairs + 1))
+	run_case "modern-screen-joystick-multi-${aspect/:/x}" \
+		--regress-screen=joystick-multi --regress-modern --regress-aspect="$aspect"
 done
 
 pairs=$((pairs + 1))
@@ -749,7 +795,7 @@ run_case "modern-screen-jukebox-21x9" \
 # The in-game Load screen is the "load-save" case above.  These cover the
 # screens the user reported: the in-game Save (same pic-1 layout), the title
 # Load Game (pic 2), and the quit confirmation dialog (over the pic-1 menu).
-# The quit 21:9 case guards the capped Modern centring shift, and the ship-specs
+# The quit 21:9 case guards the centred Modern modal layer, and the ship-specs
 # 21:9 case guards the full-width grid.
 
 pairs=$((pairs + 1))
@@ -1216,6 +1262,15 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	# must still equal the modern-wide baseline, i.e. the check only observes.
 	run_gameplay_case "gameplay-wide-scenario-spotlight-d$MODERN_DETAIL" "modern-wide-scenario-spotlight-d$MODERN_DETAIL" \
 		--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9
+	pairs=$((pairs + 1))
+
+	# Attract demos follow the active mode's HUD: every in-level Modern demo frame
+	# composes the filled side panels (the check also fails if none was seen).
+	run_gameplay_case "demo-hud-wide-demo1-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" \
+		--regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9 --regress-demo-hud-check
+	pairs=$((pairs + 1))
+	run_gameplay_case "demo-hud-wide-16x10-demo1-d$MODERN_DETAIL" "modern-wide-16x10-demo1-d$MODERN_DETAIL" \
+		--regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:10 --regress-demo-hud-check
 	pairs=$((pairs + 1))
 
 	# In-game menu composition (pause-hud): --regress-menu opens the ESC in-game

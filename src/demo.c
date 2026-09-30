@@ -115,7 +115,11 @@ bool playDemoKeys(void)
 	// never end the level from input.  (Strictly scenario-only; demo playback is
 	// untouched.)
 	if (regress_scenario_active())
+	{
+		if (regress_fire)
+			regress_scenario_input();
 		return true;
+	}
 
 	while (demoKeysWait == 0)
 	{
@@ -172,7 +176,7 @@ void beginRecordDemo(void)
 	{
 		snprintf(newDemoFilename, sizeof(newDemoFilename), "demorec.%d", newDemoNum);
 
-		if (!userFileExists(newDemoFilename))
+		if (!userFileExistsKind(USER_FILE_VARIANT_DEMO, newDemoFilename))
 			break;
 
 		if (newDemoNum == UINT8_MAX)
@@ -184,7 +188,7 @@ void beginRecordDemo(void)
 
 	logDebug("Recording demo '%s'.", newDemoFilename);
 
-	demoFile = userFileOpen(newDemoFilename, "wb");
+	demoFile = userFileOpenKind(USER_FILE_VARIANT_DEMO, newDemoFilename, "wb");
 	if (demoFile.error)
 	{
 		logFatal("Failed to open file '%s': %s", newDemoFilename, fileGetError(&demoFile));

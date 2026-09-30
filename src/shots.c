@@ -20,6 +20,8 @@
 
 #include "drawlist.h"
 #include "episodes.h"
+#include "game_rules.h"
+#include "game_schema.h"
 #include "player.h"
 #include "sprite.h"
 #include "video.h"
@@ -256,7 +258,7 @@ bool player_shot_move_and_draw(
 
 		if (shot->shotTrail != 255)
 		{
-			if (shot->shotTrail == 98)
+			if (gameIsSmokeTrail(shot->shotTrail))
 				JE_setupExplosion(shot->shotX - shot->shotXM, shot->shotY - shot->shotYM, 0, shot->shotTrail, false, false);
 			else
 				JE_setupExplosion(shot->shotX, shot->shotY, 0, shot->shotTrail, false, false);
@@ -338,7 +340,7 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 	static const JE_byte soundChannel[11] /* [1..11] */ = {0, 2, 4, 4, 2, 2, 5, 5, 1, 4, 1};
 
 	// Bounds check
-	if (portNum > PORT_NUM || wpNum <= 0 || wpNum > WEAP_NUM)
+	if (portNum > gameSchema()->port_max || wpNum <= 0 || !gameWeaponValid(wpNum))
 		return MAX_PWEAPON;
 
 	const JE_WeaponType* weapon = &weapons[wpNum];
@@ -408,7 +410,8 @@ JE_integer player_shot_create(JE_word portNum, uint bay_i, JE_word PX, JE_word P
 			shot->shotDirY = -1;
 		}
 
-		shot->shotTrail = weapon->trail;
+		// Tyrian 2000's Flying Punch trails only from the first tile of its volley.
+		shot->shotTrail = gameShotTrail(weapon->trail, shotMultiPos[bay_i]);
 
 		if (weapon->attack[shotMultiPos[bay_i]-1] > 99 && weapon->attack[shotMultiPos[bay_i]-1] < 250)
 		{

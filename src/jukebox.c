@@ -19,6 +19,7 @@
 #include "jukebox.h"
 
 #include "font.h"
+#include "game_schema.h"
 #include "keyboard.h"
 #include "lds_play.h"
 #include "loudness.h"
@@ -104,7 +105,7 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 			char buffer[60];
 			
 			if (fx)
-				snprintf(buffer, sizeof(buffer), "%d %s", fx_num + 1, soundTitle[fx_num]);
+				snprintf(buffer, sizeof(buffer), "%d %s", fx_num + 1, gameSchema()->sound_titles[fx_num]);
 			else
 				snprintf(buffer, sizeof(buffer), "%d %s", song_playing + 1, musicTitle[song_playing]);
 			
@@ -162,10 +163,10 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 				break;
 			case SDL_SCANCODE_COMMA:
 				if (fx && --fx_num < 0)
-					fx_num = SOUND_COUNT - 1;
+					fx_num = (int)gameSoundCount() - 1;
 				break;
 			case SDL_SCANCODE_PERIOD:
-				if (fx && ++fx_num >= SOUND_COUNT)
+				if (fx && ++fx_num >= (int)gameSoundCount())
 					fx_num = 0;
 				break;
 			case SDL_SCANCODE_SEMICOLON:

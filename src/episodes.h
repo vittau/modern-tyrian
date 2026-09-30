@@ -21,13 +21,15 @@
 
 #include "opentyr.h"
 
+#include "game_variant.h"
 #include "lvlmast.h"
 
 /* Episodes and general data */
 
 #define FIRST_LEVEL 1
 #define EPISODE_MAX 5
-#define EPISODE_AVAILABLE 4
+// Episodes offered by the selected variant (4 in Tyrian 2.1, 5 in Tyrian 2000).
+#define EPISODE_AVAILABLE ((int)gameVariantCurrent()->episode_count)
 
 typedef struct
 {

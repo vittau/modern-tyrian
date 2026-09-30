@@ -1,4 +1,5 @@
 /data/
+/data-tyrian2000/
 
 newsh$.shp
 opentyrian.cfg
@@ -37,3 +38,4 @@ tyrian.sav
 
 # Regression harness scratch outputs
 /test/regress/actual/
+/test/regress-2000/actual/

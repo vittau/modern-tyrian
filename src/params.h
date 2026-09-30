@@ -20,9 +20,20 @@
 #define PARAMS_H
 
 #include "opentyr.h"
+#include "arg_parse.h"
 
 extern JE_boolean richMode, constantPlay, constantDie;
 
+enum
+{
+	PARAM_VARIANT = 313,
+	PARAM_REGRESS_USER_ROOT = 314,
+	PARAM_REGRESS_USER_FILES = 315,
+	PARAM_INSTALL_2000 = 330,
+	PARAM_INSTALL_2000_SPEC = 331
+};
+
+const Options *JE_paramOptions(void);
 void JE_paramCheck(int argc, char *argv[]);
 
 #endif /* PARAMS_H */

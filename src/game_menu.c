@@ -23,6 +23,8 @@
 #include "episodes.h"
 #include "file.h"
 #include "fonthand.h"
+#include "game_rules.h"
+#include "game_schema.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "logging.h"
@@ -30,6 +32,7 @@
 #include "mainint.h"
 #include "modern.h"
 #include "mouse.h"
+#include "mouse_buttons.h"
 #include "musmast.h"
 #include "network.h"
 #include "nortsong.h"
@@ -47,6 +50,9 @@
 
 #include <assert.h>
 
+// The tables in game_schema.c size their per-menu arrays independently.
+typedef char menu_tables_match_menu_max[(GAME_MENU_COUNT == MENU_MAX + 0) ? 1 : -1];
+
 /*** Structs ***/
 struct cube_struct
 {
@@ -59,6 +65,64 @@ struct cube_struct
 
 /*** Globals ***/
 static int joystick_config = 0; // which joystick is being configured in menu
+
+// DARKEN draws the foreground at x+1 and its shadow at x+2.  Text width
+// includes the final spacing pixel, so this keeps both at or left of x=310.
+#define MENU_VALUE_WIDTH (310 - 236)
+
+static const char *keyboard_assignment_label(SDL_Scancode key, char *buffer, size_t size)
+{
+	const char *name = SDL_GetScancodeName(key);
+	if (JE_textWidth(name, TINY_FONT) <= MENU_VALUE_WIDTH)
+		return name;
+	// Keep the key's identity even for SDL's longest keypad/international names.
+	// Common modifiers have familiar, short names; SC identifies a scancode.
+	if (strncmp(name, "Left ", 5) == 0 || strncmp(name, "Right ", 6) == 0)
+		snprintf(buffer, size, "%c %s", name[0], name + (name[0] == 'L' ? 5 : 6));
+	else if (strncmp(name, "Keypad ", 7) == 0)
+		snprintf(buffer, size, "KP %s", name + 7);
+	else
+		snprintf(buffer, size, "%s", name);
+	if (JE_textWidth(buffer, TINY_FONT) > MENU_VALUE_WIDTH)
+		snprintf(buffer, size, "SC %d", key);
+	return buffer;
+}
+
+static void joystick_assignment_label(char *buffer, size_t size, const Joystick_assignment *assignments)
+{
+	joystick_assignments_to_string(buffer, size, assignments);
+	if (JE_textWidth(buffer, TINY_FONT) <= MENU_VALUE_WIDTH)
+		return;
+
+	const size_t slots = COUNTOF(joystick[0].assignment[0]);
+	char labels[COUNTOF(joystick[0].assignment[0])][32];
+	size_t count = 0;
+	for (size_t i = 0; i < slots; ++i)
+		if (assignments[i].type != NONE)
+			joystick_assignment_short_label(labels[count++], sizeof labels[0], &assignments[i]);
+
+	// Prefer every compact label.  If that still overflows, count the hidden
+	// mappings explicitly, preserving as many complete labels as will fit.
+	for (size_t shown = count; shown > 0; --shown)
+	{
+		buffer[0] = '\0';
+		for (size_t i = 0; i < shown; ++i)
+		{
+			size_t used = strlen(buffer);
+			snprintf(buffer + used, size - used, "%s%s", i ? "/" : "", labels[i]);
+		}
+		if (shown < count)
+		{
+			size_t used = strlen(buffer);
+			snprintf(buffer + used, size - used, " +%u", (unsigned)(count - shown));
+		}
+		if (JE_textWidth(buffer, TINY_FONT) <= MENU_VALUE_WIDTH)
+			return;
+	}
+	// Pathological raw indices from hand-edited configs can exceed even one
+	// label's width.  Show the total rather than a misleading partial index.
+	snprintf(buffer, size, "%u MAPPINGS", (unsigned)count);
+}
 
 static JE_word yLoc;
 static JE_shortint yChg;
@@ -76,11 +140,18 @@ static JE_byte curSel[MENU_MAX]; /* [1..maxmenu] */
 static JE_byte curItemType, curItem, cursor;
 static JE_boolean leftPower, rightPower, rightPowerAfford;
 static JE_byte currentCube;
+// Preview text cycle of the weapon simulator (see JE_weaponSimUpdate).
+static JE_byte weaponSimTime, weaponSimSel;
 
 // Regression harness start-menu override (see JE_itemScreenStartAt).  -1 keeps
 // the normal MENU_FULL_GAME start.
 static int regress_start_menu = -1;
 static int regress_start_cube = 0;
+static int regress_start_sel = 0;
+static JE_byte mouse_parent_menu = MENU_OPTIONS;
+
+// True while JE_itemScreen() runs (the regression flows steer through it).
+static bool itemScreenRunning;
 
 static JE_byte planetAni, planetAniWait;
 static JE_byte currentDotNum, currentDotWait;
@@ -92,8 +163,6 @@ static PlayerItems old_items[2];  // TODO: should not be global if possible
 
 static struct cube_struct cube[4];
 
-static const JE_MenuChoiceType menuChoicesDefault = { 7, 9, 8, 0, 0, 11, (SAVE_FILES_NUM / 2) + 2, 0, 0, 6, 4, 6, 7, 5 };
-static const JE_byte menuEsc[MENU_MAX] = { 0, 1, 1, 1, 2, 3, 3, 1, 8, 0, 0, 11, 3, 0 };
 static const JE_byte itemAvailMap[7] = { 1, 2, 3, 9, 4, 6, 7 };
 static const JE_word planetX[21] = { 200, 150, 240, 300, 270, 280, 320, 260, 220, 150, 160, 210, 80, 240, 220, 180, 310, 330, 150, 240, 200 };
 static const JE_word planetY[21] = {  40,  90,  90,  80, 170,  30,  50, 130, 120, 150, 220, 200, 80,  50, 160,  10,  55,  55,  90,  90,  40 };
@@ -135,6 +204,44 @@ static Uint8 *playeritem_map(PlayerItems *items, uint i)
 	return map[i];
 }
 
+// Rows of the options menu being shown (the full one, or the limited one that
+// network games use), from the variant's tables.
+static const GameOptionsRows *options_rows(int menu)
+{
+	return menu == MENU_LIMITED_OPTIONS ? &gameUi()->limited_options : &gameUi()->options;
+}
+
+// y of the first line of a volume bar row (the rows are 16 pixels apart).
+static int options_bar_y(int row)
+{
+	return 6 + 16 * row;
+}
+
+// Tyrian 2000 mouse settings menu: each button's current action is shown right
+// of its label.  The labels sit 24 pixels apart (see JE_drawMenuChoices).
+static void mouse_menu_draw_values(void)
+{
+	for (unsigned int i = 0; i < MOUSE_BUTTON_COUNT; ++i)
+	{
+		const int y = 51 + (int)i * 24;
+		JE_textShade(VGAScreen, 215, y, joyButtonNames[mouse_button_action(i)], 15, 2, PART_SHADE);
+	}
+}
+
+// Can the weapon shown in the upgrade list take power?  Never "Done", and never
+// "None" on the rear port; front "None" only where the variant lets it (the
+// original Tyrian 2000 does, Tyrian 2.1 does not).
+static bool weapon_power_applicable(uint upgrade_row, uint sub_row)
+{
+	if ((upgrade_row != 3 && upgrade_row != 4) || sub_row < 2 || sub_row >= menuChoices[MENU_UPGRADE_SUB])
+		return false;
+
+	const JE_byte item = itemAvail[itemAvailMap[upgrade_row - 2] - 1][sub_row - 2];
+	if (item != 0)
+		return true;
+	return upgrade_row == 3 && gameUi()->front_none_takes_power;
+}
+
 JE_longint JE_cashLeft(void)
 {
 	JE_longint tempL = player[0].cash;
@@ -163,6 +270,11 @@ void JE_itemScreenStartAt(int menu, int cube)
 {
 	regress_start_menu = menu;
 	regress_start_cube = cube;
+}
+
+void JE_itemScreenStartSelection(int sel)
+{
+	regress_start_sel = sel;
 }
 
 // Regression harness helper (--regress-screen=nav-map): seeds a short route and
@@ -211,9 +323,21 @@ static void nav_regress_prepare(void)
 	planetAniWait = 3;
 }
 
+bool JE_itemScreenState(int *menu, int *sel)
+{
+	if (itemScreenRunning)
+	{
+		*menu = curMenu;
+		*sel = curSel[curMenu];
+	}
+	return itemScreenRunning;
+}
+
 void JE_itemScreen(void)
 {
 	bool quit = false;
+
+	itemScreenRunning = true;
 
 	if (shopSpriteSheet.data == NULL)
 		JE_loadCompShapes(&shopSpriteSheet, '1');
@@ -222,7 +346,7 @@ void JE_itemScreen(void)
 
 	VGAScreen = VGAScreenSeg;
 
-	memcpy(menuChoices, menuChoicesDefault, sizeof(menuChoices));
+	memcpy(menuChoices, gameUi()->menu_choices, sizeof(menuChoices));
 
 	play_song(songBuy);
 
@@ -297,6 +421,8 @@ void JE_itemScreen(void)
 		default:
 			break;
 		}
+		if (regress_start_sel >= 2 && regress_start_sel <= menuChoices[curMenu])
+			curSel[curMenu] = regress_start_sel;
 	}
 
 	memcpy(VGAScreen2->pixels, VGAScreen->pixels, VGAScreen2->pitch * VGAScreen2->h);
@@ -397,10 +523,14 @@ void JE_itemScreen(void)
 		/* Draw menu choices for simple menus */
 		if ((curMenu >= MENU_FULL_GAME && curMenu <= MENU_PLAY_NEXT_LEVEL) ||
 		    (curMenu >= MENU_2_PLAYER_ARCADE && curMenu <= MENU_LIMITED_OPTIONS) ||
-		    curMenu == MENU_SUPER_TYRIAN)
+		    curMenu == MENU_SUPER_TYRIAN ||
+		    curMenu == MENU_MOUSE_CONFIG)
 		{
 			JE_drawMenuChoices();
 		}
+
+		if (curMenu == MENU_MOUSE_CONFIG)
+			mouse_menu_draw_values();
 
 		/* Data cube icons */
 		if (curMenu == MENU_FULL_GAME)
@@ -489,7 +619,8 @@ void JE_itemScreen(void)
 				if (x < 10) /* 10 = reset to defaults, 11 = done */
 				{
 					temp2 = (x == curSel[curMenu]) ? 252 : 250;
-					JE_textShade(VGAScreen, 236, 38 + (x - 2)*12, SDL_GetScancodeName(keySettings[x-2]), temp2 / 16, temp2 % 16 - 8, DARKEN);
+					char label[64];
+					JE_textShade(VGAScreen, 236, 38 + (x - 2)*12, keyboard_assignment_label(keySettings[x-2], label, sizeof label), temp2 / 16, temp2 % 16 - 8, DARKEN);
 				}
 			}
 
@@ -528,7 +659,7 @@ void JE_itemScreen(void)
 
 				temp = (i == curSel[curMenu] - 2u) ? 252 : 250;
 
-				char value[48] = "";
+				char value[128] = "";
 				if (joysticks == 0 && i < 14) // no joysticks, everything disabled
 				{
 					sprintf(value, "-");
@@ -554,7 +685,7 @@ void JE_itemScreen(void)
 				}
 				else if (i < 14) // assignments
 				{
-					joystick_assignments_to_string(value, sizeof(value), joystick[joystick_config].assignment[i - 4]);
+					joystick_assignment_label(value, sizeof(value), joystick[joystick_config].assignment[i - 4]);
 				}
 
 				JE_textShade(VGAScreen, 236, 38 + i * 8, value, temp / 16, temp % 16 - 8, DARKEN);
@@ -588,9 +719,7 @@ void JE_itemScreen(void)
 			}
 
 			/* Get power level info for front and rear weapons */
-			if ((curSel[MENU_UPGRADES] == 3 || curSel[MENU_UPGRADES] == 4) &&  // front or rear weapon
-			    curSel[MENU_UPGRADE_SUB] < menuChoices[MENU_UPGRADE_SUB] &&  // not "Done"
-			    itemAvail[itemAvailMap[curSel[MENU_UPGRADES]-2]-1][curSel[MENU_UPGRADE_SUB]-2] != 0)  // not "None"
+			if (weapon_power_applicable(curSel[MENU_UPGRADES], curSel[MENU_UPGRADE_SUB]))
 			{
 				const uint port = curSel[MENU_UPGRADES] - 3,  // 0 or 1 (front or back)
 				           item_level = player[0].items.weapon[port].power;
@@ -739,14 +868,17 @@ void JE_itemScreen(void)
 			}
 			else if (superArcadeMode != SA_NONE || superTyrian)
 			{
+				// superShips: header, one name per arcade ship, then three labels.
+				const unsigned int arcadeShips = gameRules()->arcade->ship_count;
+
 				if (!superTyrian)
 					JE_helpBox(VGAScreen, 35, 25, superShips[superArcadeMode], 18, 7, 15, 4, FULL_SHADE);
 				else
-					JE_helpBox(VGAScreen, 35, 25, superShips[SA+3], 18, 7, 15, 4, FULL_SHADE);
+					JE_helpBox(VGAScreen, 35, 25, superShips[arcadeShips+3], 18, 7, 15, 4, FULL_SHADE);
 
-				JE_textShade(VGAScreen, 25, 50, superShips[SA+1], 15, 0, FULL_SHADE);
+				JE_textShade(VGAScreen, 25, 50, superShips[arcadeShips+1], 15, 0, FULL_SHADE);
 				JE_helpBox(VGAScreen,   25, 60, weaponPort[player[0].items.weapon[FRONT_WEAPON].id].name, 22, 7, 12, 1, FULL_SHADE);
-				JE_textShade(VGAScreen, 25, 120, superShips[SA+2], 15, 0, FULL_SHADE);
+				JE_textShade(VGAScreen, 25, 120, superShips[arcadeShips+2], 15, 0, FULL_SHADE);
 				JE_helpBox(VGAScreen,   25, 130, special[player[0].items.special].name, 22, 7, 12, 1, FULL_SHADE);
 			}
 			else
@@ -759,8 +891,10 @@ void JE_itemScreen(void)
 		if (curMenu == MENU_OPTIONS ||
 		    curMenu == MENU_LIMITED_OPTIONS)
 		{
-			JE_barDrawShadow(VGAScreen, 225, 70, 1, music_disabled ? 12 : 16, tyrMusicVolume / 12, 3, 13);
-			JE_barDrawShadow(VGAScreen, 225, 86, 1, samples_disabled ? 12 : 16, fxVolume / 12, 3, 13);
+			const GameOptionsRows *rows = options_rows(curMenu);
+
+			JE_barDrawShadow(VGAScreen, 225, options_bar_y(rows->music), 1, music_disabled ? 12 : 16, tyrMusicVolume / 12, 3, 13);
+			JE_barDrawShadow(VGAScreen, 225, options_bar_y(rows->sound), 1, samples_disabled ? 12 : 16, fxVolume / 12, 3, 13);
 		}
 
 		/* "firstmenu9" refers to menu 8 because of reindexing */
@@ -1142,8 +1276,11 @@ void JE_itemScreen(void)
 			if (curMenu == MENU_OPTIONS ||
 			    curMenu == MENU_LIMITED_OPTIONS)
 			{
+				const GameOptionsRows *rows = options_rows(curMenu);
+				const int music_y = options_bar_y(rows->music), sound_y = options_bar_y(rows->sound);
+
 				if (mouseInput.x >= 225 - 4 &&
-				    mouseInput.y >= 70 && mouseInput.y <= 82)
+				    mouseInput.y >= music_y && mouseInput.y <= music_y + 12)
 				{
 					if (music_disabled)
 					{
@@ -1151,7 +1288,7 @@ void JE_itemScreen(void)
 						restart_song();
 					}
 
-					curSel[MENU_OPTIONS] = 4;
+					curSel[gameUi()->mouse_menu ? curMenu : MENU_OPTIONS] = rows->music;
 
 					tyrMusicVolume = (mouseInput.x - (225 - 4)) / 4 * 12;
 					if (tyrMusicVolume > 255)
@@ -1159,11 +1296,11 @@ void JE_itemScreen(void)
 				}
 
 				if (mouseInput.x >= 225 - 4 &&
-				    mouseInput.y >= 86 && mouseInput.y <= 98)
+				    mouseInput.y >= sound_y && mouseInput.y <= sound_y + 12)
 				{
 					samples_disabled = false;
 
-					curSel[MENU_OPTIONS] = 5;
+					curSel[gameUi()->mouse_menu ? curMenu : MENU_OPTIONS] = rows->sound;
 
 					fxVolume = (mouseInput.x - (225 - 4)) / 4 * 12;
 					if (fxVolume > 255)
@@ -1179,9 +1316,7 @@ void JE_itemScreen(void)
 			    mouseInput.x > 170 && mouseInput.x < 308 &&
 			    curMenu != MENU_DATA_CUBE_SUB)
 			{
-				const JE_byte mouseSelectionY[MENU_MAX] = { 16, 16, 16, 16, 26, 12, 11, 28, 0, 16, 16, 16, 8, 16 };
-
-				int selection = (mouseInput.y - 38) / mouseSelectionY[curMenu]+2;
+				int selection = (mouseInput.y - 38) / gameUi()->mouse_row_height[curMenu] + 2;
 
 				if (curMenu == MENU_2_PLAYER_ARCADE)
 				{
@@ -1314,7 +1449,11 @@ void JE_itemScreen(void)
 					curMenu = oldMenu;
 					newPal = oldPal;
 				}
-				else if (menuEsc[curMenu] == 0)
+				else if (curMenu == MENU_MOUSE_CONFIG)
+				{
+					curMenu = mouse_parent_menu;
+				}
+				else if (gameUi()->menu_esc[curMenu] == 0)
 				{
 					if (JE_quitRequest())
 					{
@@ -1334,7 +1473,7 @@ void JE_itemScreen(void)
 					if (curMenu != MENU_DATA_CUBE_SUB)
 						newPal = 1;
 
-					curMenu = menuEsc[curMenu] - 1;
+					curMenu = gameUi()->menu_esc[curMenu] - 1;
 				}
 				break;
 
@@ -1517,20 +1656,19 @@ void JE_itemScreen(void)
 				{
 				case 2:
 				case 11:
-					switch (curSel[curMenu])
+					if (curSel[curMenu] == options_rows(curMenu)->music)
 					{
-					case 4:
 						JE_changeVolume(&tyrMusicVolume, -12, &fxVolume, 0);
 						if (music_disabled)
 						{
 							music_disabled = false;
 							restart_song();
 						}
-						break;
-					case 5:
+					}
+					else if (curSel[curMenu] == options_rows(curMenu)->sound)
+					{
 						JE_changeVolume(&tyrMusicVolume, 0, &fxVolume, -12);
 						samples_disabled = false;
-						break;
 					}
 					break;
 				case 4:
@@ -1621,20 +1759,19 @@ void JE_itemScreen(void)
 				{
 				case 2:
 				case 11:
-					switch (curSel[curMenu])
+					if (curSel[curMenu] == options_rows(curMenu)->music)
 					{
-					case 4:
 						JE_changeVolume(&tyrMusicVolume, 12, &fxVolume, 0);
 						if (music_disabled)
 						{
 							music_disabled = false;
 							restart_song();
 						}
-						break;
-					case 5:
+					}
+					else if (curSel[curMenu] == options_rows(curMenu)->sound)
+					{
 						JE_changeVolume(&tyrMusicVolume, 0, &fxVolume, 12);
 						samples_disabled = false;
-						break;
 					}
 					break;
 				case 4:
@@ -1703,6 +1840,8 @@ void JE_itemScreen(void)
 
 	} while (!(quit || gameLoaded || jumpSection));
 
+	itemScreenRunning = false;
+
 #ifdef WITH_NETWORK
 	if (!quit && isNetworkGame)
 	{
@@ -1760,8 +1899,9 @@ void draw_ship_illustration(void)
 		                      ? ships[player[0].items.ship].bigshipgraphic - 1
 		                      : 31;
 
-		const int ship_x[6] = { 31, 0, 0, 0, 35, 31 },
-		          ship_y[6] = { 36, 0, 0, 0, 33, 35 };
+		// Big graphics 27..45 (Tyrian 2000 adds 45 and 46: Dragon and Pretzel Pete).
+		const int ship_x[19] = { 31, 0, 0, 0, 35, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36, 30 },
+		          ship_y[19] = { 36, 0, 0, 0, 33, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33, 30 };
 
 		const int x = ship_x[sprite_id - 27],
 		          y = ship_y[sprite_id - 27];
@@ -1785,53 +1925,63 @@ void draw_ship_illustration(void)
 		blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, sprite_id);
 	}
 
-	const int weapon_sprites[43] =
+	// Tyrian 2000 has ports up to 60; entries above 42 are its own.
+	const int weapon_sprites[60] =
 	{
 		-1,  0,  1,  2,  3,  4,  5,  6,  7,  8,
 		 9, 10, 11, 21,  5, 13, -1, 14, 15,  0,
 		14,  9,  8,  2, 15,  0, 13,  0,  8,  8,
 		11,  1,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  2,  1
+		 0,  2,  1,  0,  0,  1,  1,  1
 	};
 
 	// front weapon
-	if (player[0].items.weapon[FRONT_WEAPON].id > 0)
+	if (player[0].items.weapon[FRONT_WEAPON].id > 0 && player[0].items.weapon[FRONT_WEAPON].id < COUNTOF(weapon_sprites))
 	{
-		const int front_weapon_xy_list[43] =
+		const int front_weapon_xy_list[60] =
 		{
 			 -1,  4,  9,  3,  8,  2,  5, 10,  1, -1,
 			 -1, -1, -1,  7,  8, -1, -1,  0, -1,  4,
 			  0, -1, -1,  3, -1,  4, -1,  4, -1, -1,
 			 -1,  9,  0,  0,  0,  0,  0,  0,  0,  0,
-			  0,  3,  9
+			  0,  3,  9,  4,  4,  9,  9,  9
 		};
 
 		const int front_weapon_x[12] = { 59, 66, 66, 54, 61, 51, 58, 51, 61, 52, 53, 58 };
 		const int front_weapon_y[12] = { 38, 53, 41, 36, 48, 35, 41, 35, 53, 41, 39, 31 };
-		const int x = front_weapon_x[front_weapon_xy_list[player[0].items.weapon[FRONT_WEAPON].id]],
-		          y = front_weapon_y[front_weapon_xy_list[player[0].items.weapon[FRONT_WEAPON].id]];
+		// A port with no place on the illustration (-1) is not drawn.
+		const int front_xy = front_weapon_xy_list[player[0].items.weapon[FRONT_WEAPON].id];
+		if (front_xy >= 0)
+		{
+			const int x = front_weapon_x[front_xy],
+			          y = front_weapon_y[front_xy];
 
-		blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[FRONT_WEAPON].id]);  // ship illustration: front weapon
+			blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[FRONT_WEAPON].id]);  // ship illustration: front weapon
+		}
 	}
 
 	// rear weapon
-	if (player[0].items.weapon[REAR_WEAPON].id > 0)
+	if (player[0].items.weapon[REAR_WEAPON].id > 0 && player[0].items.weapon[REAR_WEAPON].id < COUNTOF(weapon_sprites))
 	{
-		const int rear_weapon_xy_list[43] =
+		const int rear_weapon_xy_list[60] =
 		{
 			-1, -1, -1, -1, -1, -1, -1, -1, -1,  0,
 			 1,  2,  3, -1,  4,  5, -1, -1,  6, -1,
 			-1,  1,  0, -1,  6, -1,  5, -1,  0,  0,
 			 3,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-			 0, -1, -1
+			 0, -1, -1, -1, -1, -1, -1, -1
 		};
 
 		const int rear_weapon_x[7] = { 41, 27,  49,  43, 51, 39, 41 };
 		const int rear_weapon_y[7] = { 92, 92, 113, 102, 97, 96, 76 };
-		const int x = rear_weapon_x[rear_weapon_xy_list[player[0].items.weapon[REAR_WEAPON].id]],
-		          y = rear_weapon_y[rear_weapon_xy_list[player[0].items.weapon[REAR_WEAPON].id]];
+		const int rear_xy = rear_weapon_xy_list[player[0].items.weapon[REAR_WEAPON].id];
+		if (rear_xy >= 0)
+		{
+			const int x = rear_weapon_x[rear_xy],
+			          y = rear_weapon_y[rear_xy];
 
-		blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[REAR_WEAPON].id]);
+			blit_sprite(VGAScreenSeg, x, y, WEAPON_SHAPES, weapon_sprites[player[0].items.weapon[REAR_WEAPON].id]);
+		}
 	}
 
 	// sidekicks
@@ -2004,7 +2154,9 @@ void JE_drawItem(JE_byte itemType, JE_word itemNum, JE_word x, JE_word y)
 			}
 			else
 			{
-				blit_sprite2x2(VGAScreen, x, y, spriteSheet9, ships[itemNum].shipgraphic);
+				unsigned int shipGrIndex;
+				Sprite2_array *const shipSheet = shipGraphicSheet(ships[itemNum].shipgraphic, &shipGrIndex);
+				blit_sprite2x2(VGAScreen, x, y, *shipSheet, shipGrIndex);
 			}
 		}
 		else if (tempW > 0)
@@ -2067,6 +2219,13 @@ void JE_drawMenuChoices(void)
 		      x == menuChoices[curMenu]))
 		{
 			tempY -= 16;
+		}
+
+		// The mouse menu's rows are 24 pixels apart, leaving room for the
+		// current action under each button's label.
+		if (curMenu == MENU_MOUSE_CONFIG)
+		{
+			tempY += (x - 2) * 8;
 		}
 
 		str = malloc(strlen(menuInt[curMenu + 1][x-1])+2);
@@ -2364,6 +2523,8 @@ void JE_scaleBitmap(SDL_Surface *dst_bitmap, SDL_Surface *src_bitmap,  int x1, i
 
 void JE_initWeaponView(void)
 {
+	weaponSimTime = 0;
+	weaponSimSel = 0;
 	fill_rectangle_xy(VGAScreen, 8, 8, 144, 177, 0);
 
 	player[0].sidekick[LEFT_SIDEKICK].x = 72 - 15;
@@ -2482,11 +2643,11 @@ void JE_drawMainMenuHelpText(void)
 		const int help[16] = { 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 24, 11 };
 		memcpy(tempStr, mainMenuHelp[help[curSel[curMenu] - 2]], sizeof(tempStr));
 	}
-	else if (curMenu < MENU_PLAY_NEXT_LEVEL ||
-	         curMenu == MENU_2_PLAYER_ARCADE ||
-	         curMenu > MENU_1_PLAYER_ARCADE)
+	else if (temp < GAME_MENU_HELP_ROWS && gameUi()->menu_help[curMenu][temp] != 0)
 	{
-		memcpy(tempStr, mainMenuHelp[(menuHelp[curMenu][temp])-1], sizeof(tempStr));
+		// The variant's help rows cover the simple menus; the others (nav map,
+		// upgrade lists, keys, save slots, data cubes) fall through to below.
+		memcpy(tempStr, mainMenuHelp[(gameUi()->menu_help[curMenu][temp])-1], sizeof(tempStr));
 	}
 	else if (curMenu == MENU_KEYBOARD_CONFIG &&
 	         curSel[MENU_KEYBOARD_CONFIG] == 10)
@@ -2514,21 +2675,10 @@ JE_boolean JE_quitRequest(void)
 {
 	bool quit_selected = true, done = false;
 
-	// Modern widescreen keeps the 320x200 frame left-aligned and widens the
-	// right panel, so a dialog drawn at its original x hugs the left edge.  The
-	// dark backdrop (65..255) is a drop shadow offset down-right of the message
-	// box (sprite 35, 50..238), so centring the backdrop -- as the original 320
-	// frame does -- still leaves the box ~16 px left of the canvas centre.
-	// Centre the box itself instead and keep the shadow's original offset; the
-	// text and the two labels move with it.  The right panel cannot be widened
-	// past MODERN_PIC1_SPLIT_MAX, so the box can only reach
-	// MODERN_PIC1_SPLIT_MAX - box_w: on ultrawide it stops just left of centre.
-	// The shadow's right edge is clipped at that cap too, so the backdrop never
-	// crosses the widening split (crossing it would tear a backdrop-coloured
-	// hole in the shadow).  Classic and Modern 4:3 keep offset 0 and are
-	// byte-identical.
+	SDL_Surface *background = VGAScreen;
+	VGAScreen = modern_dialog_begin(background);
 	const int off = modern_dialog_offset_x(50, sprite(OPTION_SHAPES, 35)->width);
-	const int shade_right = MIN(255 + off, MODERN_PIC1_SPLIT_MAX - 1);
+	const int shade_right = 255 + off;
 
 	JE_barShade(VGAScreen, 65 + off, 55, shade_right, 155);
 
@@ -2626,6 +2776,9 @@ JE_boolean JE_quitRequest(void)
 		network_tyrian_halt(0, true);
 	}
 #endif
+
+	VGAScreen = background;
+	modern_dialog_end();
 
 	return quit_selected;
 }
@@ -2782,29 +2935,40 @@ void JE_menuFunction(JE_byte select)
 		break;
 
 	case MENU_OPTIONS:
-		switch (select)
+	{
+		const GameOptionsRows *rows = options_rows(MENU_OPTIONS);
+
+		if (select == rows->load)
 		{
-		case 2:
 			curMenu = MENU_LOAD_SAVE;
 			performSave = false;
 			quikSave = false;
-			break;
-		case 3:
+		}
+		else if (select == rows->save)
+		{
 			curMenu = MENU_LOAD_SAVE;
 			performSave = true;
 			quikSave = false;
-			break;
-		case 6:
+		}
+		else if (select == rows->joystick)
+		{
 			curMenu = MENU_JOYSTICK_CONFIG;
-			break;
-		case 7:
+		}
+		else if (select == rows->keyboard)
+		{
 			curMenu = MENU_KEYBOARD_CONFIG;
-			break;
-		case 8:
+		}
+		else if (rows->mouse != 0 && select == rows->mouse)
+		{
+			mouse_parent_menu = curMenu;
+			curMenu = MENU_MOUSE_CONFIG;
+		}
+		else if (select == rows->done)
+		{
 			curMenu = MENU_FULL_GAME;
-			break;
 		}
 		break;
+	}
 
 	case MENU_PLAY_NEXT_LEVEL:
 		if (select == menuChoices[MENU_PLAY_NEXT_LEVEL]) //exit
@@ -2849,7 +3013,8 @@ void JE_menuFunction(JE_byte select)
 		{
 			temp2 = 254;
 			int tempY = 38 + (curSelect - 2) * 12;
-			JE_textShade(VGAScreen, 236, tempY, SDL_GetScancodeName(keySettings[curSelect-2]), (temp2 / 16), (temp2 % 16) - 8, DARKEN);
+			char label[64];
+			JE_textShade(VGAScreen, 236, tempY, keyboard_assignment_label(keySettings[curSelect-2], label, sizeof label), (temp2 / 16), (temp2 % 16) - 8, DARKEN);
 			JE_showVGA();
 
 			col = 248;
@@ -3026,19 +3191,22 @@ void JE_menuFunction(JE_byte select)
 		break;
 
 	case MENU_LIMITED_OPTIONS:
-		switch (select)
-		{
-		case 2:
+	{
+		const GameOptionsRows *rows = options_rows(MENU_LIMITED_OPTIONS);
+
+		if (select == rows->joystick)
 			curMenu = MENU_JOYSTICK_CONFIG;
-			break;
-		case 3:
+		else if (select == rows->keyboard)
 			curMenu = MENU_KEYBOARD_CONFIG;
-			break;
-		case 6:
-			curMenu = MENU_1_PLAYER_ARCADE;
-			break;
+		else if (rows->mouse != 0 && select == rows->mouse)
+		{
+			mouse_parent_menu = curMenu;
+			curMenu = MENU_MOUSE_CONFIG;
 		}
+		else if (select == rows->done)
+			curMenu = MENU_1_PLAYER_ARCADE;
 		break;
+	}
 
 	case MENU_JOYSTICK_CONFIG:
 		clamp_joystick_config();
@@ -3082,9 +3250,7 @@ void JE_menuFunction(JE_byte select)
 			reset_joystick_assignments(joystick_config);
 			break;
 		case 17:
-			curMenu = isNetworkGame
-				? MENU_LIMITED_OPTIONS
-				: MENU_OPTIONS;
+			curMenu = mouse_parent_menu;
 			break;
 		default:
 			if (joysticks == 0)
@@ -3160,6 +3326,24 @@ joystick_assign_done:
 			}
 		}
 		break;
+
+	case MENU_MOUSE_CONFIG:
+		// Rows: one per button, then Reset and Done.
+		if (select >= 2 && select < 2 + MOUSE_BUTTON_COUNT)
+		{
+			mouse_button_action_next(select - 2);
+		}
+		else if (select == 2 + MOUSE_BUTTON_COUNT)
+		{
+			mouse_button_actions_reset();
+		}
+		else
+		{
+			curMenu = isNetworkGame
+				? MENU_LIMITED_OPTIONS
+				: MENU_OPTIONS;
+		}
+		break;
 	}
 
 	old_items[0] = player[0].items;
@@ -3221,8 +3405,19 @@ void JE_drawShipSpecs(SDL_Surface * screen, SDL_Surface * temp_screen)
 			temp_x = 31;
 			temp_y = 35;
 			break;
+		case 45:  // Tyrian 2000
+			temp_x = 36;
+			temp_y = 33;
+			break;
+		case 46:  // Tyrian 2000
+			temp_x = 30;
+			temp_y = 30;
+			break;
 		default:
 			assert(0);
+			temp_x = 35;
+			temp_y = 33;
+			break;
 	}
 	temp_x -= 30;
 
@@ -3279,14 +3474,33 @@ void JE_weaponSimUpdate(void)
 
 	JE_weaponViewFrame();
 
-	if ((curSel[MENU_UPGRADES] == 3 || curSel[MENU_UPGRADES] == 4) &&  // front or rear weapon
-	    curSel[MENU_UPGRADE_SUB] < menuChoices[MENU_UPGRADE_SUB] &&  // not "Done"
-	    itemAvail[itemAvailMap[curSel[MENU_UPGRADES]-2]-1][curSel[MENU_UPGRADE_SUB]-2] != 0)  // not "None"
+	if (weapon_power_applicable(curSel[MENU_UPGRADES], curSel[MENU_UPGRADE_SUB]))
 	{
+		const bool preview = gameUi()->rear_mode_preview;
+
+		// The mode hint takes the place of the costs and the power line for the
+		// second half of every 150 frames, on a rear weapon with two modes.
+		if (preview)
+		{
+			if (curSel[MENU_UPGRADE_SUB] != weaponSimSel)
+			{
+				weaponSimSel = curSel[MENU_UPGRADE_SUB];
+				weaponSimTime = 0;
+			}
+			++weaponSimTime;
+			weaponSimTime %= 150;
+		}
+		const bool mode_hint = preview && curSel[MENU_UPGRADES] == 4 &&
+		                       weaponPort[player[0].items.weapon[REAR_WEAPON].id].opnum == 2 &&
+		                       weaponSimTime >= 75;
+
 		if (leftPower)
 		{
-			sprintf(buf, "%d", downgradeCost);
-			JE_outText(VGAScreen, 26, 137, buf, 1, 4);
+			if (!mode_hint)
+			{
+				sprintf(buf, "%d", downgradeCost);
+				JE_outText(VGAScreen, 26, 137, buf, 1, 4);
+			}
 		}
 		else
 		{
@@ -3297,11 +3511,14 @@ void JE_weaponSimUpdate(void)
 		{
 			if (!rightPowerAfford)
 			{
-				sprintf(buf, "%d", upgradeCost);
-				JE_outText(VGAScreen, 108, 137, buf, 7, 4);
+				if (!mode_hint)
+				{
+					sprintf(buf, "%d", upgradeCost);
+					JE_outText(VGAScreen, 108, 137, buf, 7, 4);
+				}
 				blit_sprite(VGAScreenSeg, 119, 149, OPTION_SHAPES, 14);  // upgrade disabled
 			}
-			else
+			else if (!mode_hint)
 			{
 				sprintf(buf, "%d", upgradeCost);
 				JE_outText(VGAScreen, 108, 137, buf, 1, 4);
@@ -3322,8 +3539,16 @@ void JE_weaponSimUpdate(void)
 			fill_rectangle_xy(VGAScreen, 39 + x * 6, 165, 39 + x * 6 + 4, 165, 249);
 		}
 
-		sprintf(buf, "POWER: %d", temp);
-		JE_outText(VGAScreen, 58, 137, buf, 15, 4);
+		if (mode_hint)
+		{
+			// Use the loaded hint through its semantic label.
+			JE_outText(VGAScreen, 28, 137, helpLabelText(GAME_LABEL_REAR_MODE_HINT), 1, 4);
+		}
+		else
+		{
+			sprintf(buf, "POWER: %d", temp);
+			JE_outText(VGAScreen, 58, 137, buf, 15, 4);
+		}
 	}
 	else
 	{
@@ -3410,6 +3635,14 @@ void JE_weaponViewFrame(void)
 	simulate_player_shots();
 
 	blit_sprite(VGAScreenSeg, 0, 0, OPTION_SHAPES, 12); // upgrade interface
+
+	// Rear weapon mode lights: the lit one is the mode in use.
+	if (gameUi()->rear_mode_preview)
+	{
+		const bool first = player[0].weapon_mode == 1;
+		blit_sprite(VGAScreenSeg, 3, 56, OPTION_SHAPES, first ? 18 : 19);
+		blit_sprite(VGAScreenSeg, 3, 64, OPTION_SHAPES, first ? 19 : 18);
+	}
 
 	/*========================Power Bar=========================*/
 

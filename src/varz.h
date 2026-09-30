@@ -26,16 +26,12 @@
 
 #include <stdbool.h>
 
-#define SA 7
-
+// Arcade ships (superArcadeMode 1..GameArcadeRules.ship_count) come from the
+// variant's rules (game_rules.h).
 enum
 {
 	SA_NONE = 0,
 	SA_NORTSHIPZ = 7,
-	
-	// only used for code entry
-	SA_DESTRUCT = 8,
-	SA_ENGAGE = 9,
 	
 	// only used in pItems[P_SUPERARCADE]
 	SA_SUPERTYRIAN = 254,
@@ -205,11 +201,6 @@ typedef struct {
 } superpixel_type;
 
 extern JE_integer tempDat, tempDat2, tempDat3;
-extern const JE_byte SANextShip[SA + 2];
-extern const JE_word SASpecialWeapon[SA];
-extern const JE_word SASpecialWeaponB[SA];
-extern const JE_byte SAShip[SA];
-extern const JE_word SAWeapon[SA][5];
 extern const JE_byte specialArcadeWeapon[PORT_NUM];
 extern const JE_byte optionSelect[16][3][2];
 extern const JE_word PGR[21];
@@ -220,7 +211,6 @@ extern const JE_byte randomEnemyLaunchSounds[3];
 extern const JE_byte keyboardCombos[26][8];
 extern const JE_byte shipCombosB[21];
 extern const JE_byte superTyrianSpecials[4];
-extern const JE_byte shipCombos[14][3];
 extern JE_byte SFCurrentCode[2][21];
 extern JE_byte SFExecuted[2];
 extern JE_byte lvlFileNum;

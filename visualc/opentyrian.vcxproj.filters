@@ -15,6 +15,8 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\launcher.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="$(IntDir)launcher_art.c"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\src\animlib.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -43,6 +45,39 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\episodes.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\bootstrap.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_data.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\installer.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\installer_hash.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\third_party\miniz\miniz.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_schema.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\regress_flow.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\regress_rules.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\highscores.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_rules.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\game_variant.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\file.c">
@@ -112,6 +147,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\mouse.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\mouse_buttons.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\mtrand.c">
@@ -209,6 +247,8 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\launcher.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\src\launcher_art.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\src\animlib.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -237,6 +277,42 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\episodes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\bootstrap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\installer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\installer_hash.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\installer_manifest.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\third_party\miniz\miniz.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_schema.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\regress_flow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\regress_rules.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\highscores.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_rules.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\game_variant.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\file.h">
@@ -306,6 +382,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\mouse.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\mouse_buttons.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\mtrand.h">

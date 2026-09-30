@@ -21,11 +21,12 @@
 
 #include "opentyr.h"
 
-#define PCX_NUM 13
+// Capacity: the largest variant.  Pictures actually in tyrian.pic and the
+// palette of each are in the GameDataSchema (picture_count, picture_palette).
+#define PCX_NUM 14
 
 typedef JE_longint JE_pcxpostype[PCX_NUM + 1]; /* [1..PCXnum + 1] */
 
-extern const JE_byte pcxpal[PCX_NUM];    /* [1..PCXnum] */
 extern const JE_byte facepal[12];       /* [1..12] */
 extern JE_pcxpostype pcxpos;
 

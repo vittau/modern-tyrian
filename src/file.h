@@ -54,10 +54,27 @@ bool userFileExists(const char *filename);
 File dataFileOpen(const char *filename, const char *mode);
 File userFileOpen(const char *filename, const char *mode);
 
+typedef enum
+{
+	USER_FILE_SHARED,
+	USER_FILE_VARIANT_SAVE,
+	USER_FILE_VARIANT_DEMO
+} UserFileKind;
+
+File userFileOpenKind(UserFileKind kind, const char *filename, const char *mode);
+bool userFileExistsKind(UserFileKind kind, const char *filename);
+
+// Copy the legacy 2.1 save without changing it. On failure, saves use the
+// root original read-only for this session; shared files and demos still work.
+void userPathsMigrateLegacy21(void);
+bool userSavesWritable(void);
+
 // Cuts the process off from the user's directory: every later userFileOpen()
 // fails and userFilesEnabled() returns false.  Regress and selftest runs call
 // it so they can never overwrite the player's config or saved games.
 void userFilesDisable(void);
+// NULL keeps normal root resolution; a nonempty root isolates a regress run.
+bool userFilesEnable(const char *root);
 bool userFilesEnabled(void);
 
 void fileSetPosition(File *file, long position);

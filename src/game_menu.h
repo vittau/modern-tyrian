@@ -42,6 +42,7 @@ enum
 	MENU_LIMITED_OPTIONS = 11,  // Hides save/load menus.
 	MENU_JOYSTICK_CONFIG = 12,
 	MENU_SUPER_TYRIAN    = 13,
+	MENU_MOUSE_CONFIG    = 14,  // Tyrian 2000 only.
 };
 
 JE_longint JE_cashLeft(void);
@@ -52,6 +53,11 @@ void JE_itemScreen(void);
 // MENU_DATA_CUBE_SUB, so one frame of a deep menu can be rendered headlessly.
 // Does not change normal behaviour.
 void JE_itemScreenStartAt(int menu, int cube);
+void JE_itemScreenStartSelection(int sel);  // menu row (2 = first item)
+
+// Regression flows: whether the item screen is open and, if it is, its current
+// menu (MENU_*) and selected row.
+bool JE_itemScreenState(int *menu, int *sel);
 
 void load_cubes(void);
 bool load_cube(int cube_slot, int cube_index);

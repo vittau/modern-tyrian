@@ -19,6 +19,7 @@
 #include "picload.h"
 
 #include "file.h"
+#include "game_schema.h"
 #include "logging.h"
 #include "memreader.h"
 #include "memwriter.h"
@@ -48,7 +49,7 @@ void JE_loadPic(SDL_Surface *screen, JE_byte id, JE_boolean storepal)
 		first = false;
 
 		Uint16 count = fileReadU16(&file);
-		assert(count == PCX_NUM);
+		assert(count == gameSchema()->picture_count);
 
 		for (size_t i = 0; i < count && i < COUNTOF(pcxpos); ++i)
 			pcxpos[i] = fileReadU32(&file);
@@ -60,7 +61,7 @@ void JE_loadPic(SDL_Surface *screen, JE_byte id, JE_boolean storepal)
 			logError("Failed to read from file '%s': %s", filename, fileGetError(&file));
 	}
 
-	if (id < 1 || id > PCX_NUM)
+	if (id < 1 || id > gameSchema()->picture_count)
 	{
 		logError("Attempted to load picture %d, which does not exist.", id);
 		return;
@@ -114,7 +115,7 @@ void JE_loadPic(SDL_Surface *screen, JE_byte id, JE_boolean storepal)
 
 	free(image);
 
-	memcpy(colors, palettes[pcxpal[id - 1]], sizeof(colors));
+	memcpy(colors, palettes[gameSchema()->picture_palette[id - 1]], sizeof(colors));
 
 	if (storepal)
 		set_palette(colors, 0, 255);

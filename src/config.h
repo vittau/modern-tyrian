@@ -90,6 +90,29 @@ typedef struct
 
 typedef JE_SaveFileType JE_SaveFilesType[SAVE_FILES_NUM]; /* [1..savefilesnum] */
 
+// Tyrian 2000 appends unencrypted high-score boards to tyrian.sav: 10 Timed
+// Battle boards, then 10 main-game boards (one per episode and player count),
+// each with three entries.  Tyrian 2.1 has none.
+#define VARIANT_SCORE_BOARDS 20
+#define VARIANT_SCORE_TIMED_BOARDS 10
+#define VARIANT_SCORE_ENTRIES 3
+#define VARIANT_SCORE_NAME_MAX 29
+
+typedef struct
+{
+	JE_longint score;
+	// Main-game entries carry an unknown 4-byte field between score and name;
+	// it is kept as read and written back (Timed Battle entries have none).
+	Uint32     unknown;
+	char       playerName[VARIANT_SCORE_NAME_MAX + 1];
+	JE_byte    difficulty;
+} VariantHighScore;
+
+extern VariantHighScore variantHighScores[VARIANT_SCORE_BOARDS][VARIANT_SCORE_ENTRIES];
+
+// GameVariant last started from the launcher (opentyrian.cfg), or -1.
+extern int launcherLastVariant;
+
 extern const KeySettings defaultKeySettings;
 extern JE_boolean smoothies[9];
 extern JE_byte starShowVGASpecialCode;
@@ -127,6 +150,8 @@ extern JE_boolean galagaMode;
 extern JE_boolean extraGame;
 extern JE_boolean twoPlayerMode, twoPlayerLinked, onePlayerAction, superTyrian, trentWin;
 extern JE_byte superArcadeMode;
+extern bool timedBattleMode;  // Tyrian 2000 Timed Battle; false in every other mode
+extern JE_byte timeBattleSelection;  // the battle picked from the menu, 1-based (meaningful in Timed Battle only)
 extern JE_byte superArcadePowerUp;
 extern JE_real linkGunDirec;
 extern JE_byte inputDevice[2];

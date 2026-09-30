@@ -64,6 +64,7 @@ extern int regress_replay_check;      // non-zero = record and replay-check ever
 extern int regress_interp_check;      // non-zero = record and validate the interpolated renderer
 extern int regress_interp_smoothness; // non-zero = per-tick monotonic motion check
 extern int regress_smooth_alphas;     // sub-frame alphas used by the smoothness check (>= 2)
+extern int regress_demo_hud_check;   // non-zero = assert a played demo follows the active mode's HUD
 extern int regress_gameplay_check;    // non-zero = assert every in-level frame drops the classic sidebar
 extern int regress_parallax_check;    // non-zero = assert the presentation never advances starfield/background
 extern int regress_smooth_effects_check;  // non-zero = assert fade/HUD interpolation stays between ticks
@@ -88,6 +89,23 @@ extern int regress_reverse_y;             // non-zero = force the reverse-contro
 // the built-in loadout; inert outside regress mode.
 extern int regress_front_weapon;          // -1 = not overridden
 extern int regress_front_power;           // -1 = not overridden
+
+// --regress-loadout=widest: give the players the items with the widest names of
+// the variant's data (the two widest ports and sidekicks, the widest generator),
+// so a HUD run shows the longest names it can meet.  The choice is computed from
+// the data, so no text of it is kept anywhere.
+extern int regress_loadout_widest;
+
+// --regress-items-new: give the players the variant's most distinctive items
+// (highest ship, Flying Punch port, a chargeable and a plain sidekick).
+// --regress-fire: a scenario fires, pulses the sidekicks and sweeps the ship.
+extern int regress_loadout_new;
+extern int regress_fire;
+void regress_scenario_input(void);
+
+// --regress-xmas: run with Christmas mode on (regress runs otherwise pin it off
+// and skip its prompt), to cover the Christmas shape and voice files.
+extern int regress_xmas;
 
 // Applies the --regress-front-weapon/--regress-front-power overrides to player
 // 1's item set.  Called after JE_initPlayerData() on the --regress-script path;
@@ -144,6 +162,7 @@ bool regress_screen_active(void);
 // Renders the requested screen and exits once the frame cap (--regress-frames,
 // default REGRESS_SCREEN_FRAMES) is reached.  Never returns.
 void regress_screen_run(void);
+void regress_screen_verify_mapping(void);
 
 // Resets the presented-frame counter to 0 (the screen run starts its own
 // frame timeline so setup frames do not eat into --regress-frames).
@@ -212,5 +231,12 @@ void regress_capture_modern_frame(void);
 // the enemy/shot arrays, boss_bar[], tempW and the level event position.  The
 // stream is presentation-independent, so a Classic run and a Modern run of the
 // same case must produce byte-identical files.
+
+extern const char *regress_data_audit_root;
+extern int regress_boss;
+extern const char *regress_handoff;
+extern int regress_flow_gamepad;
+void regress_audit_open(const char *path);
+bool regress_gamepad_key(SDL_Scancode key, SDL_KeyboardEvent *out);
 
 #endif /* REGRESS_H */

@@ -16,16 +16,24 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+#ifndef _WIN32
+#define _XOPEN_SOURCE 700
+#endif
 #include "regress.h"
+#include "regress_flow.h"
 
 #include "config.h"
+#include "demo.h"
 #include "drawlist.h"
 #include "episodes.h"
+#include "fonthand.h"
+#include "game_schema.h"
 #include "interp.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "logging.h"
 #include "loudness.h"
+#include "mainint.h"
 #include "modern.h"
 #include "modern_bloom.h"
 #include "mtrand.h"
@@ -41,6 +49,10 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <stddef.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +60,102 @@
 // beginPlayDemo() reseeds with this constant; scenario mode matches it so the
 // two modes share the same deterministic RNG stream shape.
 static const unsigned long scenario_seed = 32402394;
+
+const char *regress_data_audit_root = NULL;
+int regress_boss = 0;
+const char *regress_handoff = NULL;
+int regress_flow_gamepad = 0;
+
+#ifdef _WIN32
+// _fullpath only removes relative segments; query the opened object to resolve
+// junctions and symlinks as well, matching realpath on the POSIX runners.
+static char *auditResolvedPath(const char *path)
+{
+	HANDLE handle = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                           NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	if (handle == INVALID_HANDLE_VALUE)
+		return NULL;
+	DWORD length = GetFinalPathNameByHandleA(handle, NULL, 0, FILE_NAME_NORMALIZED);
+	char *result = length != 0 ? malloc((size_t)length + 1) : NULL;
+	if (result != NULL && GetFinalPathNameByHandleA(handle, result, length + 1, FILE_NAME_NORMALIZED) == 0)
+	{ free(result); result = NULL; }
+	CloseHandle(handle);
+	return result;
+}
+#endif
+
+// Freeze and resolve the requested root, including symlinks. No assets are
+// copied into the output; only the resolved filename and open intent are logged.
+void regress_audit_open(const char *path)
+{
+	if (regress_data_audit_root == NULL)
+		return;
+#ifdef _WIN32
+	char *root = auditResolvedPath(regress_data_audit_root);
+	char *resolved = auditResolvedPath(path);
+#else
+	char *root = realpath(regress_data_audit_root, NULL);
+	char *resolved = realpath(path, NULL);
+#endif
+	if (root == NULL)
+	{
+		logError("Data audit FAIL: cannot resolve root.");
+		exit(EXIT_FAILURE);
+	}
+	// A missing optional file has no resolved target. The provider still logs
+	// its absolute attempted filename; successful opens must resolve in-root.
+	struct stat info;
+	if (stat(path, &info) != 0)
+	{
+		logInfo("Data audit missing: %s", path);
+		free(root);
+		free(resolved);
+		return;
+	}
+	const char *actual = resolved != NULL ? resolved : path;
+	size_t len = strlen(root);
+	while (len > 1 && (root[len-1] == '/' || root[len-1] == '\\')) --len;
+	bool inside = strncmp(root, actual, len) == 0 && (actual[len] == '/' || actual[len] == '\\');
+	logInfo("Data audit: %s", actual);
+	free(root);
+	free(resolved);
+	if (!inside)
+	{
+		logError("Data audit FAIL: open outside selected root.");
+		exit(EXIT_FAILURE);
+	}
+}
+
+// Feed the same joystick-to-key adapter as real menu input, without opening a
+// device or admitting any real SDL input. The selftest covers physical mapping;
+// flows cover the resulting navigation in the real menus.
+bool regress_gamepad_key(SDL_Scancode key, SDL_KeyboardEvent *out)
+{
+	Joystick injected;
+	memset(&injected, 0, sizeof injected);
+	injected.injected = injected.input_pressed = true;
+	if (key == SDL_SCANCODE_RETURN) injected.confirm = true;
+	else if (key == SDL_SCANCODE_ESCAPE) injected.cancel = true;
+	else if (key == SDL_SCANCODE_UP) injected.direction_pressed[0] = true;
+	else if (key == SDL_SCANCODE_RIGHT) injected.direction_pressed[1] = true;
+	else if (key == SDL_SCANCODE_DOWN) injected.direction_pressed[2] = true;
+	else if (key == SDL_SCANCODE_LEFT) injected.direction_pressed[3] = true;
+	else return false;
+	Joystick *old = joystick;
+	int old_count = joysticks;
+	joystick = &injected;
+	joysticks = 1;
+	SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP);
+	push_joysticks_as_keyboard();
+	joystick = old;
+	joysticks = old_count;
+	SDL_Event event;
+	if (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_DOWN) <= 0)
+		return false;
+	*out = event.key;
+	SDL_FlushEvents(SDL_EVENT_KEY_UP, SDL_EVENT_KEY_UP);
+	return out->scancode == key;
+}
 
 int regress_seed_set = 0;
 unsigned long regress_seed = 0;
@@ -71,6 +179,9 @@ int regress_interp_check = 0;
 int regress_interp_smoothness = 0;
 int regress_smooth_alphas = 5;
 int regress_gameplay_check = 0;
+int regress_demo_hud_check = 0;
+int regress_loadout_new = 0;
+int regress_fire = 0;
 int regress_parallax_check = 0;
 int regress_smooth_effects_check = 0;
 int regress_realtime = 0;
@@ -90,6 +201,104 @@ int regress_reverse_y = 0;
 // on the --regress-script path.
 int regress_front_weapon = -1;
 int regress_front_power = -1;
+int regress_loadout_widest = 0;
+int regress_xmas = 0;
+
+// Width of an item name as the HUD draws it: the data pads names with spaces.
+static int trimmed_name_width(const char *name)
+{
+	char copy[64];
+	size_t n = strlen(name);
+
+	while (n > 0 && name[n - 1] == ' ')
+		--n;
+	n = MIN(n, sizeof copy - 1);
+	memcpy(copy, name, n);
+	copy[n] = '\0';
+	return JE_textWidth(copy, TINY_FONT);
+}
+
+// The two widest of `count` items (ids 1..count) by name, best first.
+#define WIDEST_TWO(best, second, count, name_of) \
+	do { \
+		int best_w = -1, second_w = -1; \
+		for (unsigned int id_ = 1; id_ <= (count); ++id_) \
+		{ \
+			const int w_ = trimmed_name_width(name_of(id_)); \
+			if (w_ > best_w) { second = best; second_w = best_w; best = id_; best_w = w_; } \
+			else if (w_ > second_w) { second = id_; second_w = w_; } \
+		} \
+	} while (0)
+
+#define PORT_NAME(id) (weaponPort[id].name)
+#define OPTION_NAME(id) (options[id].name)
+#define POWER_NAME(id) (powerSys[id].name)
+
+static void apply_widest_loadout(PlayerItems *items)
+{
+	unsigned int port = 1, port2 = 1, side = 1, side2 = 1, gen = 1, unused = 1;
+
+	WIDEST_TWO(port, port2, gameSchema()->port_max, PORT_NAME);
+	WIDEST_TWO(side, side2, gameSchema()->sidekick_max, OPTION_NAME);
+	WIDEST_TWO(gen, unused, gameSchema()->generator_max, POWER_NAME);
+	(void)unused;
+
+	items->weapon[FRONT_WEAPON].id = (JE_byte)port;
+	items->weapon[REAR_WEAPON].id = (JE_byte)port2;
+	items->sidekick[LEFT_SIDEKICK] = (JE_byte)side;
+	items->sidekick[RIGHT_SIDEKICK] = (JE_byte)side2;
+	items->generator = (JE_byte)gen;
+}
+
+// The most distinctive items of the variant's data, picked by their properties
+// so no id is hard-coded: the highest ship, the Flying Punch sidekick (its
+// weapon has the 198 trail) and a chargeable sidekick.  On 2.1 (no Punch) the
+// right sidekick is a plain one, so the option stays usable on both variants.
+static void apply_new_items_loadout(PlayerItems *items)
+{
+	const GameDataSchema *schema = gameSchema();
+	unsigned int punch = 0, punch_sidekick = 0, charged = 0, plain = 0;
+
+	for (unsigned int w = 1; w <= schema->weapon_max && punch == 0; ++w)
+		if (weapons[w].trail == 198 && weapons[w].multi > 1)
+			punch = w;
+	for (unsigned int i = 1; i <= schema->sidekick_max; ++i)
+	{
+		if (punch != 0 && options[i].wpnum == punch && punch_sidekick == 0)
+			punch_sidekick = i;
+		if (options[i].wport == 0 || options[i].ammo != 0)
+			continue;
+		if (options[i].pwr > 0 && charged == 0)
+			charged = i;
+		if (options[i].pwr == 0)
+			plain = i;
+	}
+	if (punch_sidekick == 0)
+		punch_sidekick = plain;
+
+	items->ship = (JE_byte)schema->ship_max;
+	items->weapon[FRONT_WEAPON].power = 5;
+	items->weapon[REAR_WEAPON].id = 15;   // Vulcan Cannon: the same id in both variants
+	items->weapon[REAR_WEAPON].power = 3;
+	items->sidekick[LEFT_SIDEKICK] = (JE_byte)(charged != 0 ? charged : 1);
+	items->sidekick[RIGHT_SIDEKICK] = (JE_byte)(punch_sidekick != 0 ? punch_sidekick : 2);
+	items->generator = (JE_byte)MIN(4u, schema->generator_max);
+}
+
+// --regress-fire: a scenario has no recorded input, so this holds the fire
+// button, pulses both sidekick buttons and sweeps the ship across the playfield.
+// It is a pure function of the tick count, so runs stay reproducible.
+void regress_scenario_input(void)
+{
+	static unsigned long tick = 0;
+	const unsigned long phase = tick++ % 480;
+
+	button[0] = true;
+	button[1] = (tick / 30) % 2 == 0;
+	button[2] = (tick / 45) % 2 == 0;
+	button[3] = false;
+	player[0].x += phase < 240 ? 1 : -1;
+}
 
 void regress_apply_loadout(void)
 {
@@ -206,6 +415,77 @@ static void regress_check_gameplay_composition(void)
 	}
 }
 
+// Attract-demo HUD assertion (--regress-demo-hud-check): a played demo (or
+// scenario) follows the active mode's HUD.  While the level is presented,
+// Modern with side panels must compose the gameplay panels with both panels
+// holding HUD pixels; Classic (and Modern without room for panels) must keep
+// the original sidebar and never the panels.  A run that never saw an in-level
+// frame fails, so the check cannot pass by observing nothing.
+static unsigned long regress_demohud_frames = 0;
+static unsigned long regress_demohud_bad = 0;
+static bool regress_demohud_filled = false;  // a frame with both panels drawn was seen
+static char regress_demohud_first[160] = "";
+
+static void regress_demohud_fail(const char *what)
+{
+	if (regress_demohud_bad == 0)
+		snprintf(regress_demohud_first, sizeof regress_demohud_first, "frame %lu: %s",
+		         regress_frame, what);
+	regress_demohud_bad++;
+}
+
+static bool regress_surface_has_pixels(const SDL_Surface *surface)
+{
+	if (surface == NULL)
+		return false;
+
+	for (int y = 0; y < surface->h; ++y)
+	{
+		const Uint8 *row = (const Uint8 *)surface->pixels + (size_t)y * surface->pitch;
+		for (int x = 0; x < surface->w; ++x)
+			if (row[x] != 0)
+				return true;
+	}
+	return false;
+}
+
+// `classic_surface` is the presented 320x200 frame of a non-Modern present, else NULL.
+static void regress_check_demo_hud(const SDL_Surface *classic_surface)
+{
+	if (!regress_demo_hud_check || !playDemo || !modern_in_level_period())
+		return;
+
+	if (classic_surface == NULL && modern_hud_in_panels())
+	{
+		regress_demohud_frames++;
+		if (!modern_last_frame_gameplay_panels())
+			regress_demohud_fail("Modern demo frame without the side panels");
+		else if (regress_surface_has_pixels(modern_hud_surface(0)) &&
+		         regress_surface_has_pixels(modern_hud_surface(1)))
+			regress_demohud_filled = true;
+		else if (regress_demohud_filled)  // the level-intro fade-in precedes the first HUD
+			regress_demohud_fail("Modern demo frame with an empty HUD panel");
+		return;
+	}
+
+	// Classic frame, or Modern without panels: the original sidebar stays.
+	regress_demohud_frames++;
+	if (modern_last_frame_gameplay_panels())
+		regress_demohud_fail("classic demo frame composed the Modern panels");
+	else if (classic_surface != NULL)
+	{
+		bool sidebar = false;
+		for (int y = 0; y < classic_surface->h && !sidebar; ++y)
+		{
+			const Uint8 *row = (const Uint8 *)classic_surface->pixels + (size_t)y * classic_surface->pitch;
+			for (int x = 264; x < vga_width; ++x)
+				if (row[x] != 0) { sidebar = true; break; }
+		}
+		if (!sidebar)
+			regress_demohud_fail("classic demo frame without the classic sidebar");
+	}
+}
+
 static void regress_note_smoothness(void)
 {
 	if (!drawlist_smoothness_enabled())
@@ -223,7 +503,8 @@ static void regress_note_smoothness(void)
 
 bool regress_active(void)
 {
-	return regress_demo != 0 || regress_scenario_active() || regress_screen_active() || regress_script_active();
+	return regress_demo != 0 || regress_scenario_active() || regress_screen_active() || regress_script_active() ||
+	       regress_flow_active();
 }
 
 bool regress_realtime_active(void)
@@ -274,6 +555,8 @@ int regress_take_menu_request(void)
 		return REGRESS_MENU_NONE;
 
 	regress_menu_taken = true;
+	if (regress_data_audit_root != NULL)
+		logInfo("Menu coverage: in-level request %d taken.", regress_menu_kind);
 	return regress_menu_kind;
 }
 
@@ -290,11 +573,20 @@ static bool arg_is_option(const char *arg, const char *option, size_t option_len
 
 bool regress_scan_args(int argc, char *argv[])
 {
+	// The audit must start before provider validation and config loading.
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strncmp(argv[i], "--regress-handoff=", 18) == 0)
+			regress_handoff = argv[i] + 18;
+		if (strncmp(argv[i], "--regress-data-audit=", 21) == 0)
+			regress_data_audit_root = argv[i] + 21;
+	}
 	static const char *const demo_option     = "--regress-demo";
 	static const char *const scenario_option = "--regress-level";
 	static const char *const audio_option    = "--regress-audio";
 	static const char *const screen_option   = "--regress-screen";
 	static const char *const script_option   = "--regress-script";
+	static const char *const flow_option     = "--regress-flow";
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -302,10 +594,13 @@ bool regress_scan_args(int argc, char *argv[])
 		    arg_is_option(argv[i], scenario_option, strlen(scenario_option)) ||
 		    arg_is_option(argv[i], audio_option, strlen(audio_option)) ||
 		    arg_is_option(argv[i], screen_option, strlen(screen_option)) ||
-		    arg_is_option(argv[i], script_option, strlen(script_option)))
+		    arg_is_option(argv[i], script_option, strlen(script_option)) ||
+		    arg_is_option(argv[i], flow_option, strlen(flow_option)) ||
+		    arg_is_option(argv[i], "--regress-user-files", strlen("--regress-user-files")))
 			return true;
 	}
 
+	regress_data_audit_root = regress_handoff = NULL;
 	return false;
 }
 
@@ -604,6 +899,7 @@ void regress_capture_frame(SDL_Surface *surface)
 	if (regress_has_snapshots())
 		regress_save_snapshots_8bit(surface);
 
+	regress_check_demo_hud(surface);
 	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
 }
@@ -616,6 +912,8 @@ void regress_capture_modern_frame(void)
 	const ModernFrame *frame = modern_current_frame();
 	if (frame == NULL || frame->pixels == NULL)
 		return;
+	if (regress_screen != NULL)
+		regress_screen_verify_mapping();
 
 	const bool write_frame = regress_out != NULL;
 	Uint64 hash = fnv_offset_basis;
@@ -638,6 +936,7 @@ void regress_capture_modern_frame(void)
 		regress_save_snapshots_modern(frame);
 
 	regress_check_gameplay_composition();
+	regress_check_demo_hud(NULL);
 	regress_check_smooth_effects();
 	regress_note_smoothness();
 	regress_emit_records(write_frame, hash);
@@ -727,11 +1026,31 @@ void regress_begin_scenario(void)
 		player[1].last_items = player[1].items;
 	}
 
+	if (regress_loadout_new)
+	{
+		apply_new_items_loadout(&player[0].items);
+		if (regress_players == 2)
+			apply_new_items_loadout(&player[1].items);
+	}
+
+	if (regress_loadout_widest)
+	{
+		apply_widest_loadout(&player[0].items);
+		if (regress_players == 2)
+		{
+			apply_widest_loadout(&player[1].items);
+			player[1].last_items = player[1].items;
+		}
+	}
+
 	player[0].last_items = player[0].items;
 }
 
 void regress_init(void)
 {
+	if (regress_flow_active())
+		regress_flow_init();
+
 	// Headless by default.  Respect a driver the caller set explicitly.  The
 	// real-time pacing benchmark opens a real window on purpose.
 	if (!regress_realtime_active() && SDL_getenv("SDL_VIDEO_DRIVER") == NULL)
@@ -1059,6 +1378,23 @@ void regress_finish(void)
 		if (regress_gameplay_filter_missing != 0)
 		{
 			logError("Gameplay fade check FAILED: %s", regress_gameplay_filter_first);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (regress_demo_hud_check)
+	{
+		logInfo("Demo HUD check: %lu in-level frames, %lu with the wrong HUD.",
+		        regress_demohud_frames, regress_demohud_bad);
+		if (regress_demohud_frames == 0 ||
+		    (modern_hud_in_panels() && !regress_demohud_filled))
+		{
+			logError("Demo HUD check FAILED: no in-level frame with the HUD was presented");
+			exit(EXIT_FAILURE);
+		}
+		if (regress_demohud_bad != 0)
+		{
+			logError("Demo HUD check FAILED: %s", regress_demohud_first);
 			exit(EXIT_FAILURE);
 		}
 	}

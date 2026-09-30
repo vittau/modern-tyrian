@@ -18,6 +18,7 @@
  */
 #include "opentyr.h"
 
+#include "bootstrap.h"
 #include "config.h"
 #include "demo.h"
 #include "destruct.h"
@@ -26,12 +27,15 @@
 #include "file.h"
 #include "font.h"
 #include "fonthand.h"
+#include "game_data.h"
 #include "gamepad_selftest.h"
 #include "helptext.h"
+#include "installer.h"
 #include "interp.h"
 #include "joystick.h"
 #include "jukebox.h"
 #include "keyboard.h"
+#include "launcher.h"
 #include "logging.h"
 #include "loudness.h"
 #include "mainint.h"
@@ -47,6 +51,7 @@
 #include "params.h"
 #include "picload.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "sprite.h"
 #include "tyrian2.h"
 #include "varz.h"
@@ -246,7 +251,7 @@ void setupMenu(void)
 			.items = {
 				{ MENU_ITEM_DISPLAY, "Display:", "Change the display mode.", getDisplayPickerItemsCount, getDisplayPickerItem },
 				{ MENU_ITEM_SCALING_MODE, "Scaling Mode:", "Change the scaling mode.", getScalingModePickerItemsCount, getScalingModePickerItem },
-				{ MENU_ITEM_PRESENTATION, "Presentation:", "Change the presentation mode.", getPresentationPickerItemsCount, getPresentationPickerItem, true },
+				{ MENU_ITEM_PRESENTATION, "Presentation:", "Change the presentation mode.", getPresentationPickerItemsCount, getPresentationPickerItem },
 				{ MENU_ITEM_ASPECT, "Aspect:", "Change the Modern aspect ratio.", getAspectPickerItemsCount, getAspectPickerItem, true },
 				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
@@ -973,6 +978,35 @@ void setupMenu(void)
 
 int main(int argc, char *argv[])
 {
+	userFilesDisable();
+	GameBootstrapOptions bootstrap;
+	char bootstrap_error[256];
+	if (!gameBootstrapParse(argc, argv, &bootstrap, bootstrap_error, sizeof bootstrap_error))
+	{
+		logError("%s", bootstrap_error);
+		return EXIT_FAILURE;
+	}
+	if (launcherRegressRequested(argc, argv))
+		return launcherRegressMain(argc, argv);  // one software frame; nothing else starts
+	const bool launcher_flow = launcherFlowRequested(argc, argv);
+	if (gameVariantSelect(bootstrap.variant) != GAME_VARIANT_OK)
+	{
+		logError("%s is not available yet.", gameVariantGet(bootstrap.variant)->display_name);
+		return EXIT_FAILURE;
+	}
+	customDataDirPath = bootstrap.data_directory;
+	bool regress = bootstrap.regress;
+	bool selftest = bootstrap.selftest;
+	const char *install_request = installerCliArgument(argc, argv);
+	if (install_request == NULL && !launcher_flow && ((!regress && !selftest) || bootstrap.regress_user_root != NULL))
+	{
+		if (!userFilesEnable(bootstrap.regress_user_root))
+		{
+			logError("Failed to select user-file root.");
+			return EXIT_FAILURE;
+		}
+	}
+
 #ifndef NDEBUG
 	SDL_SetLogPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
 #endif
@@ -988,13 +1022,6 @@ int main(int argc, char *argv[])
 	logInfo("This is free software, and you are welcome to redistribute it");
 	logInfo("under certain conditions.  See the file COPYING for details.");
 	logInfo("%s", "");
-
-	// Detect regress/selftest mode before SDL_Init(): the regress hint below
-	// must be set before SDL_Init(), and detecting the mode before loading the
-	// configuration lets the user's config and save files be skipped.
-	// JE_paramCheck() below does the real parsing.
-	bool regress = regress_scan_args(argc, argv);
-	bool selftest = gamepad_selftest_scan_args(argc, argv);
 
 	// macOS: a regress run must not become (or be brought to) the foreground,
 	// or a stray osascript/System Events keystroke or a cursor warp from the
@@ -1026,7 +1053,7 @@ int main(int argc, char *argv[])
 	char log_default_path[1024];
 	log_default_path[0] = '\0';
 
-	if (log_path == NULL && !regress && !selftest && steamDeck())
+	if (log_path == NULL && install_request == NULL && !launcher_flow && !regress && !selftest && steamDeck())
 	{
 		const char *user_dir = userDirGet();
 		if (user_dir[0] != '\0' && userDirPrepare())
@@ -1044,22 +1071,96 @@ int main(int argc, char *argv[])
 			logWarn("Failed to open '%s' for logging.", log_path);
 	}
 
-	if (!regress && !selftest)
+	// The launcher's install flow with no window, for the tests.
+	if (launcher_flow)
+		return launcherFlowMain(argc, argv);
+
+	// Headless data install for automation and tests: no video, config or saves.
+	if (install_request != NULL)
+		return installerRunCli(install_request, installerCliSpecArgument(argc, argv)) ? EXIT_SUCCESS : EXIT_FAILURE;
+
+	// A normal start opens the launcher, which picks the variant; only an
+	// explicit --variant (automation) and regress/selftest runs skip it.  The
+	// saves belong to the variant, so with the launcher they load once it has
+	// chosen, after the command line has been applied.
+	// Help exits in JE_paramCheck(). Preserve its legacy config/save bootstrap
+	// (also covered by the user-path guard) without opening a launcher.
+	bool help_requested = false;
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strcmp(argv[i], "--") == 0)
+			break;
+		if (strcmp(argv[i], "-h") == 0 ||
+		    (strncmp(argv[i], "--", 2) == 0 && argv[i][2] != '\0' &&
+		     strlen(argv[i] + 2) <= strlen("help") &&
+		     strncmp("help", argv[i] + 2, strlen(argv[i] + 2)) == 0))
+			help_requested = true;
+	}
+	const bool launcher = regress_handoff != NULL || (!regress && !selftest && !bootstrap.variant_explicit && !help_requested);
+	bool video_ready = false;
+
+	if (userFilesEnabled())
 	{
 		loadConfiguration();
-		loadSaves();
-	}
-	else
-	{
-		// Never write the player's files either: a --regress-script run reaches
-		// the level-start autosave, which would store the blank save table over
-		// the player's saved games.
-		userFilesDisable();
+		if (!launcher)
+		{
+			userPathsMigrateLegacy21();
+			loadSaves();
+		}
 	}
 
 	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
+
+	if (launcher)
+	{
+		// The launcher is the first screen of the game: it needs the window,
+		// the renderer and the controllers, but no game data.
+		init_video();
+		init_joysticks();
+		video_ready = true;
+
+		GameVariant choice = launcherLastVariant >= 0 ? (GameVariant)launcherLastVariant : VARIANT_TYRIAN21;
+		const char *selection_error = NULL;
+		for (;;)
+		{
+			if (!launcherChoose(choice, customDataDirPath, selection_error, &choice))
+			{
+				deinit_joysticks();
+				deinit_video();
+				return EXIT_SUCCESS;
+			}
+			if (gameVariantSelect(choice) == GAME_VARIANT_OK && gameDataPrepare())
+				break;
+
+			// No variant assets or saves have loaded yet. A late data failure
+			// (for example a removed drive) can safely return to selection.
+			selection_error = "The selected game data could not be validated. Check the data path and try again, or choose the other game. See the log for details.";
+		}
+
+		launcherLastVariant = (int)choice;
+		if (userDirPrepare())
+			saveConfiguration();
+
+		video_apply_display_settings();  // the window goes back to the game's own shape
+
+		userPathsMigrateLegacy21();
+		loadSaves();
+	}
+
+	if (bootstrap.regress_user_files)
+	{
+		// Exercise the real serializers without data, video or gameplay.
+		saveConfiguration();
+		saveSaves();
+		if (recordDemo)
+		{
+			beginRecordDemo();
+			endRecordDemo();
+		}
+		return EXIT_SUCCESS;
+	}
 
 	// A --presentation on the command line overrides opentyrian.cfg, so
 	// re-derive the effective detail after parsing it; loadConfiguration()
@@ -1080,7 +1181,7 @@ int main(int argc, char *argv[])
 		// Apply the regress pins after JE_paramCheck() so they win over any
 		// command-line option (including -x/-X, which set xmas).
 		regress_init();
-		xmas = false;
+		xmas = regress_xmas != 0;  // Christmas only when a regress case asks for it
 	}
 
 	logInfo("Presentation mode: %s.", presentation_names[presentation]);
@@ -1091,26 +1192,8 @@ int main(int argc, char *argv[])
 		logInfo("Modern lighting: bloom %s, lighting %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality]);
 	}
 
-	if (!findDataFiles())
-	{
-		logFatal("The Tyrian data files were not found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
+	if (!gameDataPrepare())
 		return EXIT_FAILURE;
-	}
-
-	File file = dataFileOpen("tyrian.shp", "rb");
-	Uint16 temp = fileReadU16(&file);
-	fileClose(&file);
-
-	if (temp == 11)
-	{
-		logFatal("The Tyrian v1.0/v1.1 data files were found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
-		return EXIT_FAILURE;
-	}
-	else if (temp == 13)
-	{
-		logFatal("The Tyrian 2000 data files were found.  OpenTyrian requires the Tyrian v2.0/v2.1 data files.");
-		return EXIT_FAILURE;
-	}
 
 	if (regress_audio_active())
 	{
@@ -1122,9 +1205,11 @@ int main(int argc, char *argv[])
 
 	JE_scanForEpisodes();
 
-	init_video();
+	if (!video_ready)
+		init_video();
 	init_keyboard();
-	init_joysticks();
+	if (!video_ready)
+		init_joysticks();
 	if (has_mouse)
 		logInfo("Assuming mouse detected.");  // SDL can't tell us if there isn't one.
 
@@ -1138,7 +1223,7 @@ int main(int argc, char *argv[])
 	loadPals();
 	JE_loadMainShapeTables(xmas ? "tyrianc.shp" : "tyrian.shp");
 
-	if (xmas && !xmas_prompt())
+	if (xmas && !regress_active() && !xmas_prompt())
 	{
 		xmas = false;
 
@@ -1190,6 +1275,14 @@ int main(int argc, char *argv[])
 		// --regress-frames frames and exit (see src/regress_screen.c).  This
 		// never returns.
 		regress_screen_run();
+		return EXIT_SUCCESS;
+	}
+
+	if (regress_flow_active())
+	{
+		// A scripted walk through the menus and levels, from the title screen on.
+		// This never returns.
+		regress_flow_run();
 		return EXIT_SUCCESS;
 	}
 

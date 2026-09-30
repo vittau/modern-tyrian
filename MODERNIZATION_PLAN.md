@@ -592,3 +592,20 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **CI:** verde nos três sistemas usando os núcleos do runner.
   - **Como foi feito:** primeiro worker Codex (`gpt-6-sol`). O Orca 1.4.215/216 não reconhece o Codex v0.158 como pronto (`agent_readiness` expira), então a tarefa foi injetada num terminal aberto à mão com `dispatch --inject`.
 - **Overlay de performance do Steam Deck:** o usuário viu o overlay (MangoHud) não aparecer no build Linux. O código de vídeo é equivalente ao do Deadly Dave (SDL3 3.4.16 estático, renderizador padrão), e depois o overlay voltou a aparecer sem mudança nenhuma. Uma tarefa de log do renderizador (Codex `gpt-6-luna`) foi abortada a pedido do usuário.
+
+### 2026-09-29 — Release v0.2.0, master alinhado e remapeamento corrigido
+- **Release v0.2.0** no commit `a81e640`, a pedido do usuário, com os cinco pacotes anexados pela CI. Inclui luz colorida, partículas de ambiente, o limite de luz dos tiros grandes, as barras mais altas, a costura do cabeçalho pic-1 e a regressão em paralelo.
+- **`master` avançado por fast-forward** até `a81e640`, a pedido do usuário: 176 commits do `modernization`, sem commit de merge.
+- **Telas de remapeamento (`67e063e`).**
+  - **Causa:** com dois mapeamentos numa ação, o texto do controle passava de x=320. A tela pic-1 deixava de alargar no Modern (não sobrava coluna livre) e o excesso reaparecia na linha seguinte, à esquerda.
+  - **Rótulos:** o valor que não cabe em x ≤ 310 vira rótulos curtos (`A/RB`, `LY-/UP`, `RT+/H12X-`), e `+N` entra como último recurso. O texto original fica sempre que cabe, então o Classic não muda. Nomes longos de teclas encurtam do mesmo jeito (`L Shift`, `KP …`, `SC n`).
+  - **Corte na borda:** glyphs de fonte que cruzam a borda da superfície agora são cortados em vez de dar a volta.
+  - **Regressão:** ganhou as telas `joystick-multi` e `keyboard-long` e ficou com 164 casos, em ~56 s em paralelo.
+  - **Worker:** Codex `gpt-6-sol`.
+
+### 2026-09-29 — Trilha Tyrian 2000
+- O usuário passou um briefing para integrar o Tyrian 2000 (launcher, instalador de dados, saves separados, renderer moderno nas duas variantes). O plano e o diário dessa trilha ficam em `MODERNIZATION_PLAN_2000.md`.
+- **HUD sem "Player 1" no 1P (`46d8be8`)**, a pedido do usuário. O nome só aparece em partidas de dois jogadores, e no 1P e no arcade as linhas sobem e as barras se recentram. Worker: Codex `gpt-6-luna` até a cota acabar, depois Sonnet 5.5 no mesmo worktree.
+
+### 2026-09-29 — Release v0.2.1
+- **Release v0.2.1** no commit `6e76162`, a pedido do usuário. É uma versão de correções sobre a v0.2.0: as telas de remapeamento não estouram mais a largura, e o HUD do 1P não mostra "Player 1". A CI passou nos três sistemas e anexou os cinco pacotes. O `master` continua em `a81e640` e só avança se o usuário pedir.

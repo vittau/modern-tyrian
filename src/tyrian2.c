@@ -24,6 +24,9 @@
 #include "drawlist.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_rules.h"
+#include "regress_rules.h"
+#include "game_schema.h"
 #include "font.h"
 #include "fonthand.h"
 #include "game_menu.h"
@@ -49,6 +52,7 @@
 #include "pcxmast.h"
 #include "picload.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "shots.h"
 #include "sprite.h"
 #include "vga256d.h"
@@ -669,6 +673,15 @@ start_level:
 			fade_black(10);
 			modern_set_gameplay_hold(false);
 
+			if (timedBattleMode)
+			{
+				// Game over in a Timed Battle: no backup save to fall back on,
+				// back to the title (fork 832f2d0).
+				regress_flow_coverage("Timed Battle game over, back to the title.");
+				mainLevel = 0;
+				return;
+			}
+
 			JE_loadGame(twoPlayerMode ? 22 : 11);
 			if (doNotSaveBackup)
 			{
@@ -712,6 +725,8 @@ start_level_first:
 
 	if (mainLevel == 0)  // if quit itemscreen
 		return;          // back to titlescreen
+
+	regress_flow_level_begin();
 
 	// From here until the next level load, every presented frame belongs to
 	// this level's gameplay presentation (intro, fades, gameplay, end).
@@ -926,7 +941,7 @@ start_level_first:
 	set_volume(tyrMusicVolume, fxVolume);
 
 	/*Save backup game*/
-	if (!playDemo && !doNotSaveBackup)
+	if (!playDemo && !doNotSaveBackup && !timedBattleMode)
 	{
 		temp = twoPlayerMode ? 22 : 11;
 		JE_saveGame(temp, "LAST LEVEL    ");
@@ -1028,6 +1043,8 @@ start_level_first:
 	BKwrap1 = BKwrap1to = &megaData1.mainmap[1][0];
 	BKwrap2 = BKwrap2to = &megaData2.mainmap[1][0];
 	BKwrap3 = BKwrap3to = &megaData3.mainmap[1][0];
+
+	regress_rules_run();
 
 level_loop:
 
@@ -2112,9 +2129,16 @@ draw_player_shot_loop_end:
 	{
 		levelTimerCountdown--;
 		if (levelTimerCountdown == 0)
+		{
+			regress_flow_coverage("level timer expired%s.", timedBattleMode ? " (Timed Battle)" : "");
 			JE_eventJump(levelTimerJumpTo);
+		}
 
-		if (levelTimerCountdown > 200)
+		if (timedBattleMode)
+		{
+			// No warning sounds in a Timed Battle (fork 7a3ff18).
+		}
+		else if (levelTimerCountdown > 200)
 		{
 			if (levelTimerCountdown % 100 == 0)
 				soundQueue[7] = S_WARNING;
@@ -2127,16 +2151,25 @@ draw_player_shot_loop_end:
 			soundQueue[7] = S_WARNING;
 		}
 
-		sprintf(buffer, "%.1f", levelTimerCountdown / 100.0f);
+		gameFormatLevelTimer(buffer, sizeof buffer, levelTimerCountdown);
 		if (modern_hud_in_panels())
 		{
-			modern_hud_draw_timer(miscText[66], buffer, (levelTimerCountdown % 20) / 3);
+			modern_hud_draw_timer(helpLabelText(GAME_LABEL_TIMER), buffer, (levelTimerCountdown % 20) / 3);
 		}
 		else
 		{
-			JE_textShade (VGAScreen, 140, 6, miscText[66], 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
+			JE_textShade (VGAScreen, 140, 6, helpLabelText(GAME_LABEL_TIMER), 7, (levelTimerCountdown % 20) / 3, FULL_SHADE);
 			JE_dString (VGAScreen, 100, 2, buffer, SMALL_FONT_SHAPES);
 		}
+	}
+
+	// Regression flows: end the level as completed (what event 11 does) or kill
+	// the player after a number of ticks.
+	if (regress_flow_level_tick() && !endLevel)
+	{
+		readyToEndLevel = false;
+		endLevel = true;
+		levelEnd = 40;
 	}
 
 	/*GAME OVER*/
@@ -2687,6 +2720,7 @@ new_game:
 						break;
 
 					case 'Q':  // End of episode.
+						regress_flow_episode_end(episodeNum);
 						ESCPressed = false;
 						temp = secretHint + (mt_rand() % 3) * 3;
 
@@ -2724,7 +2758,7 @@ new_game:
 							if (s[0] == '#')
 								break;
 
-							if (levelWarningLines >= COUNTOF(levelWarningText))
+							if (levelWarningLines >= gameSchema()->warning_lines)
 							{
 								logWarn("Hint has too many lines.");
 								continue;
@@ -2744,6 +2778,8 @@ new_game:
 
 						if (jumpBackToEpisode1 && !twoPlayerMode)
 						{
+							const GameArcadeRules *const arcade = gameRules()->arcade;
+
 							JE_loadPic(VGAScreen, 1, false); // huh?
 							JE_clr256(VGAScreen);
 
@@ -2751,31 +2787,37 @@ new_game:
 							{
 								// if completed Zinglon's Revenge, show SuperTyrian and Destruct codes
 								// if completed SuperTyrian, show Nort-Ship Z code
-								superArcadeMode = (initialDifficulty == DIFFICULTY_ZINGLON) ? 8 : 1;
+								superArcadeMode = (initialDifficulty == DIFFICULTY_ZINGLON) ? arcade->super_tyrian_win_state : 1;
 							}
 
-							if (superArcadeMode < SA_ENGAGE)
+							if (superArcadeMode < arcade->engage_code)
 							{
-								if (SANextShip[superArcadeMode] == SA_ENGAGE)
+								const uint8_t nextShip = arcade->next_ship[superArcadeMode];
+
+								if (nextShip == arcade->engage_code)
 								{
 									sprintf(buffer, "%s %s", miscTextB[4], pName[0]);
 									JE_dString(VGAScreen, JE_fontCenter(buffer, FONT_SHAPES), 100, buffer, FONT_SHAPES);
 
-									sprintf(buffer, "Or play... %s", specialName[7]);
+									sprintf(buffer, "Or play... %s", specialName[arcade->destruct_code - 1]);
 									JE_dString(VGAScreen, 80, 180, buffer, SMALL_FONT_SHAPES);
 								}
 								else
 								{
 									JE_dString(VGAScreen, JE_fontCenter(superShips[0], FONT_SHAPES), 30, superShips[0], FONT_SHAPES);
-									JE_dString(VGAScreen, JE_fontCenter(superShips[SANextShip[superArcadeMode]], SMALL_FONT_SHAPES), 100, superShips[SANextShip[superArcadeMode]], SMALL_FONT_SHAPES);
+									JE_dString(VGAScreen, JE_fontCenter(superShips[nextShip], SMALL_FONT_SHAPES), 100, superShips[nextShip], SMALL_FONT_SHAPES);
 								}
 
-								if (SANextShip[superArcadeMode] < SA_NORTSHIPZ)
-									blit_sprite2x2(VGAScreen, 148, 70, spriteSheet9, ships[SAShip[SANextShip[superArcadeMode]-1]].shipgraphic);
-								else if (SANextShip[superArcadeMode] == SA_NORTSHIPZ)
+								if (nextShip != SA_NORTSHIPZ && nextShip <= arcade->ship_count)
+								{
+									unsigned int shipGrIndex;
+									Sprite2_array *const shipSheet = shipGraphicSheet(ships[arcade->ship[nextShip-1]].shipgraphic, &shipGrIndex);
+									blit_sprite2x2(VGAScreen, 148, 70, *shipSheet, shipGrIndex);
+								}
+								else if (nextShip == SA_NORTSHIPZ)
 									trentWin = true;
 
-								sprintf(buffer, "Type %s at Title", specialName[SANextShip[superArcadeMode]-1]);
+								sprintf(buffer, "Type %s at Title", specialName[nextShip-1]);
 								JE_dString(VGAScreen, JE_fontCenter(buffer, SMALL_FONT_SHAPES), 160, buffer, SMALL_FONT_SHAPES);
 								JE_showVGA();
 
@@ -2807,7 +2849,7 @@ new_game:
 							JE_word tempX = atoi(s + 3);
 							if (tempX > 900)
 							{
-								memcpy(colors, palettes[pcxpal[tempX-1 - 900]], sizeof(colors));
+								memcpy(colors, palettes[gameSchema()->picture_palette[tempX-1 - 900]], sizeof(colors));
 								JE_clr256(VGAScreen);
 								JE_showVGA();
 								fade_palette(colors, 1, 0, 255);
@@ -3006,7 +3048,7 @@ new_game:
 									if (s[0] == '#')
 										break;
 
-									if (levelWarningLines >= COUNTOF(levelWarningText))
+									if (levelWarningLines >= gameSchema()->warning_lines)
 									{
 										logWarn("Text has too many lines.");
 										continue;
@@ -3050,6 +3092,28 @@ new_game:
 					case 'M':  // Play music track.
 						temp = atoi(s + 3);
 						play_song(temp - 1);
+						break;
+
+					case 'T':  // Timed Battle: jump to the section of the selected battle.
+						if (timedBattleMode)
+						{
+							// One 3-character field per battle, after "]T[", e.g.
+							// "]T[ 43 44 45 ...": the field of battle N starts at 3 * N.
+							mainLevel = atoi(s + (timeBattleSelection * 3));
+							jumpSection = true;
+							regress_flow_coverage("Timed Battle %u starts at section %u.", (unsigned)timeBattleSelection, (unsigned)mainLevel);
+						}
+						break;
+
+					case 'q':  // Timed Battle: end of the battle.  Score it, then back to the title.
+						if (timedBattleMode)
+						{
+							regress_flow_coverage("Timed Battle %u over, cash %lu.", (unsigned)timeBattleSelection, (unsigned long)player[0].cash);
+							JE_highScoreCheck();
+							mainLevel = 0;
+							fileClose(&episodeFile);
+							return;
+						}
 						break;
 					}
 				}
@@ -3337,6 +3401,15 @@ void networkStartScreen(void)
 }
 #endif /* WITH_NETWORK */
 
+// The variant's mark under the title logo (Tyrian 2000: the "2000"), which sinks
+// as the logo rises.  logo_y is the logo's current y.
+static void draw_title_mark(int logo_y)
+{
+	const GameUiTables *ui = gameUi();
+	if (ui->title_mark_sprite != 0)
+		blit_sprite(VGAScreenSeg, ui->title_mark_x, gameTitleMarkY(ui, logo_y), PLANET_SHAPES, ui->title_mark_sprite);
+}
+
 bool titleScreen(void)
 {
 	enum MenuItemIndex
@@ -3358,7 +3431,8 @@ bool titleScreen(void)
 	bool restart = true;
 
 	size_t selectedIndex = MENU_ITEM_NEW_GAME;
-	size_t specialNameProgress[SA_ENGAGE] = { 0 };
+	const GameArcadeRules *const arcade = gameRules()->arcade;
+	size_t specialNameProgress[COUNTOF(specialName)] = { 0 };
 
 	const int xCenter = VGAScreen->w / 2;
 	const int yMenuItems = 104;
@@ -3382,6 +3456,7 @@ bool titleScreen(void)
 				memcpy(VGAScreen2->pixels, VGAScreen->pixels, VGAScreen2->pitch * VGAScreen2->h);
 
 				blit_sprite(VGAScreenSeg, 11, 62, PLANET_SHAPES, 146); // tyrian logo
+				draw_title_mark(62);
 
 				fade_palette(colors, 10, 0, 255 - 16);
 
@@ -3392,6 +3467,7 @@ bool titleScreen(void)
 					memcpy(VGAScreen->pixels, VGAScreen2->pixels, VGAScreen->pitch * VGAScreen->h);
 
 					blit_sprite(VGAScreenSeg, 11, y, PLANET_SHAPES, 146); // tyrian logo
+					draw_title_mark(y);
 
 					JE_showVGA();
 
@@ -3403,6 +3479,7 @@ bool titleScreen(void)
 			else
 			{
 				blit_sprite(VGAScreenSeg, 11, 4, PLANET_SHAPES, 146); // tyrian logo
+				draw_title_mark(4);
 
 				fade_palette(colors, 10, 0, 255 - 16);
 			}
@@ -3548,7 +3625,7 @@ bool titleScreen(void)
 
 			SDL_Keycode sym = toupper(keyboardInput.sym);
 
-			for (size_t i = 0; i < SA_ENGAGE; i++)
+			for (size_t i = 0; i < arcade->engage_code; i++)
 			{
 				if (specialNameProgress[i] >= COUNTOF(specialName[i]) - 1 ||
 				    sym != (SDL_Keycode)(unsigned char)specialName[i][specialNameProgress[i]])
@@ -3561,22 +3638,24 @@ bool titleScreen(void)
 
 				if (specialName[i][specialNameProgress[i]] == '\0')
 				{
-					if (i + 1 == SA_DESTRUCT)
+					if (i + 1 == arcade->destruct_code)
 					{
 						fade_black(10);
 
 						loadDestruct = true;
 						return true;
 					}
-					else if (i + 1 == SA_ENGAGE)
+					else if (i + 1 == arcade->engage_code)
 					{
-						JE_playSampleNum(V_DATA_CUBE);
+						JE_playSampleNum(gameVoiceSound(arcade->engage_voice));
 
 						JE_whoa();
 						set_colors((SDL_Color) { 0, 0, 0 }, 0, 255);
 
-						newSuperTyrianGame();
-						return true;
+						if (newSuperTyrianGame())
+							return true;
+
+						restart = true;
 					}
 					else
 					{
@@ -3675,7 +3754,16 @@ bool newGame(void)
 {
 	if (gameplaySelect())
 	{
-		if (episodeSelect() && difficultySelect())
+		if (timedBattleMode)
+		{
+			// One-player arcade, with a battle to pick before the difficulty.
+			onePlayerAction = true;
+			if (timedBattleSelect() && difficultySelect())
+				gameLoaded = true;
+			else
+				timedBattleMode = false;  // backed out: nothing left of the mode
+		}
+		else if (episodeSelect() && difficultySelect())
 			gameLoaded = true;
 
 		initialDifficulty = difficultyLevel;
@@ -3706,10 +3794,8 @@ bool newGame(void)
 		{
 			// allows player to smuggle arcade/super-arcade ships into full game
 
-			const ulong initial_cash[] = { 10000, 15000, 20000, 30000 };
-
 			assert(episodeNum >= 1 && episodeNum <= EPISODE_AVAILABLE);
-			player[0].cash = initial_cash[episodeNum - 1];
+			player[0].cash = gameRules()->initial_cash[episodeNum - 1];
 		}
 	}
 
@@ -3718,7 +3804,11 @@ bool newGame(void)
 
 bool newSuperArcadeGame(unsigned int i)
 {
-	player[0].items.ship = SAShip[i];
+	const GameArcadeRules *const arcade = gameRules()->arcade;
+	if (i >= arcade->ship_count)
+		return false;
+
+	player[0].items.ship = arcade->ship[i];
 
 	if (episodeSelect() && difficultySelect())
 	{
@@ -3729,7 +3819,11 @@ bool newSuperArcadeGame(unsigned int i)
 		JE_dString(VGAScreen, JE_fontCenter(superShips[i + 1], SMALL_FONT_SHAPES), 100, superShips[i + 1], SMALL_FONT_SHAPES);
 		tempW = ships[player[0].items.ship].shipgraphic;
 		if (tempW != 1)
-			blit_sprite2x2(VGAScreen, 148, 70, spriteSheet9, tempW);
+		{
+			unsigned int shipGrIndex;
+			Sprite2_array *const shipSheet = shipGraphicSheet(tempW, &shipGrIndex);
+			blit_sprite2x2(VGAScreen, 148, 70, *shipSheet, shipGrIndex);
+		}
 
 		JE_showVGA();
 		fade_palette(colors, 50, 0, 255);
@@ -3739,13 +3833,15 @@ bool newSuperArcadeGame(unsigned int i)
 		twoPlayerMode = false;
 		onePlayerAction = true;
 		superArcadeMode = i + 1;
+		timedBattleMode = false;
+		regress_flow_coverage("arcade ship %u chosen (ship item %u, episode %u).", i + 1, (unsigned)player[0].items.ship, (unsigned)episodeNum);
 		gameLoaded = true;
 		initialDifficulty = ++difficultyLevel;
 
 		player[0].cash = 0;
 
-		player[0].items.weapon[FRONT_WEAPON].id = SAWeapon[i][0];
-		player[0].items.special = SASpecialWeapon[i];
+		player[0].items.weapon[FRONT_WEAPON].id = arcade->weapon[i][0];
+		player[0].items.special = arcade->special[i];
 		if (superArcadeMode == SA_NORTSHIPZ)
 		{
 			for (uint i = 0; i < COUNTOF(player[0].items.sidekick); ++i)
@@ -3758,29 +3854,44 @@ bool newSuperArcadeGame(unsigned int i)
 	return gameLoaded;
 }
 
-void newSuperTyrianGame(void)
+bool newSuperTyrianGame(void)
 {
 	/* SuperTyrian */
+
+	const GameArcadeRules *const arcade = gameRules()->arcade;
+
+	static const char *const builtInText[HELPTEXT_SUPER_TYRIAN_COUNT] =
+	{
+		"Cheat codes have been disabled.",
+		"Difficulty level has been set to Lord of Game.",
+		"Difficulty level has been set to Suicide.",
+		"It is imperative that you discover the special codes.",
+		"(Next time, for an easier challenge hold down SCROLL LOCK.)",
+		"Prepare to play..."
+	};
+	const char *text[HELPTEXT_SUPER_TYRIAN_COUNT];
+	for (size_t i = 0; i < COUNTOF(text); ++i)
+		text[i] = arcade->super_tyrian_text_from_data ? superTyrianText[i] : builtInText[i];
 
 	initialDifficulty = keysactive[SDL_SCANCODE_SCROLLLOCK] ? DIFFICULTY_SUICIDE : DIFFICULTY_ZINGLON;
 
 	JE_clr256(VGAScreen);
-	JE_outText(VGAScreen, 10, 10, "Cheat codes have been disabled.", 15, 4);
+	JE_outText(VGAScreen, 10, 10, text[0], 15, 4);
 	if (initialDifficulty == DIFFICULTY_ZINGLON)
-		JE_outText(VGAScreen, 10, 20, "Difficulty level has been set to Lord of Game.", 15, 4);
+		JE_outText(VGAScreen, 10, 20, text[1], 15, 4);
 	else
-		JE_outText(VGAScreen, 10, 20, "Difficulty level has been set to Suicide.", 15, 4);
-	JE_outText(VGAScreen, 10, 30, "It is imperative that you discover the special codes.", 15, 4);
+		JE_outText(VGAScreen, 10, 20, text[2], 15, 4);
+	JE_outText(VGAScreen, 10, 30, text[3], 15, 4);
 	if (initialDifficulty == DIFFICULTY_ZINGLON)
-		JE_outText(VGAScreen, 10, 40, "(Next time, for an easier challenge hold down SCROLL LOCK.)", 15, 4);
-	JE_outText(VGAScreen, 10, 60, "Prepare to play...", 15, 4);
+		JE_outText(VGAScreen, 10, 40, text[4], 15, 4);
+	JE_outText(VGAScreen, 10, 60, text[5], 15, 4);
 
 	char buf[10 + 1 + 15 + 1];
 	snprintf(buf, sizeof(buf), "%s %s", miscTextB[4], pName[0]);
 	JE_dString(VGAScreen, JE_fontCenter(buf, FONT_SHAPES), 110, buf, FONT_SHAPES);
 
 	play_song(16);
-	JE_playSampleNum(V_DANGER);
+	JE_playSampleNum(gameVoiceSound(arcade->super_tyrian_voice));
 
 	JE_showVGA();
 	fade_palette(colors, 10, 0, 255);
@@ -3798,11 +3909,27 @@ void newSuperTyrianGame(void)
 		}
 	}
 
-	JE_initEpisode(1);
+	if (arcade->super_tyrian_pick_episode)
+	{
+		// episodeSelect() initializes the episode it returns.
+		fade_black(1);
+		if (!episodeSelect())
+		{
+			play_song(SONG_TITLE);
+			return false;
+		}
+	}
+	else
+	{
+		JE_initEpisode(1);
+	}
+
 	constantDie = false;
 	superTyrian = true;
 	onePlayerAction = true;
+	timedBattleMode = false;
 	gameLoaded = true;
+	regress_flow_coverage("Super Tyrian starts in episode %u.", (unsigned)episodeNum);
 	difficultyLevel = initialDifficulty;
 
 	player[0].cash = 0;
@@ -3811,6 +3938,7 @@ void newSuperTyrianGame(void)
 	player[0].items.weapon[FRONT_WEAPON].id = 39;  // Atomic RailGun
 
 	fade_black(10);
+	return true;
 }
 
 void intro_logos(void)
@@ -3933,6 +4061,16 @@ uint JE_makeEnemy(struct JE_SingleEnemyType *enemy, Uint16 eDatI, Sint16 uniqueS
 
 	JE_byte shapeTableI;
 
+	// The type comes from level data: an ID the variant's item data does not hold
+	// (past its end, or between two banks) would index enemyDat[] out of bounds
+	// or read a record that was never loaded.  Fall back to the first record.
+	if (!gameEnemyValid(eDatI))
+	{
+		logWarn("Enemy type %u does not exist in %s; using type 0.", (unsigned)eDatI,
+		        gameVariantCurrent()->display_name);
+		eDatI = 0;
+	}
+
 	if (superArcadeMode != SA_NONE && eDatI == 534)
 		eDatI = 533;
 
@@ -3984,8 +4122,13 @@ uint JE_makeEnemy(struct JE_SingleEnemyType *enemy, Uint16 eDatI, Sint16 uniqueS
 
 	enemy->launchfreq = enemyDat[eDatI].elaunchfreq;
 	enemy->launchwait = enemyDat[eDatI].elaunchfreq;
-	enemy->launchtype = enemyDat[eDatI].elaunchtype % 1000;
-	enemy->launchspecial = enemyDat[eDatI].elaunchtype / 1000;
+	{
+		uint16_t launchType;
+		uint8_t launchSpecial;
+		gameEnemyLaunch(eDatI, enemyDat[eDatI].elaunchtype, &launchType, &launchSpecial);
+		enemy->launchtype = launchType;
+		enemy->launchspecial = launchSpecial;
+	}
 
 	enemy->xaccel = enemyDat[eDatI].xaccel;
 	enemy->yaccel = enemyDat[eDatI].yaccel;
@@ -4234,6 +4377,16 @@ void JE_createNewEventEnemy(JE_byte enemyTypeOfs, JE_word enemyOffset, Sint16 un
 
 	enemyAvail[b-1] = JE_makeEnemy(&enemy[b-1], tempW, uniqueShapeTableI);
 
+	// Some variants use a sentinel X for "anywhere".  The pick replaces the
+	// sentinel in the event record, as the reference does.
+	const GameRules *rules = gameRules();
+	if (rules->spawn_random_x && eventRec[eventLoc-1].eventdat2 == rules->spawn_random_x_sentinel)
+	{
+		eventRec[eventLoc-1].eventdat2 = mt_rand() % rules->spawn_random_x_span + rules->spawn_random_x_min;
+		if (regress_active())
+			logInfo("Rule coverage: spawn -200 ran.");
+	}
+
 	if (eventRec[eventLoc-1].eventdat2 != -99)
 	{
 		switch (enemyOffset)
@@ -4322,9 +4475,16 @@ bool JE_searchFor/*enemy*/(JE_byte PLType, JE_byte* out_index)
 	}
 }
 
+static void JE_eventSetLevelTimer(void)
+{
+	levelTimer = (eventRec[eventLoc-1].eventdat == 1);
+	levelTimerCountdown = eventRec[eventLoc-1].eventdat3 * 100;
+	levelTimerJumpTo   = eventRec[eventLoc-1].eventdat2;
+}
+
 void JE_eventSystem(void)
 {
-	switch (eventRec[eventLoc-1].eventtype)
+	switch (gameEventCase(eventRec[eventLoc-1].eventtype))
 	{
 	case 1:
 		starfield_speed = eventRec[eventLoc-1].eventdat;
@@ -4360,7 +4520,7 @@ void JE_eventSystem(void)
 		backMove3 = 1;
 		break;
 
-	case 4:
+	case 4:  // (map stop; event 83 in Tyrian 2000 too, see GameRules.events)
 		stopBackgrounds = true;
 		switch (eventRec[eventLoc-1].eventdat)
 		{
@@ -4391,13 +4551,18 @@ void JE_eventSystem(void)
 			{
 				if (enemySpriteSheetIds[i] != newEnemyShapeTables[i])
 				{
-					if (newEnemyShapeTables[i] > 0)
+					const JE_char shapeFileChar = enemyShapeFileChar(newEnemyShapeTables[i]);
+					if (newEnemyShapeTables[i] > 0 && shapeFileChar != '\0')
 					{
-						assert(newEnemyShapeTables[i] <= COUNTOF(shapeFile));
-						JE_loadCompShapes(&enemySpriteSheets[i], shapeFile[newEnemyShapeTables[i] - 1]);
+						JE_loadCompShapes(&enemySpriteSheets[i], shapeFileChar);
 					}
 					else
+					{
+						if (newEnemyShapeTables[i] > 0)
+							logWarn("Enemy shape table %u is not defined for %s; leaving it empty.",
+							        newEnemyShapeTables[i], gameVariantCurrent()->display_name);
 						free_sprite2s(&enemySpriteSheets[i]);
+					}
 
 					enemySpriteSheetIds[i] = newEnemyShapeTables[i];
 				}
@@ -4494,7 +4659,7 @@ void JE_eventSystem(void)
 			break;
 		}
 		JE_drawTextWindow(outputs[id-1]);
-		soundQueue[3] = windowTextSamples[id-1];
+		soundQueue[3] = windowTextSample(id);
 		break;
 	}
 
@@ -4973,6 +5138,44 @@ void JE_eventSystem(void)
 		superEnemy254Jump = eventRec[eventLoc-1].eventdat;
 		break;
 
+	case GAME_EVENT_SET_ENEMY_LAUNCH:  // Tyrian 2000 event 58
+		// The reference implementation comes from ArcTyr and may not be exact.
+		if (regress_active())
+			logInfo("Rule coverage: event 58 launch ran.");
+		for (temp = 0; temp < 100; temp++)
+		{
+			if (eventRec[eventLoc-1].eventdat4 == 99 || enemy[temp].linknum == eventRec[eventLoc-1].eventdat4)
+				enemy[temp].launchtype = eventRec[eventLoc-1].eventdat;
+		}
+		break;
+
+	case GAME_EVENT_REPLACE_ENEMY:  // Tyrian 2000 events 59 and 68
+		// Also from ArcTyr.  Every enemy in the linked group, or all of them for link
+		// 0, is replaced by a new enemy of the same 25-slot group, keeping its
+		// position.  Free slots are matched too, as in the reference; the old slot
+		// is freed even when the new enemy did not fit.
+		{
+			if (regress_active())
+				logInfo("Rule coverage: event %u replacement ran.", eventRec[eventLoc-1].eventtype);
+			const Uint16 eDatI = eventRec[eventLoc-1].eventdat;
+
+			for (temp = 0; temp < 100; temp++)
+			{
+				if (!(eventRec[eventLoc-1].eventdat4 == 0 || enemy[temp].linknum == eventRec[eventLoc-1].eventdat4))
+					continue;
+
+				b = JE_newEnemy(temp - (temp % 25), eDatI, 0);
+				if (b != 0)
+				{
+					enemy[b-1].ex = enemy[temp].ex;
+					enemy[b-1].ey = enemy[temp].ey;
+				}
+
+				enemyAvail[temp] = 1;
+			}
+		}
+		break;
+
 	case 60: /*Assign Special Enemy*/
 		for (temp = 0; temp < 100; temp++)
 		{
@@ -5020,13 +5223,27 @@ void JE_eventSystem(void)
 		break;
 
 	case 67:
-		levelTimer = (eventRec[eventLoc-1].eventdat == 1);
-		levelTimerCountdown = eventRec[eventLoc-1].eventdat3 * 100;
-		levelTimerJumpTo   = eventRec[eventLoc-1].eventdat2;
+		JE_eventSetLevelTimer();
 		break;
 
-	case 68:
+	case GAME_EVENT_BATTLE_TIMER:  // Tyrian 2000 event 84: a copy of 67 that only Timed Battle runs
+		if (timedBattleMode)
+			JE_eventSetLevelTimer();
+		break;
+
+	case 68:  // random explosions (event 99 in Tyrian 2000)
 		randomExplosions = (eventRec[eventLoc-1].eventdat == 1);
+		break;
+
+	case GAME_EVENT_BATTLE_ENEMY_DEATH:  // Tyrian 2000 event 85: only in Timed Battle
+		if (timedBattleMode)
+		{
+			for (temp = 0; temp < 100; temp++)
+			{
+				if (enemy[temp].linknum == eventRec[eventLoc-1].eventdat4)
+					enemy[temp].enemydie = eventRec[eventLoc-1].eventdat;
+			}
+		}
 		break;
 
 	case 69:

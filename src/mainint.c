@@ -25,9 +25,12 @@
 #include "editship.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_rules.h"
+#include "game_schema.h"
 #include "font.h"
 #include "fonthand.h"
 #include "helptext.h"
+#include "highscores.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "lds_play.h"
@@ -37,6 +40,7 @@
 #include "modern.h"
 #include "modern_hud.h"
 #include "mouse.h"
+#include "mouse_buttons.h"
 #include "mtrand.h"
 #include "musmast.h"
 #include "network.h"
@@ -49,6 +53,7 @@
 #include "picload.h"
 #include "player.h"
 #include "regress.h"
+#include "regress_flow.h"
 #include "shots.h"
 #include "sndmast.h"
 #include "sprite.h"
@@ -962,8 +967,9 @@ void JE_nextEpisode(void)
 {
 	strcpy(lastLevelName, "Completed");
 
-	if (episodeNum == initial_episode_num && !gameHasRepeated && episodeNum != EPISODE_AVAILABLE &&
-	    !isNetworkGame && !constantPlay)
+	if (episodeNum == initial_episode_num && !gameHasRepeated &&
+	    (episodeNum != EPISODE_AVAILABLE || gameRules()->final_episode_score) &&
+	    episodeNum <= highScoreEpisodes() && !isNetworkGame && !constantPlay)
 	{
 		JE_highScoreCheck();
 	}
@@ -994,6 +1000,8 @@ void JE_nextEpisode(void)
 		}
 	}
 
+	const unsigned int finishedEpisode = episodeNum;
+
 	if (newEpisode != episodeNum)
 		JE_initEpisode(newEpisode);
 
@@ -1016,6 +1024,8 @@ void JE_nextEpisode(void)
 		waitUntilGetInput();
 
 	fade_black(15);
+
+	regress_flow_episode_next(finishedEpisode, newEpisode);
 }
 
 void JE_initPlayerData(void)
@@ -1041,6 +1051,7 @@ void JE_initPlayerData(void)
 	gameHasRepeated = false;
 	onePlayerAction = false;
 	superArcadeMode = SA_NONE;
+	timedBattleMode = false;
 	superTyrian = false;
 	twoPlayerMode = false;
 
@@ -1069,26 +1080,29 @@ void JE_initPlayerData(void)
 
 void JE_sortHighScores(void)
 {
-	JE_byte x;
-
-	temp = 0;
-	for (x = 0; x < 6; x++)
-	{
-		JE_sort();
-		temp += 3;
-	}
+	highScoreSortAll();
+	// The legacy six-board sort leaves the shared scratch index at 18.
+	temp = 18;
 }
 
 void JE_highScoreScreen(void)
+{
+	JE_highScoreScreenAt(0);
+}
+
+// The screen opened on page `first_page` (the regression harness picks one).
+void JE_highScoreScreenAt(size_t first_page)
 {
 	if (shopSpriteSheet.data == NULL)
 		JE_loadCompShapes(&shopSpriteSheet, '1');  // need mouse pointer and arrow sprites
 
 	bool restart = true;
 
-	size_t episodeIndex = 0;
-	// Save file only has space for scores for 3 episodes.
-	const size_t episodeCount = 3;
+	// One page per episode that has boards in the save (3 in 2.1, 5 in Tyrian 2000),
+	// then one per Timed Battle (Tyrian 2000).
+	const size_t episodeBoards = highScoreEpisodes();
+	const size_t episodeCount = episodeBoards + highScoreTimedBattles();
+	size_t episodeIndex = first_page < episodeCount ? first_page : 0;
 
 	const int xCenter = 320 / 2;
 	const int yMenuHeader = 3;
@@ -1114,12 +1128,17 @@ void JE_highScoreScreen(void)
 		// Restore background and header.
 		memcpy(VGAScreen->pixels, VGAScreen2->pixels, (size_t)VGAScreen->pitch * VGAScreen->h);
 
-		const bool disabled = !episodeAvail[episodeIndex];
+		const bool timedPage = episodeIndex >= episodeBoards;
+		const bool disabled = !timedPage && !episodeAvail[episodeIndex];
 
-		// Draw episode header.
-		drawFontHvShadowAligned(VGAScreen, xCenter, yEpisodeHeader, episode_name[episodeIndex + 1], FONT_NORMAL, ALIGN_CENTER, 15, -3 + (disabled ? -4 : 0), false, 2);
+		char buffer[64];
 
-		char buffer[29];
+		// Draw episode (or battle) header.
+		if (timedPage)
+			snprintf(buffer, sizeof buffer, "%s %s", timedBattleName[0], timedBattleName[episodeIndex - episodeBoards + 1]);
+		else
+			snprintf(buffer, sizeof buffer, "%s", episode_name[episodeIndex + 1]);
+		drawFontHvShadowAligned(VGAScreen, xCenter, yEpisodeHeader, buffer, FONT_NORMAL, ALIGN_CENTER, 15, -3 + (disabled ? -4 : 0), false, 2);
 
 		// Draw 1-player scores.
 
@@ -1129,29 +1148,32 @@ void JE_highScoreScreen(void)
 		{
 			const int y = 75 + 10 * i;
 
-			const JE_SaveFileType *const saveFile = &saveFiles[episodeIndex * 6 + i];
-			const int rank = MIN(saveFile->highScoreDiff, COUNTOF(difficultyNameB) - 1);
+			const unsigned int board = timedPage
+				? highScoreTimedBoard(episodeIndex - episodeBoards + 1)
+				: highScoreBoard(episodeIndex + 1, false);
+			const int rank = MIN(highScoreDifficulty(board, i), COUNTOF(difficultyNameB) - 1);
 
-			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, saveFile->highScore1);
+			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, highScoreValue(board, i));
 			JE_textShade(VGAScreen, 20, y, buffer, 15, 0, FULL_SHADE);
-			JE_textShade(VGAScreen, 110, y, saveFile->highScoreName, 15, 2, FULL_SHADE);
+			JE_textShade(VGAScreen, 110, y, highScoreName(board, i), 15, 2, FULL_SHADE);
 			JE_textShade(VGAScreen, 250, y, difficultyNameB[rank], 15, rank + (rank == 0 ? 0 : -1), FULL_SHADE);
 		}
 
-		// Draw 2-player scores.
+		// Draw 2-player scores.  A Timed Battle is for one player.
 
-		drawFontHvShadowAligned(VGAScreen, xCenter, 120, miscText[47], FONT_NORMAL, ALIGN_CENTER, 15, -3, false, 2);
+		if (!timedPage)
+			drawFontHvShadowAligned(VGAScreen, xCenter, 120, miscText[47], FONT_NORMAL, ALIGN_CENTER, 15, -3, false, 2);
 
-		for (Uint8 i = 0; i < 3; ++i)
+		for (Uint8 i = 0; !timedPage && i < 3; ++i)
 		{
 			const int y = 135 + 10 * i;
 
-			const JE_SaveFileType *const saveFile = &saveFiles[episodeIndex * 6 + 3 + i];
-			const int rank = MIN(saveFile->highScoreDiff, COUNTOF(difficultyNameB) - 1);
+			const unsigned int board = highScoreBoard(episodeIndex + 1, true);
+			const int rank = MIN(highScoreDifficulty(board, i), COUNTOF(difficultyNameB) - 1);
 
-			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, saveFile->highScore1);
+			snprintf(buffer, sizeof buffer, "~#%d:~  %d", i + 1, highScoreValue(board, i));
 			JE_textShade(VGAScreen, 20, y, buffer, 15, 0, FULL_SHADE);
-			JE_textShade(VGAScreen, 110, y, saveFile->highScoreName, 15, 2, FULL_SHADE);
+			JE_textShade(VGAScreen, 110, y, highScoreName(board, i), 15, 2, FULL_SHADE);
 			JE_textShade(VGAScreen, 250, y, difficultyNameB[rank], 15, rank + (rank == 0 ? 0 : -1), FULL_SHADE);
 		}
 
@@ -1322,7 +1344,7 @@ JE_boolean JE_gammaCheck(void)
 	{
 		keysactive[SDL_SCANCODE_F11] = false;
 		gammaCorrection = (gammaCorrection + 1) % 4;
-		memcpy(colors, palettes[pcxpal[3-1]], sizeof(colors));
+		memcpy(colors, palettes[gameSchema()->picture_palette[3-1]], sizeof(colors));
 		JE_gammaCorrect(&colors, gammaCorrection);
 		set_palette(colors, 0, 255);
 	}
@@ -1980,7 +2002,12 @@ void JE_highScoreCheck(void)
 
 		int p = temp_p;
 
-		if (twoPlayerMode)
+		if (timedBattleMode)
+		{
+			// A Timed Battle is scored in cash alone, on the board of its battle.
+			temp_score = player[0].cash;
+		}
+		else if (twoPlayerMode)
 		{
 			// ask for the highest scorer first
 			if (player[0].cash < player[1].cash)
@@ -1994,31 +2021,32 @@ void JE_highScoreCheck(void)
 			temp_score = JE_totalScore(&player[0]);
 		}
 
-		int slot;
-		const int first_slot = (initial_episode_num - 1) * 6 + (twoPlayerMode ? 3 : 0),
-		          slot_limit = first_slot + 3;
+		unsigned int slot;
+		const unsigned int board = timedBattleMode
+			? highScoreTimedBoard(timeBattleSelection)
+			: highScoreBoard(initial_episode_num, twoPlayerMode);
 
-		for (slot = first_slot; slot < slot_limit; ++slot)
+		for (slot = 0; slot < HIGH_SCORE_ENTRIES; ++slot)
 		{
-			if (temp_score > saveFiles[slot].highScore1)
+			if (temp_score > highScoreValue(board, slot))
 				break;
 		}
 
+		regress_flow_coverage("score %ld on %s board %u: %s.", (long)temp_score, timedBattleMode ? "Timed Battle" : "episode", board,
+		                      slot < HIGH_SCORE_ENTRIES ? "ranked" : "not ranked");
+
 		// did you get a high score?
-		if (slot < slot_limit)
+		if (slot < HIGH_SCORE_ENTRIES)
 		{
 			// shift down old scores
-			for (int i = slot_limit - 1; i > slot; --i)
-			{
-				saveFiles[i].highScore1 = saveFiles[i - 1].highScore1;
-				strcpy(saveFiles[i].highScoreName, saveFiles[i - 1].highScoreName);
-			}
+			highScoreShiftDown(board, slot);
 
 			JE_clr256(VGAScreen);
 			JE_showVGA();
 			memcpy(colors, palettes[0], sizeof(colors));
 
-			play_song(33);
+			if (!timedBattleMode)  // a Timed Battle keeps the music that is playing
+				play_song(33);
 
 			{
 				/* Enter Thy name */
@@ -2038,6 +2066,11 @@ void JE_highScoreCheck(void)
 				strcpy(stemp, "                             ");
 				temp = 0;
 
+				// The shade below is drawn over another picture in Timed Battle, however
+				// odd that looks; that is what Tyrian 2000 does (fork 3e395df).
+				if (timedBattleMode)
+					JE_loadPic(VGAScreen, gameRules()->timed_battle->score_picture, false);
+
 				JE_barShade(VGAScreen, 65 + dx, 55, shade_right, 155);
 
 				SDL_StartTextInput(main_window);
@@ -2056,7 +2089,7 @@ void JE_highScoreCheck(void)
 
 					if (twoPlayerMode)
 					{
-						sprintf(buffer, "%s %s", miscText[48 + p], miscText[53]);
+						sprintf(buffer, "%s %s", helpLabelText(p == 0 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2), miscText[53]);
 						JE_textShade(VGAScreen, 60 + dx, 55, buffer, 11, 4, FULL_SHADE);
 					}
 					else
@@ -2158,26 +2191,33 @@ void JE_highScoreCheck(void)
 
 				SDL_StopTextInput(main_window);
 
-				if (!cancel)
+				// A Timed Battle score cannot be cancelled.
+				if (!cancel || timedBattleMode)
 				{
-					saveFiles[slot].highScore1 = temp_score;
-					strcpy(saveFiles[slot].highScoreName, stemp);
-					saveFiles[slot].highScoreDiff = difficultyLevel;
+					highScoreSet(board, slot, temp_score, stemp, difficultyLevel);
+					regress_flow_coverage("score entered as '%.*s' at rank %u.", (int)temp, stemp, slot + 1);
+				}
+				else
+				{
+					regress_flow_coverage("score entry cancelled.");
 				}
 
 				fade_black(15);
 				JE_loadPic(VGAScreen, 2, false);
 
 				JE_dString(VGAScreen, JE_fontCenter(miscText[50], FONT_SHAPES), 10, miscText[50], FONT_SHAPES);
-				JE_dString(VGAScreen, JE_fontCenter(episode_name[episodeNum], SMALL_FONT_SHAPES), 35, episode_name[episodeNum], SMALL_FONT_SHAPES);
+				{
+					const char *const heading = timedBattleMode ? timedBattleName[timeBattleSelection] : episode_name[episodeNum];
+					JE_dString(VGAScreen, JE_fontCenter(heading, SMALL_FONT_SHAPES), 35, heading, SMALL_FONT_SHAPES);
+				}
 
-				for (int i = first_slot; i < slot_limit; ++i)
+				for (unsigned int i = 0; i < HIGH_SCORE_ENTRIES; ++i)
 				{
 					if (i != slot)
 					{
-						sprintf(buffer, "~#%d:~  %d", (i - first_slot + 1), saveFiles[i].highScore1);
-						JE_textShade(VGAScreen,  20, ((i - first_slot + 1) * 12) + 65, buffer, 15, 0, FULL_SHADE);
-						JE_textShade(VGAScreen, 150, ((i - first_slot + 1) * 12) + 65, saveFiles[i].highScoreName, 15, 2, FULL_SHADE);
+						sprintf(buffer, "~#%d:~  %d", i + 1, highScoreValue(board, i));
+						JE_textShade(VGAScreen,  20, ((i + 1) * 12) + 65, buffer, 15, 0, FULL_SHADE);
+						JE_textShade(VGAScreen, 150, ((i + 1) * 12) + 65, highScoreName(board, i), 15, 2, FULL_SHADE);
 					}
 				}
 
@@ -2185,15 +2225,15 @@ void JE_highScoreCheck(void)
 
 				fade_palette(colors, 15, 0, 255);
 
-				sprintf(buffer, "~#%d:~  %d", (slot - first_slot + 1), saveFiles[slot].highScore1);
+				sprintf(buffer, "~#%d:~  %d", slot + 1, highScoreValue(board, slot));
 
 				frameCountMax = 6;
 				textGlowFont = TINY_FONT;
 
 				textGlowBrightness = 10;
-				JE_outTextGlow(VGAScreenSeg,  20, (slot - first_slot + 1) * 12 + 65, buffer);
+				JE_outTextGlow(VGAScreenSeg,  20, (slot + 1) * 12 + 65, buffer);
 				textGlowBrightness = 10;
-				JE_outTextGlow(VGAScreenSeg, 150, (slot - first_slot + 1) * 12 + 65, saveFiles[slot].highScoreName);
+				JE_outTextGlow(VGAScreenSeg, 150, (slot + 1) * 12 + 65, highScoreName(board, slot));
 				textGlowBrightness = 10;
 				JE_outTextGlow(VGAScreenSeg, JE_fontCenter(miscText[4], TINY_FONT), 180, miscText[4]);
 
@@ -2327,7 +2367,7 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 			{
 
 				/*Use SuperTyrian ShipCombos or not?*/
-				temp5 = superTyrian ? shipCombosB[temp2] : shipCombos[ship][temp2];
+				temp5 = superTyrian ? shipCombosB[temp2] : gameShipCombos(ship)[temp2];
 
 				// temp5 == selected combo in ship
 				if (temp5 == 0) /* combo doesn't exists */
@@ -2346,7 +2386,7 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 						SFCurrentCode[playerNum_-1][temp2]++;
 
 						temp4 = keyboardCombos[temp5-1][SFCurrentCode[playerNum_-1][temp2]];
-						if (temp4 > 100 && temp4 <= 100 + SPECIAL_NUM)
+						if (temp4 > 100 && temp4 <= 100 + gameSchema()->special_max)
 						{
 							SFCurrentCode[playerNum_-1][temp2] = 0;
 							SFExecuted[playerNum_-1] = temp4 - 100;
@@ -2369,36 +2409,6 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 	}
 }
 
-void JE_sort(void)
-{
-	JE_byte a, b;
-
-	for (a = 0; a < 2; a++)
-	{
-		for (b = a + 1; b < 3; b++)
-		{
-			if (saveFiles[temp + a].highScore1 < saveFiles[temp + b].highScore1)
-			{
-				JE_longint tempLI;
-				char tempStr[30];
-				JE_byte tempByte;
-
-				tempLI = saveFiles[temp + a].highScore1;
-				saveFiles[temp + a].highScore1 = saveFiles[temp + b].highScore1;
-				saveFiles[temp + b].highScore1 = tempLI;
-
-				strcpy(tempStr, saveFiles[temp + a].highScoreName);
-				strcpy(saveFiles[temp + a].highScoreName, saveFiles[temp + b].highScoreName);
-				strcpy(saveFiles[temp + b].highScoreName, tempStr);
-
-				tempByte = saveFiles[temp + a].highScoreDiff;
-				saveFiles[temp + a].highScoreDiff = saveFiles[temp + b].highScoreDiff;
-				saveFiles[temp + b].highScoreDiff = tempByte;
-			}
-		}
-	}
-}
-
 // Regression harness hook (--regress-screen=credits): JE_playCredits() breaks
 // on input, which in regress mode is reported immediately, so the scroll would
 // stop on the first tick.  Holding input lets the loop advance to the frame
@@ -2412,7 +2422,10 @@ void JE_playCreditsRegressHold(bool hold)
 
 void JE_playCredits(void)
 {
-	char credstr[131][65 + 1];
+	char credstr[131][65 + 1];  // capacity: the largest variant
+	// Records in tyrian.cdt (Tyrian 2.1: 131, Tyrian 2000: 126).
+	const size_t credstrCount = gameSchema()->credits_lines;
+	assert(credstrCount <= COUNTOF(credstr));
 
 	JE_byte currentpic = 0, fade = 0;
 	JE_shortint fadechg = 1;
@@ -2436,7 +2449,7 @@ void JE_playCredits(void)
 	}
 
 	// load credits text
-	for (size_t i = 0; i < COUNTOF(credstr); ++i)
+	for (size_t i = 0; i < credstrCount; ++i)
 		readEncryptedString(&file, credstr[i], sizeof credstr[i]);
 
 	if (file.error)
@@ -2454,7 +2467,7 @@ void JE_playCredits(void)
 
 	//tempScreenSeg = VGAScreenSeg;
 
-	const uint ticks_max = COUNTOF(credstr) * 20 * 3;
+	const uint ticks_max = credstrCount * 20 * 3;
 	for (uint ticks = 0; ticks < ticks_max; ++ticks)
 	{
 		setFrameCount(1);
@@ -2547,14 +2560,16 @@ void JE_playCredits(void)
 			? (int)((long)shipx * (target->w - 24) / 900)
 			: shipx / 40;
 
-		blit_sprite2x2(target, ship_draw_x, 184 - (ticks % 200), spriteSheet9, ship_sprite);
+		unsigned int shipSpriteIndex;
+		Sprite2_array *const shipSheet = shipGraphicSheet(ship_sprite, &shipSpriteIndex);
+		blit_sprite2x2(target, ship_draw_x, 184 - (ticks % 200), *shipSheet, shipSpriteIndex);
 
 		const int bottom_line = (ticks / 3) / 20;
 		int y = 20 - ((ticks / 3) % 20);
 
 		for (int line = bottom_line - 10; line < bottom_line; ++line)
 		{
-			if (line >= 0 && (uint)line < COUNTOF(credstr))
+			if (line >= 0 && (uint)line < credstrCount)
 			{
 				if (credstr[line][0] != '.' && credstr[line][0] != '\0')
 				{
@@ -2582,7 +2597,7 @@ void JE_playCredits(void)
 		if (currentpic == sprite_table[EXTRA_SHAPES].count - 1)
 			JE_outTextAdjust(target, 5, 180, miscText[54], 2, -2, SMALL_FONT_SHAPES, false);  // levels-in-episode
 
-		if (bottom_line == COUNTOF(credstr) - 8)
+		if (bottom_line == (int)credstrCount - 8)
 			fade_song();
 
 		if (ticks == ticks_max - 1)
@@ -2683,6 +2698,18 @@ void JE_endLevelAni(void)
 		JE_outTextGlow(VGAScreenSeg, 30, 50, tempStr);
 	}
 
+	if (timedBattleMode)
+	{
+		// Whole tenths of a second left on the timer, worth cash each (fork 85a5a22).
+		const GameTimedBattleRules *const battle = gameRules()->timed_battle;
+		const int bonus = (levelTimerCountdown / 10) * battle->time_bonus;
+
+		sprintf(tempStr, "%s %d", miscTextB[6], bonus);
+		JE_outTextGlow(VGAScreenSeg, 40, 75, tempStr);
+		player[0].cash += bonus;
+		regress_flow_coverage("Timed Battle time bonus %d (timer %d).", bonus, (int)levelTimerCountdown);
+	}
+
 	temp = (totalEnemy == 0) ? 0 : roundf(enemyKilled * 100 / totalEnemy);
 	sprintf(tempStr, "%s %d%%", miscText[63-1], temp);
 	JE_outTextGlow(VGAScreenSeg, 40, 90, tempStr);
@@ -2690,7 +2717,49 @@ void JE_endLevelAni(void)
 	if (!constantPlay)
 		editorLevel += temp / 5;
 
-	if (!onePlayerAction && !twoPlayerMode)
+	if (timedBattleMode)
+	{
+		// Lives left (the fork counts the power of the first weapon slot: the
+		// player's `lives` pointer) are worth cash and shown one by one.
+		const GameTimedBattleRules *const battle = gameRules()->timed_battle;
+
+		for (temp = 1; temp <= *player[0].lives; temp++)
+		{
+			JE_playSampleNum(S_ITEM);
+			x = 20 + 15 * temp;
+			y = 115;
+
+			for (i = -15; i <= 10; i++)
+			{
+				setFrameCount(frameCountMax);
+
+				blit_sprite_hv(VGAScreenSeg, x, y, OPTION_SHAPES, 46, 0x9, i);
+
+				JE_showVGA();
+
+				if (waitUntilGetInputOrElapsed())
+					frameCountMax = 0;
+			}
+			for (i = 10; i >= 0; i--)
+			{
+				setFrameCount(frameCountMax);
+
+				blit_sprite_hv(VGAScreenSeg, x, y, OPTION_SHAPES, 46, 0x9, i);
+
+				JE_showVGA();
+
+				if (waitUntilGetInputOrElapsed())
+					frameCountMax = 0;
+			}
+		}
+
+		const int bonus = *player[0].lives * battle->life_bonus;
+		sprintf(tempStr, "%s %d", miscTextB[7], bonus);
+		JE_outTextGlow(VGAScreenSeg, 120, 120, tempStr);
+		player[0].cash += bonus;
+		regress_flow_coverage("Timed Battle life bonus %d (%d lives).", bonus, (int)*player[0].lives);
+	}
+	else if (!onePlayerAction && !twoPlayerMode)
 	{
 		JE_outTextGlow(VGAScreenSeg, 30, 120, miscText[4-1]);   /*Cubes*/
 
@@ -2820,7 +2889,10 @@ void JE_operation(JE_byte slot)
 
 		flash = 8 * 16 + 10;
 
-		JE_barShade(VGAScreen, 65, 55, 255, 155);
+		SDL_Surface *background = VGAScreen;
+		VGAScreen = modern_dialog_begin(background);
+		const int dx = modern_dialog_offset_x(50, sprite(OPTION_SHAPES, 35)->width);
+		JE_barShade(VGAScreen, 65 + dx, 55, 255 + dx, 155);
 
 		SDL_StartTextInput(main_window);
 
@@ -2829,15 +2901,15 @@ void JE_operation(JE_byte slot)
 		{
 			setFrameCount(1);
 
-			blit_sprite(VGAScreen, 50, 50, OPTION_SHAPES, 35);  // message box
+			blit_sprite(VGAScreen, 50 + dx, 50, OPTION_SHAPES, 35);  // message box
 
-			JE_textShade(VGAScreen, 60, 55, miscText[1-1], 11, 4, DARKEN);
-			JE_textShade(VGAScreen, 70, 70, levelName, 11, 4, DARKEN);
+			JE_textShade(VGAScreen, 60 + dx, 55, miscText[1-1], 11, 4, DARKEN);
+			JE_textShade(VGAScreen, 70 + dx, 70, levelName, 11, 4, DARKEN);
 
-			int text_x = 54 + 45 - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
+			int text_x = 54 + 45 + dx - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
 			JE_outTextAdjust(VGAScreen, text_x, 128, miscText[9], 15, -5, FONT_SHAPES, true);
 
-			text_x = 149 + 45 - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
+			text_x = 149 + 45 + dx - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
 			JE_outTextAdjust(VGAScreen, text_x, 128, miscText[10], 15, -5, FONT_SHAPES, true);
 
 			// TODO: Rework this so that cursor blink timing is independent of input.
@@ -2848,8 +2920,8 @@ void JE_operation(JE_byte slot)
 
 				strcpy(tempStr, miscText[2-1]);
 				strncat(tempStr, stemp, temp);
-				JE_outText(VGAScreen, 65, 89, tempStr, 8, 3);
-				tempW = 65 + JE_textWidth(tempStr, TINY_FONT);
+				JE_outText(VGAScreen, 65 + dx, 89, tempStr, 8, 3);
+				tempW = 65 + dx + JE_textWidth(tempStr, TINY_FONT);
 				JE_barShade(VGAScreen, tempW + 2, 90, tempW + 6, 95);
 				fill_rectangle_xy(VGAScreen, tempW + 1, 89, tempW + 5, 94, flash);
 
@@ -2876,14 +2948,14 @@ void JE_operation(JE_byte slot)
 
 			if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 			{
-				if (mouseInput.x > 56 && mouseInput.x < 142 &&
+				if (mouseInput.x > 56 + dx && mouseInput.x < 142 + dx &&
 				    mouseInput.y > 123 && mouseInput.y < 149)
 				{
 					quit = true;
 					JE_saveGame(slot, stemp);
 					JE_playSampleNum(S_SELECT);
 				}
-				else if (mouseInput.x > 151 && mouseInput.x < 237 &&
+				else if (mouseInput.x > 151 + dx && mouseInput.x < 237 + dx &&
 				         mouseInput.y > 123 && mouseInput.y < 149)
 				{
 					quit = true;
@@ -2926,6 +2998,9 @@ void JE_operation(JE_byte slot)
 				}
 			}
 		}
+
+		VGAScreen = background;
+		modern_dialog_end();
 
 		SDL_StopTextInput(main_window);
 	}
@@ -2985,7 +3060,7 @@ void JE_inGameDisplays(void)
 				}
 			}
 
-			strcpy(stemp, (temp == 0) ? miscText[49-1] : miscText[50-1]);
+			strcpy(stemp, helpLabelText(temp == 0 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2));
 			if (isNetworkGame)
 			{
 				strcpy(stemp, JE_getName(temp+1));
@@ -3631,9 +3706,7 @@ redo:
 				/* mouse input */
 				if ((inputDevice == 0 || inputDevice == 2) && has_mouse)
 				{
-					button[0] |= (mouseButtonsDown & SDL_BUTTON_LMASK) != 0;
-					button[1] |= (mouseButtonsDown & SDL_BUTTON_RMASK) != 0;
-					button[2] |= (mouseButtonsDown & (mouse_has_three_buttons ? SDL_BUTTON_MMASK : SDL_BUTTON_RMASK)) != 0;
+					mouse_buttons_to_player(mouseButtonsDown, button);
 
 					Sint32 mouseXR;
 					Sint32 mouseYR;
@@ -4250,18 +4323,20 @@ redo:
 					{
 						shotMultiPos[SHOT_REAR] = 0;
 
-						if (superArcadeMode != SA_NONE && superArcadeMode <= SA_NORTSHIPZ)
+						const GameArcadeRules *const arcade = gameRules()->arcade;
+
+						if (superArcadeMode != SA_NONE && superArcadeMode <= arcade->ship_count)
 						{
 							shotMultiPos[SHOT_SPECIAL] = 0;
 							shotMultiPos[SHOT_SPECIAL2] = 0;
-							if (player[0].items.special == SASpecialWeapon[superArcadeMode-1])
+							if (player[0].items.special == arcade->special[superArcadeMode-1])
 							{
-								player[0].items.special = SASpecialWeaponB[superArcadeMode-1];
+								player[0].items.special = arcade->special_b[superArcadeMode-1];
 								this_player->weapon_mode = 2;
 							}
 							else
 							{
-								player[0].items.special = SASpecialWeapon[superArcadeMode-1];
+								player[0].items.special = arcade->special[superArcadeMode-1];
 								this_player->weapon_mode = 1;
 							}
 						}
@@ -4557,7 +4632,9 @@ redo:
 								}
 								else  // has infinite ammo
 								{
-									if (button[0] || button[1 + i])
+									// Where the variant says so, a sidekick that charges is not fired
+									// by the main fire button, only by its own.
+									if ((button[0] && gameSidekickMainFire(this_option->pwr)) || button[1 + i])
 									{
 										b = player_shot_create(this_option->wport, shot_i, this_player->sidekick[i].x, this_player->sidekick[i].y, *mouseX_, *mouseY_, this_option->wpnum + this_player->sidekick[i].charge, playerNum_);
 
@@ -4691,7 +4768,7 @@ const char *JE_getName(JE_byte pnum)
 	else if (network_opponent_name[0] != '\0')
 		return network_opponent_name;
 
-	return miscText[47 + pnum];
+	return helpLabelText(pnum == 1 ? GAME_LABEL_PLAYER_1 : GAME_LABEL_PLAYER_2);
 }
 
 void JE_playerCollide(Player *this_player, JE_byte playerNum_)
@@ -4731,12 +4808,13 @@ void JE_playerCollide(Player *this_player, JE_byte playerNum_)
 						enemyAvail[z] = 1;
 						soundQueue[7] = S_POWERUP;
 					}
-					else if (superArcadeMode != SA_NONE && evalue > 30000)
+					else if (superArcadeMode != SA_NONE && superArcadeMode <= gameRules()->arcade->ship_count &&
+					         evalue > 30000 && evalue <= 30005)
 					{
 						shotMultiPos[SHOT_FRONT] = 0;
 						shotRepeat[SHOT_FRONT] = 10;
 
-						tempW = SAWeapon[superArcadeMode-1][evalue - 30000-1];
+						tempW = gameRules()->arcade->weapon[superArcadeMode-1][evalue - 30000-1];
 
 						// if picked up already-owned weapon, power weapon up
 						if (tempW == player[0].items.weapon[FRONT_WEAPON].id)

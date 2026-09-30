@@ -57,6 +57,11 @@ bool set_scaling_mode_by_name(const char *name);
 // Modern canvas.  Display-only; safe to call from a menu.
 void video_apply_display_settings(void);
 
+// Launcher: shape the windowed window as a 16:9 screen (fullscreen is left as
+// it is). Returns false if SDL cannot settle the resize before drawing.
+// video_apply_display_settings() gives the game's own size back.
+bool video_fit_launcher_window(void);
+
 // Shared presentation helpers, used by both the Classic and Modern paths.
 SDL_Renderer *video_renderer(void);
 // Presents `texture` (src_w x src_h logical pixels) in the window and returns

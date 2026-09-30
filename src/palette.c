@@ -19,6 +19,7 @@
 #include "palette.h"
 
 #include "file.h"
+#include "game_schema.h"
 #include "interp.h"
 #include "keyboard.h"
 #include "logging.h"
@@ -31,7 +32,9 @@
 
 static Uint32 rgb_to_yuv(int r, int g, int b);
 
-Palette palettes[23];
+// Capacity: the largest variant (Tyrian 2000: 24).  GameDataSchema::palette_count
+// is how many the selected variant's palette.dat holds.
+Palette palettes[24];
 size_t palettesCount = 0;
 
 static Palette palette;
@@ -51,8 +54,8 @@ void loadPals(void)
 	}
 
 	palettesCount = fileGetLength(&file) / (256 * 3);
-	assert(palettesCount == COUNTOF(palettes));
-	palettesCount = MIN(palettesCount, COUNTOF(palettes));
+	assert(palettesCount == gameSchema()->palette_count);
+	palettesCount = MIN(palettesCount, gameSchema()->palette_count);
 
 	for (size_t p = 0; p < palettesCount; ++p)
 	{

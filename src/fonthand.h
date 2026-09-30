@@ -34,7 +34,9 @@ extern const Sint8 fontMap[256];
 extern JE_byte textGlowFont, textGlowBrightness;
 extern JE_boolean levelWarningDisplay;
 extern JE_byte levelWarningLines;
-extern char levelWarningText[10][61];
+// Capacity: 12 lines (Tyrian 2000); GameDataSchema::warning_lines is how many the
+// selected variant shows (Tyrian 2.1: 10).
+extern char levelWarningText[12][61];
 extern JE_boolean warningRed;
 extern JE_byte warningSoundDelay;
 extern JE_word armorShipDelay;

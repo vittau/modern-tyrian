@@ -23,6 +23,7 @@
 #include "demo.h"
 #include "episodes.h"
 #include "file.h"
+#include "game_schema.h"
 #include "gamepad_selftest.h"
 #include "interp.h"
 #include "joystick.h"
@@ -33,6 +34,8 @@
 #include "network.h"
 #include "opentyr.h"
 #include "regress.h"
+#include "regress_flow.h"
+#include "regress_rules.h"
 #include "vfx.h"
 #include "xmas.h"
 
@@ -48,9 +51,9 @@ const char pars[][9] = {
 	"LOOT", "RECORD", "NOJOY", "CONSTANT", "DEATH", "NOSOUND", "NOXMAS", "YESXMAS"
 };
 
-void JE_paramCheck(int argc, char *argv[])
+const Options *JE_paramOptions(void)
 {
-	const Options options[] =
+	static const Options options[] =
 	{
 		{ 'h', 'h', "help",              false },
 		
@@ -59,6 +62,11 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 'x', 'x', "no-xmas",           false },
 		
 		{ 't', 't', "data",              true },
+		{ PARAM_VARIANT, 0, "variant",    true },
+		{ PARAM_REGRESS_USER_ROOT, 0, "regress-user-root", true },
+		{ PARAM_REGRESS_USER_FILES, 0, "regress-user-files", false },
+		{ PARAM_INSTALL_2000, 0, "install-2000", true },
+		{ PARAM_INSTALL_2000_SPEC, 0, "install-2000-spec", true },
 		
 		{ 'n', 'n', "net",               true },
 		{ 256, 0,   "net-player-name",   true }, // TODO: no short codes because there should
@@ -104,6 +112,9 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 287, 0,   "regress-interp-smoothness", false },
 		{ 288, 0,   "regress-smooth-alphas", true },
 		{ 289, 0,   "regress-gameplay-check", false },
+		{ 370, 0,   "regress-demo-hud-check", false },
+		{ 371, 0,   "regress-items-new", false },
+		{ 372, 0,   "regress-fire",       false },
 		{ 290, 0,   "light-tag-stats",   false },
 		{ 291, 0,   "light-threshold",   true },
 		{ 292, 0,   "regress-script",    true },
@@ -115,6 +126,14 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 301, 0,   "regress-smooth-effects-check", false },
 		{ 311, 0,   "regress-front-weapon", true },
 		{ 312, 0,   "regress-front-power",  true },
+		{ 320, 0,   "regress-rules",        true },
+		{ 350, 0,   "regress-loadout",  true },
+		{ 380, 0,   "regress-data-audit", true },
+		{ 381, 0,   "regress-boss", false },
+		{ 383, 0,   "regress-handoff", true },
+		{ 382, 0,   "regress-gamepad", false },
+		{ 360, 0,   "regress-flow",     true },
+		{ 361, 0,   "regress-xmas",     false },
 		
 		{ 305, 0,   "deadzone",          true },
 		
@@ -125,6 +144,12 @@ void JE_paramCheck(int argc, char *argv[])
 		{ 0, 0, NULL, false }
 	};
 	
+	return options;
+}
+
+void JE_paramCheck(int argc, char *argv[])
+{
+	const Options *options = JE_paramOptions();
 	Option option;
 	
 	for (; ; )
@@ -163,6 +188,12 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --pixel-aspect=SHAPE         Classic pixel aspect: original (1.2) or square");
 			logInfo("  --bloom=LEVEL                Modern bloom override: off, low or high");
 			logInfo("  --lighting=LEVEL             Modern bloom + lighting: off, low or high (default low)");
+			logInfo("  --variant=2.1|2000           Select variant for automation/testing (2000 unavailable)");
+			logInfo("  --regress-user-root=DIR      Enable user files only in DIR for a regress run");
+			logInfo("  --regress-user-files         Load/save configs and saves, then exit (requires DIR)");
+			logInfo("  --install-2000=WHAT          Install the Tyrian 2000 data headless and exit (0 ok, 1 failed):");
+			logInfo("                               download, a tyrian2000.zip, a folder, or detect");
+			logInfo("  --install-2000-spec=FILE     Test only: synthetic archive size/SHA-256/manifest for --install-2000");
 			logInfo("  --regress-demo=N             Replay recorded demo N (1-5) headless and exit");
 			logInfo("  --regress-level=E:L          Start level L of episode E headless and exit");
 			logInfo("  --regress-script=E:L         Start level L of episode E through the episode script");
@@ -174,12 +205,23 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-snapshot=F:FILE    Save the presented image of frame F to FILE (BMP)");
 			logInfo("                               (repeatable; the Modern canvas with --regress-modern)");
 			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
+			logInfo("  --regress-loadout=widest     Equip the items with the widest names (HUD fit check)");
+			logInfo("  --regress-xmas               Run a regress case with Christmas mode on");
+			logInfo("  --regress-data-audit=ROOT    Assert and log every resolved data-file open in ROOT");
+			logInfo("  --regress-boss               Accelerate events to a runtime boss, then run 60 ticks");
+			logInfo("  --regress-gamepad            Route a flow through the controller menu adapter");
+			logInfo("  --regress-handoff=VARIANT    Headless launcher choice and normal startup handoff");
+			logInfo("  --regress-flow=NAME[:K=V,..] Play a scripted path through the real menus and levels");
+			logInfo("                               (battle, episode, list-levels; see src/regress_flow.h)");
 			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
 			logInfo("  --regress-screen=NAME        Render one non-gameplay screen headless and exit");
-			logInfo("                               (title, episode-select, high-scores, game-menu, upgrade,");
-			logInfo("                               purchase, shield, options, cube-list, cube-reader, keyboard,");
+			logInfo("                               (title, episode-select, gameplay-select, high-scores,");
+			logInfo("                               game-menu, upgrade, purchase, shield, options,");
+			logInfo("                               options-limited, mouse, cube-list, cube-reader, keyboard,");
 			logInfo("                               joystick, load-save, solid, setup, nav-map, ship-specs,");
-			logInfo("                               jukebox, weapon-sim, credits)");
+			logInfo("                               jukebox, weapon-sim, credits); NAME:key=value,... sets");
+			logInfo("                               fixtures (ship, shipgraphic, front, rear, twomode, mode,");
+			logInfo("                               sel, cat, page)");
 			logInfo("  --regress-replay-check       Record each level frame's draw list and replay it (proof)");
 			logInfo("  --regress-interp-check       Render each level frame interpolated at alpha=1 and");
 			logInfo("                               compare it byte for byte with the real frame (proof)");
@@ -190,6 +232,11 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)");
 			logInfo("  --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay");
 			logInfo("                               composition (drops the classic sidebar)");
+			logInfo("  --regress-demo-hud-check     Assert a played demo shows the active mode's HUD: the Modern");
+			logInfo("                               side panels, or the classic sidebar in Classic");
+			logInfo("  --regress-items-new        Equip a scenario with the variant's newest items (ship, Punch,");
+			logInfo("                               chargeable sidekick)");
+			logInfo("  --regress-fire               A --regress-level scenario fires and sweeps the ship");
 			logInfo("  --regress-parallax-check     Per level tick, assert the interpolated presentation leaves");
 			logInfo("                               the starfield/background scroll untouched (per-tick motion)");
 			logInfo("  --regress-smooth-effects-check  Per level tick, assert the interpolated palette fade and");
@@ -226,6 +273,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-reverse-y          Regress only: force the reverse-controls smoothie on");
 			logInfo("  --regress-front-weapon=N      Regress only: front weapon id (0-42) for --regress-script");
 			logInfo("  --regress-front-power=N       Regress only: front weapon power (1-11) for --regress-script");
+			logInfo("  --regress-rules=NAME          Code-owned gameplay fixture: events, spawn, sidekicks, twiddle, punch");
 			exit(EXIT_SUCCESS);
 			break;
 			
@@ -243,9 +291,15 @@ void JE_paramCheck(int argc, char *argv[])
 			xmas = false;
 			break;
 			
-		// set custom Tyrian data directory
+		// Bootstrap owns the data directory and variant selection.
 		case 't':
-			customDataDirPath = option.arg;
+			// Already selected by gameBootstrapParse(), before user files.
+		case PARAM_VARIANT:
+		case PARAM_REGRESS_USER_ROOT:
+		case PARAM_REGRESS_USER_FILES:
+		// Run by main() before video init (installerRunCli).
+		case PARAM_INSTALL_2000:
+		case PARAM_INSTALL_2000_SPEC:
 			break;
 			
 		case 'n':
@@ -590,6 +644,15 @@ void JE_paramCheck(int argc, char *argv[])
 		case 289: // --regress-gameplay-check
 			regress_gameplay_check = 1;
 			break;
+		case 370: // --regress-demo-hud-check
+			regress_demo_hud_check = 1;
+			break;
+		case 371: // --regress-items-new
+			regress_loadout_new = 1;
+			break;
+		case 372: // --regress-fire
+			regress_fire = 1;
+			break;
 		case 290: // --light-tag-stats
 			modern_bloom_set_stats(true);
 			break;
@@ -644,9 +707,9 @@ void JE_paramCheck(int argc, char *argv[])
 		case 311: // --regress-front-weapon=N
 		{
 			const int id = atoi(option.arg);
-			if (id < 0 || id > PORT_NUM)
+			if (id < 0 || id > gameSchema()->port_max)
 			{
-				logError("%s: --regress-front-weapon must be between 0 and %d", argv[0], PORT_NUM);
+				logError("%s: --regress-front-weapon must be between 0 and %d", argv[0], gameSchema()->port_max);
 				exit(EXIT_FAILURE);
 			}
 			regress_front_weapon = id;
@@ -664,6 +727,39 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_front_power = power_level;
 			break;
 		}
+
+		case 320: // --regress-rules=events|spawn|sidekicks|twiddle|punch
+			regress_rule_fixture = option.arg;
+			break;
+
+		case 361: // --regress-xmas
+			regress_xmas = 1;
+			break;
+
+		case 380:
+			regress_data_audit_root = option.arg;
+			break;
+		case 381:
+			regress_boss = 1;
+			break;
+		case 383:
+			regress_handoff = option.arg;
+			break;
+		case 382:
+			regress_flow_gamepad = 1;
+			break;
+		case 360: // --regress-flow=NAME[:key=value,...]
+			regress_flow = option.arg;
+			break;
+
+		case 350: // --regress-loadout=widest
+			if (strcmp(option.arg, "widest") != 0)
+			{
+				logError("%s: --regress-loadout must be widest", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_loadout_widest = 1;
+			break;
 
 		case 299: // --regress-menu=ingame|pause|help
 			if (strcmp(option.arg, "ingame") == 0)
@@ -729,6 +825,12 @@ void JE_paramCheck(int argc, char *argv[])
 		}
 	}
 	
+	if (regress_rule_fixture != NULL && !regress_scenario_active())
+	{
+		logError("%s: --regress-rules requires --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
 	if ((regress_demo != 0 || regress_scenario_episode != 0) && regress_audio)
 	{
 		logError("%s: --regress-audio cannot be combined with --regress-demo/--regress-level", argv[0]);
@@ -763,6 +865,12 @@ void JE_paramCheck(int argc, char *argv[])
 	if (regress_interp_smoothness && regress_demo == 0 && regress_scenario_episode == 0)
 	{
 		logError("%s: --regress-interp-smoothness requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_demo_hud_check && regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-demo-hud-check requires --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 
