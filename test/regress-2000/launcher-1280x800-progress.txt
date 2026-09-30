@@ -1,1 +1,1 @@
-launcher 1280x800,missing,2,progress frame=9aa9093937052599
+launcher 1280x800,missing,2,progress frame=d1ba319db3ab3ace
