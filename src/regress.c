@@ -16,6 +16,9 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+#ifndef _WIN32
+#define _XOPEN_SOURCE 700
+#endif
 #include "regress.h"
 #include "regress_flow.h"
 
@@ -46,6 +49,10 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <stddef.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +60,102 @@
 // beginPlayDemo() reseeds with this constant; scenario mode matches it so the
 // two modes share the same deterministic RNG stream shape.
 static const unsigned long scenario_seed = 32402394;
+
+const char *regress_data_audit_root = NULL;
+int regress_boss = 0;
+const char *regress_handoff = NULL;
+int regress_flow_gamepad = 0;
+
+#ifdef _WIN32
+// _fullpath only removes relative segments; query the opened object to resolve
+// junctions and symlinks as well, matching realpath on the POSIX runners.
+static char *auditResolvedPath(const char *path)
+{
+	HANDLE handle = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                           NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	if (handle == INVALID_HANDLE_VALUE)
+		return NULL;
+	DWORD length = GetFinalPathNameByHandleA(handle, NULL, 0, FILE_NAME_NORMALIZED);
+	char *result = length != 0 ? malloc((size_t)length + 1) : NULL;
+	if (result != NULL && GetFinalPathNameByHandleA(handle, result, length + 1, FILE_NAME_NORMALIZED) == 0)
+	{ free(result); result = NULL; }
+	CloseHandle(handle);
+	return result;
+}
+#endif
+
+// Freeze and resolve the requested root, including symlinks. No assets are
+// copied into the output; only the resolved filename and open intent are logged.
+void regress_audit_open(const char *path)
+{
+	if (regress_data_audit_root == NULL)
+		return;
+#ifdef _WIN32
+	char *root = auditResolvedPath(regress_data_audit_root);
+	char *resolved = auditResolvedPath(path);
+#else
+	char *root = realpath(regress_data_audit_root, NULL);
+	char *resolved = realpath(path, NULL);
+#endif
+	if (root == NULL)
+	{
+		logError("Data audit FAIL: cannot resolve root.");
+		exit(EXIT_FAILURE);
+	}
+	// A missing optional file has no resolved target. The provider still logs
+	// its absolute attempted filename; successful opens must resolve in-root.
+	struct stat info;
+	if (stat(path, &info) != 0)
+	{
+		logInfo("Data audit missing: %s", path);
+		free(root);
+		free(resolved);
+		return;
+	}
+	const char *actual = resolved != NULL ? resolved : path;
+	size_t len = strlen(root);
+	while (len > 1 && (root[len-1] == '/' || root[len-1] == '\\')) --len;
+	bool inside = strncmp(root, actual, len) == 0 && (actual[len] == '/' || actual[len] == '\\');
+	logInfo("Data audit: %s", actual);
+	free(root);
+	free(resolved);
+	if (!inside)
+	{
+		logError("Data audit FAIL: open outside selected root.");
+		exit(EXIT_FAILURE);
+	}
+}
+
+// Feed the same joystick-to-key adapter as real menu input, without opening a
+// device or admitting any real SDL input. The selftest covers physical mapping;
+// flows cover the resulting navigation in the real menus.
+bool regress_gamepad_key(SDL_Scancode key, SDL_KeyboardEvent *out)
+{
+	Joystick injected;
+	memset(&injected, 0, sizeof injected);
+	injected.injected = injected.input_pressed = true;
+	if (key == SDL_SCANCODE_RETURN) injected.confirm = true;
+	else if (key == SDL_SCANCODE_ESCAPE) injected.cancel = true;
+	else if (key == SDL_SCANCODE_UP) injected.direction_pressed[0] = true;
+	else if (key == SDL_SCANCODE_RIGHT) injected.direction_pressed[1] = true;
+	else if (key == SDL_SCANCODE_DOWN) injected.direction_pressed[2] = true;
+	else if (key == SDL_SCANCODE_LEFT) injected.direction_pressed[3] = true;
+	else return false;
+	Joystick *old = joystick;
+	int old_count = joysticks;
+	joystick = &injected;
+	joysticks = 1;
+	SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP);
+	push_joysticks_as_keyboard();
+	joystick = old;
+	joysticks = old_count;
+	SDL_Event event;
+	if (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_DOWN) <= 0)
+		return false;
+	*out = event.key;
+	SDL_FlushEvents(SDL_EVENT_KEY_UP, SDL_EVENT_KEY_UP);
+	return out->scancode == key;
+}
 
 int regress_seed_set = 0;
 unsigned long regress_seed = 0;
@@ -452,6 +555,8 @@ int regress_take_menu_request(void)
 		return REGRESS_MENU_NONE;
 
 	regress_menu_taken = true;
+	if (regress_data_audit_root != NULL)
+		logInfo("Menu coverage: in-level request %d taken.", regress_menu_kind);
 	return regress_menu_kind;
 }
 
@@ -468,6 +573,14 @@ static bool arg_is_option(const char *arg, const char *option, size_t option_len
 
 bool regress_scan_args(int argc, char *argv[])
 {
+	// The audit must start before provider validation and config loading.
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strncmp(argv[i], "--regress-handoff=", 18) == 0)
+			regress_handoff = argv[i] + 18;
+		if (strncmp(argv[i], "--regress-data-audit=", 21) == 0)
+			regress_data_audit_root = argv[i] + 21;
+	}
 	static const char *const demo_option     = "--regress-demo";
 	static const char *const scenario_option = "--regress-level";
 	static const char *const audio_option    = "--regress-audio";
@@ -482,10 +595,12 @@ bool regress_scan_args(int argc, char *argv[])
 		    arg_is_option(argv[i], audio_option, strlen(audio_option)) ||
 		    arg_is_option(argv[i], screen_option, strlen(screen_option)) ||
 		    arg_is_option(argv[i], script_option, strlen(script_option)) ||
-		    arg_is_option(argv[i], flow_option, strlen(flow_option)))
+		    arg_is_option(argv[i], flow_option, strlen(flow_option)) ||
+		    arg_is_option(argv[i], "--regress-user-files", strlen("--regress-user-files")))
 			return true;
 	}
 
+	regress_data_audit_root = regress_handoff = NULL;
 	return false;
 }
 

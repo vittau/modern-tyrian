@@ -534,6 +534,17 @@ if case_wanted level-sweep; then
 	fi
 fi
 
+# Final matrix observers have their own state/frame aggregate and coverage
+# assertions. No existing case or baseline is updated when adding this family.
+if case_wanted final-regression; then
+	cases=$((cases + 1))
+	if "$ROOT/tools/check_final_regression.sh" "$BIN" 2000 "$DATA_DIR" "$ACTUAL_DIR/final-regression"; then
+		aggregate_case final-regression "$ACTUAL_DIR/final-regression/final-regression.txt"
+	else
+		failures=$((failures + 1))
+	fi
+fi
+
 # Offline audio: 31 effects and nine voices at their 2000 IDs, 41 songs.
 run_case frames "audio" --regress-audio
 

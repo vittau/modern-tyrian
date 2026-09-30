@@ -29,6 +29,9 @@
 #include "helptext.h"
 #include "keyboard.h"
 #include "logging.h"
+#include "joystick.h"
+#include "mouse_buttons.h"
+#include "lvllib.h"
 #include "mainint.h"
 #include "mtrand.h"
 #include "opentyr.h"
@@ -43,6 +46,40 @@
 #include <string.h>
 
 const char *regress_flow = NULL;
+extern struct JE_EventRecType eventRec[EVENT_MAXIMUM];
+static unsigned bossTime, bossTicks;
+static int saveStage, mouseStage;
+static MouseAction mouseBefore;
+static Uint64 savedHash;
+
+// Hash only fields the historical save format persists. Position, enemies,
+// clock and RNG are deliberately absent from a save: loading restarts a level.
+static Uint64 persistenceHash(void)
+{
+	Uint64 hash = UINT64_C(14695981039346656037);
+	const unsigned values[] = { episodeNum, saveLevel, difficultyLevel, initialDifficulty,
+		(unsigned)player[0].cash, (unsigned)player[1].cash, lastCubeMax, secretHint,
+		player[0].items.ship, player[0].items.generator, player[0].items.shield,
+		player[0].items.weapon[0].id, player[0].items.weapon[0].power,
+		player[0].items.weapon[1].id, player[0].items.weapon[1].power,
+		player[0].items.sidekick[0], player[0].items.sidekick[1], player[0].items.special };
+	for (size_t i = 0; i < COUNTOF(values); ++i)
+		for (unsigned b = 0; b < 4; ++b)
+		{ hash ^= (values[i] >> (8*b)) & 255; hash *= UINT64_C(1099511628211); }
+	return hash;
+}
+
+static void supplyKey(const KeyboardInput *key)
+{
+	if (!regress_flow_gamepad)
+	{ keyboardPushInput(key); return; }
+	SDL_KeyboardEvent event;
+	if (!regress_gamepad_key((SDL_Scancode)key->scancode, &event))
+	{ logError("Gamepad flow FAIL: unsupported input."); exit(EXIT_FAILURE); }
+	KeyboardInput translated = { event.key, (Uint16)event.scancode, event.mod, 0 };
+	keyboardPushInput(&translated);
+	regress_flow_coverage("gamepad adapter key %u.", (unsigned)event.scancode);
+}
 
 // The flow's own keyboard.  Each entry is one key press the input layer hands
 // out when the game waits for input and none is queued.
@@ -175,7 +212,7 @@ void regress_flow_supply_input(void)
 {
 	if (flowKeyNext < flowKeyCount)
 	{
-		keyboardPushInput(&flowKeys[flowKeyNext++]);
+		supplyKey(&flowKeys[flowKeyNext++]);
 		return;
 	}
 
@@ -189,6 +226,71 @@ void regress_flow_supply_input(void)
 
 		if (JE_itemScreenState(&menu, &sel))
 		{
+			if (flowIs("mouse"))
+			{
+				if (mouseStage > 2 * MOUSE_BUTTON_COUNT + 1 && menu == MENU_OPTIONS)
+				{ regress_flow_coverage("Mouse Done returned to options."); regress_finish(); exit(EXIT_SUCCESS); }
+				if (menu == MENU_FULL_GAME)
+					scancode = sel < 5 ? SDL_SCANCODE_DOWN : sel > 5 ? SDL_SCANCODE_UP : SDL_SCANCODE_RETURN;
+				else if (menu == MENU_OPTIONS)
+					scancode = sel < gameUi()->options.mouse ? SDL_SCANCODE_DOWN : sel > gameUi()->options.mouse ? SDL_SCANCODE_UP : SDL_SCANCODE_RETURN;
+				else if (menu == MENU_MOUSE_CONFIG)
+				{
+					if (mouseStage < 2 * MOUSE_BUTTON_COUNT)
+					{
+						unsigned button = mouseStage / 2;
+						if (!(mouseStage % 2))
+						{ mouseBefore = mouse_button_action(button); scancode = SDL_SCANCODE_RETURN; }
+						else
+						{
+							if (mouse_button_action(button) != (MouseAction)((mouseBefore + 1) % MOUSE_ACTION_COUNT)) exit(EXIT_FAILURE);
+							regress_flow_coverage("Mouse button %u action cycled.", button);
+							scancode = SDL_SCANCODE_DOWN;
+						}
+						++mouseStage;
+					}
+					else if (mouseStage++ == 2 * MOUSE_BUTTON_COUNT)
+						scancode = SDL_SCANCODE_RETURN;
+					else
+					{
+						for (unsigned b = 0; b < MOUSE_BUTTON_COUNT; ++b)
+							if (mouse_button_action(b) != (MouseAction)gameUi()->default_mouse_actions[b]) exit(EXIT_FAILURE);
+						regress_flow_coverage("Mouse Reset restored all defaults.");
+						pushKey(SDL_SCANCODE_RETURN); // Done
+						scancode = SDL_SCANCODE_DOWN;
+					}
+				}
+			}
+			else if (flowIs("save") && flowLevels >= 1 && saveStage < 4)
+			{
+				if (saveStage == 0 && menu == MENU_FULL_GAME)
+					scancode = sel < 5 ? SDL_SCANCODE_DOWN : sel > 5 ? SDL_SCANCODE_UP : SDL_SCANCODE_RETURN;
+				else if (saveStage == 0 && menu == MENU_OPTIONS)
+					scancode = sel < gameUi()->options.save ? SDL_SCANCODE_DOWN : sel > gameUi()->options.save ? SDL_SCANCODE_UP : SDL_SCANCODE_RETURN;
+				else if (saveStage == 0 && menu == MENU_LOAD_SAVE)
+				{
+					savedHash = persistenceHash(); saveStage = 1;
+					regress_flow_coverage("save state %016llx episode %u.", (unsigned long long)savedHash, (unsigned)episodeNum);
+					scancode = SDL_SCANCODE_RETURN;
+				}
+				else if (saveStage == 1 && saveFiles[0].level == 0)
+					scancode = SDL_SCANCODE_RETURN; // name confirmation
+				else if (saveStage <= 2 && menu == MENU_LOAD_SAVE)
+				{
+					saveStage = 2;
+					regress_flow_coverage("slot 1 saved through options menu.");
+					scancode = SDL_SCANCODE_ESCAPE;
+				}
+				else if (saveStage == 2 && menu == MENU_OPTIONS)
+					scancode = SDL_SCANCODE_ESCAPE;
+				else if (saveStage >= 2 && menu == MENU_FULL_GAME)
+				{
+					saveStage = 3;
+					scancode = sel < 7 ? SDL_SCANCODE_DOWN : SDL_SCANCODE_RETURN;
+				}
+				else scancode = SDL_SCANCODE_RETURN;
+			}
+			else
 			if (menu == MENU_FULL_GAME)
 				scancode = sel < NEXT_LEVEL_ROW ? SDL_SCANCODE_DOWN : SDL_SCANCODE_RETURN;
 			else if (menu == MENU_1_PLAYER_ARCADE || menu == MENU_2_PLAYER_ARCADE || menu == MENU_SUPER_TYRIAN)
@@ -200,7 +302,7 @@ void regress_flow_supply_input(void)
 		KeyboardInput key = { SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, false), (Uint16)scancode, SDL_KMOD_NONE, 0 };
 
 		++flowFilled;
-		keyboardPushInput(&key);
+		supplyKey(&key);
 		return;
 	}
 
@@ -220,6 +322,7 @@ void regress_flow_supply_input(void)
 
 void regress_flow_init(void)
 {
+	saveStage = mouseStage = 0;
 	flowKeyCount = flowKeyNext = 0;
 	flowFillEnter = false;
 	flowFilled = 0;
@@ -277,8 +380,12 @@ void regress_flow_init(void)
 			pushKey(SDL_SCANCODE_RETURN);                              // the board
 		}
 	}
-	else if (flowIs("episode"))
+	else if (flowIs("episode") || flowIs("save") || flowIs("mouse"))
 	{
+		if (flowIs("save") && !userFilesEnabled())
+		{ logFatal("Save flow requires --regress-user-root."); exit(EXIT_FAILURE); }
+		if (flowIs("mouse") && !gameUi()->mouse_menu)
+		{ logFatal("This variant has no Mouse menu."); exit(EXIT_FAILURE); }
 		flowEpisode = flowParam("ep", 1);
 		flowLastEpisode = flowParam("to", flowEpisode);
 		flowLevelTicks = flowParam("ticks", 4);
@@ -434,6 +541,24 @@ void regress_flow_run(void)
 	}
 
 	JE_main();
+	if (flowIs("save"))
+	{
+		if (saveStage != 3 || saveFiles[0].level == 0)
+		{ logError("Save flow FAIL: no saved slot."); exit(EXIT_FAILURE); }
+		flowFillEnter = false;
+		pushKey(SDL_SCANCODE_DOWN); // title Load Game
+		pushKey(SDL_SCANCODE_RETURN);
+		pushKey(SDL_SCANCODE_RETURN); // slot 1
+		if (!titleScreen()) exit(EXIT_FAILURE);
+		Uint64 loaded = persistenceHash();
+		regress_flow_coverage("load state %016llx episode %u.", (unsigned long long)loaded, (unsigned)episodeNum);
+		if (loaded != savedHash || timedBattleMode)
+		{ logError("Save flow FAIL: persisted state differs."); exit(EXIT_FAILURE); }
+		regress_flow_coverage("save/load state hash identical; title Load screen used.");
+		saveStage = 4;
+		flowFillEnter = true;
+		JE_main();
+	}
 
 	regress_flow_coverage("the game returned to the title (%lu of %lu keys used).", (unsigned long)flowKeyNext, (unsigned long)flowKeyCount);
 	regress_finish();
@@ -444,6 +569,21 @@ void regress_flow_run(void)
 
 void regress_flow_level_begin(void)
 {
+	if (regress_boss)
+	{
+		bossTime = bossTicks = 0;
+		for (unsigned i = 0; i < maxEvent; ++i)
+			if (eventRec[i].eventtype == 79 && (eventRec[i].eventdat || eventRec[i].eventdat2))
+			{ bossTime = eventRec[i].eventtime; break; }
+		if (!bossTime)
+		{
+			logInfo("Boss coverage: no boss event in episode %u physical %u.", episodeNum, lvlFileNum);
+			regress_finish(); exit(EXIT_SUCCESS);
+		}
+
+		youAreCheating = true;
+		logInfo("Boss coverage: runtime event target %u episode %u physical %u.", bossTime, episodeNum, lvlFileNum);
+	}
 	if (!regress_flow_active())
 		return;
 
@@ -459,10 +599,39 @@ void regress_flow_level_begin(void)
 
 bool regress_flow_level_tick(void)
 {
+	if (regress_boss)
+	{
+		bool active = false;
+		for (unsigned b = 0; b < COUNTOF(boss_bar); ++b)
+			for (unsigned e = 0; e < COUNTOF(enemy); ++e)
+				if (boss_bar[b].link_num && enemyAvail[e] != 1 && enemy[e].armorleft && enemy[e].linknum == boss_bar[b].link_num)
+				{
+					active = true;
+					if (bossTicks == 0) logInfo("Boss coverage: boss %u active episode %u physical %u.", enemy[e].enemytype, episodeNum, lvlFileNum);
+				}
+		if (active && ++bossTicks == 60)
+		{ logInfo("Boss coverage: fight ran 60 ticks."); regress_finish(); exit(EXIT_SUCCESS); }
+		if (!bossTicks && eventLoc <= maxEvent)
+		{
+			// Discard early waves while accelerating the event clock, leaving
+			// allocation room for the real-data boss spawn group.
+			if ((unsigned)curLoc + 100 < bossTime)
+				memset(enemyAvail, 1, sizeof enemyAvail);
+			curLoc = eventRec[eventLoc-1].eventtime;
+		}
+	}
 	if (!regress_flow_active())
 		return false;
 
 	++flowTick;
+	if (flowIs("save") && saveStage == 4 && flowTick == 40)
+	{ regress_flow_coverage("loaded game continued for 40 ticks."); regress_finish(); exit(EXIT_SUCCESS); }
+	if (flowIs("battle") && flowTick == 4)
+	{
+		if (saveFiles[10].level != 0)
+		{ logError("Timed Battle FAIL: backup save exists."); exit(EXIT_FAILURE); }
+		regress_flow_coverage("Timed Battle saving unavailable: gameplay has no save item; backup suppressed.");
+	}
 
 	if (flowDieTicks != 0 && flowTick == flowDieTicks)
 	{

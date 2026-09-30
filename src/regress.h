@@ -232,4 +232,11 @@ void regress_capture_modern_frame(void);
 // stream is presentation-independent, so a Classic run and a Modern run of the
 // same case must produce byte-identical files.
 
+extern const char *regress_data_audit_root;
+extern int regress_boss;
+extern const char *regress_handoff;
+extern int regress_flow_gamepad;
+void regress_audit_open(const char *path);
+bool regress_gamepad_key(SDL_Scancode key, SDL_KeyboardEvent *out);
+
 #endif /* REGRESS_H */
