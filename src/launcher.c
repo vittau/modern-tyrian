@@ -24,6 +24,7 @@
 #include "keyboard.h"
 #include "launcher_art.h"
 #include "logging.h"
+#include "regress.h"
 #include "opentyr.h"
 #include "video.h"
 
@@ -1669,6 +1670,28 @@ static LauncherStep handleKey(LauncherView *v, const SDL_KeyboardEvent *key, con
 
 bool launcherChoose(GameVariant preselect, const char *data_override, const char *initial_error, GameVariant *out)
 {
+	if (regress_handoff != NULL)
+	{
+		GameVariant target;
+		if (!gameVariantParse(regress_handoff, &target))
+			return false;
+		LauncherView fixture;
+		memset(&fixture, 0, sizeof fixture);
+		fixture.selected = preselect;
+		logInfo("Launcher coverage: preselected %s.", gameVariantGet(preselect)->cli_name);
+		SDL_KeyboardEvent key;
+		if (!regress_gamepad_key(target == VARIANT_TYRIAN21 ? SDL_SCANCODE_LEFT : SDL_SCANCODE_RIGHT, &key) ||
+		    handleKey(&fixture, &key, data_override) != STEP_CONTINUE || fixture.selected != target ||
+		    !regress_gamepad_key(SDL_SCANCODE_RETURN, &key) ||
+		    handleKey(&fixture, &key, data_override) != STEP_CHOSEN)
+		{
+			logError("Launcher coverage FAIL: gamepad selection.");
+			exit(EXIT_FAILURE);
+		}
+		*out = fixture.selected;
+		logInfo("Launcher coverage: gamepad chose %s.", gameVariantGet(*out)->cli_name);
+		return true;
+	}
 	SDL_Renderer *r = video_renderer();
 	LauncherTextures tex;
 	LauncherView view;

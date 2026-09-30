@@ -277,6 +277,12 @@ if ! "$ROOT/tools/check_installer.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/installer"
 	exit 1
 fi
 
+if ! "$ROOT/tools/check_final_regression.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/final-regression" ||
+   ! cmp "$BASELINE_DIR/final-regression.txt" "$ACTUAL_DIR/final-regression/final-regression.txt"; then
+	echo "ERROR: final matrix checks failed"
+	exit 1
+fi
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'

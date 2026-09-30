@@ -41,6 +41,18 @@
 //        until the end of episode E has run and the next episode is set up (or,
 //        for the last episode, the credits have played).  to=L stops a
 //        multi-episode run at the end of episode L.
+//   save:ep=E[,ticks=T]
+//        Complete one level, save slot 1 through shop Options, quit to the
+//        title, Load slot 1, compare the persisted state, continue 40 ticks.
+//        Requires --regress-user-root; saves restart levels, not live fights.
+//   mouse:ep=E
+//        Exercise the three Mouse actions, Reset and Done in the real shop.
+//   --regress-gamepad routes navigation through push_joysticks_as_keyboard.
+//   --regress-handoff=2.1|2000 enters the real launcher selection controller
+//        before provider/assets/saves and verifies last_variant preselection.
+//   --regress-data-audit=ROOT checks/logs resolved data opens from bootstrap on.
+//   --regress-boss accelerates early event waves, frees early enemy slots, then
+//        runs a loaded event-79 boss group for 60 ticks (use --regress-level).
 //   list-levels:ep=E
 //        Print the sections of episode E that play a level, one per line, and exit.
 //

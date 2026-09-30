@@ -21,6 +21,7 @@
 #include "game_schema.h"
 #include "installer.h"
 #include "logging.h"
+#include "regress.h"
 #include "opentyr.h"
 
 #include <SDL3/SDL.h>
@@ -172,7 +173,10 @@ GameDataStatus gameDataLocate(const GameVariantDef *variant, const GameDataSearc
 	{
 		search->package_directory != NULL ? search->package_directory : baseData,
 #ifdef TYRIAN_DIR
-		TYRIAN_DIR,
+		// A regress-only default-search decoy, so tests never write into the
+		// actual system installation directory.
+		regress_data_audit_root != NULL && getenv("TYRIAN_REGRESS_DEFAULT") != NULL
+			? getenv("TYRIAN_REGRESS_DEFAULT") : TYRIAN_DIR,
 #endif
 		""
 	};
@@ -312,6 +316,8 @@ File gameDataOpen(const GameDataProvider *provider, const char *filename)
 	else
 		snprintf(path, size, "%s/%s", directory, filename);
 	errno = 0;
+	if (regress_data_audit_root != NULL)
+		regress_audit_open(path);
 	FILE *f = fopen(path, "rb");
 	File file = { f, errno, f == NULL };
 	free(path);

@@ -1096,7 +1096,7 @@ int main(int argc, char *argv[])
 		     strncmp("help", argv[i] + 2, strlen(argv[i] + 2)) == 0))
 			help_requested = true;
 	}
-	const bool launcher = !regress && !selftest && !bootstrap.variant_explicit && !help_requested;
+	const bool launcher = regress_handoff != NULL || (!regress && !selftest && !bootstrap.variant_explicit && !help_requested);
 	bool video_ready = false;
 
 	if (userFilesEnabled())

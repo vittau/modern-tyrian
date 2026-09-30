@@ -25,6 +25,7 @@
 #include "game_data.h"
 #include "game_variant.h"
 #include "logging.h"
+#include "regress.h"
 #include "opentyr.h"
 
 #include <SDL3/SDL.h>
@@ -107,6 +108,8 @@ static bool fileExists(const char *path)
 static File fileOpen(const char *path, const char *mode)
 {
 	errno = 0;  // fopen might not set errno
+	if (regress_data_audit_root != NULL)
+		logInfo("User audit: %s %s", mode, path);
 	FILE *f = fopen(path, mode);
 	return (File) { f, errno, f == NULL };
 }

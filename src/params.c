@@ -128,6 +128,10 @@ const Options *JE_paramOptions(void)
 		{ 312, 0,   "regress-front-power",  true },
 		{ 320, 0,   "regress-rules",        true },
 		{ 350, 0,   "regress-loadout",  true },
+		{ 380, 0,   "regress-data-audit", true },
+		{ 381, 0,   "regress-boss", false },
+		{ 383, 0,   "regress-handoff", true },
+		{ 382, 0,   "regress-gamepad", false },
 		{ 360, 0,   "regress-flow",     true },
 		{ 361, 0,   "regress-xmas",     false },
 		
@@ -203,6 +207,10 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-players=N          Start a --regress-level scenario with N players (1 or 2)");
 			logInfo("  --regress-loadout=widest     Equip the items with the widest names (HUD fit check)");
 			logInfo("  --regress-xmas               Run a regress case with Christmas mode on");
+			logInfo("  --regress-data-audit=ROOT    Assert and log every resolved data-file open in ROOT");
+			logInfo("  --regress-boss               Accelerate events to a runtime boss, then run 60 ticks");
+			logInfo("  --regress-gamepad            Route a flow through the controller menu adapter");
+			logInfo("  --regress-handoff=VARIANT    Headless launcher choice and normal startup handoff");
 			logInfo("  --regress-flow=NAME[:K=V,..] Play a scripted path through the real menus and levels");
 			logInfo("                               (battle, episode, list-levels; see src/regress_flow.h)");
 			logInfo("  --regress-arcade             Start a --regress-level scenario in 1-player arcade mode");
@@ -728,6 +736,18 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_xmas = 1;
 			break;
 
+		case 380:
+			regress_data_audit_root = option.arg;
+			break;
+		case 381:
+			regress_boss = 1;
+			break;
+		case 383:
+			regress_handoff = option.arg;
+			break;
+		case 382:
+			regress_flow_gamepad = 1;
+			break;
 		case 360: // --regress-flow=NAME[:key=value,...]
 			regress_flow = option.arg;
 			break;
