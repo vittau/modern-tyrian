@@ -115,7 +115,11 @@ bool playDemoKeys(void)
 	// never end the level from input.  (Strictly scenario-only; demo playback is
 	// untouched.)
 	if (regress_scenario_active())
+	{
+		if (regress_fire)
+			regress_scenario_input();
 		return true;
+	}
 
 	while (demoKeysWait == 0)
 	{

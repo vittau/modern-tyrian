@@ -64,6 +64,7 @@ extern int regress_replay_check;      // non-zero = record and replay-check ever
 extern int regress_interp_check;      // non-zero = record and validate the interpolated renderer
 extern int regress_interp_smoothness; // non-zero = per-tick monotonic motion check
 extern int regress_smooth_alphas;     // sub-frame alphas used by the smoothness check (>= 2)
+extern int regress_demo_hud_check;   // non-zero = assert a played demo follows the active mode's HUD
 extern int regress_gameplay_check;    // non-zero = assert every in-level frame drops the classic sidebar
 extern int regress_parallax_check;    // non-zero = assert the presentation never advances starfield/background
 extern int regress_smooth_effects_check;  // non-zero = assert fade/HUD interpolation stays between ticks
@@ -94,6 +95,13 @@ extern int regress_front_power;           // -1 = not overridden
 // so a HUD run shows the longest names it can meet.  The choice is computed from
 // the data, so no text of it is kept anywhere.
 extern int regress_loadout_widest;
+
+// --regress-items-new: give the players the variant's most distinctive items
+// (highest ship, Flying Punch port, a chargeable and a plain sidekick).
+// --regress-fire: a scenario fires, pulses the sidekicks and sweeps the ship.
+extern int regress_loadout_new;
+extern int regress_fire;
+void regress_scenario_input(void);
 
 // Applies the --regress-front-weapon/--regress-front-power overrides to player
 // 1's item set.  Called after JE_initPlayerData() on the --regress-script path;

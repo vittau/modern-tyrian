@@ -111,6 +111,9 @@ const Options *JE_paramOptions(void)
 		{ 287, 0,   "regress-interp-smoothness", false },
 		{ 288, 0,   "regress-smooth-alphas", true },
 		{ 289, 0,   "regress-gameplay-check", false },
+		{ 370, 0,   "regress-demo-hud-check", false },
+		{ 371, 0,   "regress-items-new", false },
+		{ 372, 0,   "regress-fire",       false },
 		{ 290, 0,   "light-tag-stats",   false },
 		{ 291, 0,   "light-threshold",   true },
 		{ 292, 0,   "regress-script",    true },
@@ -215,6 +218,11 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-smooth-alphas=N    Sub-frame samples for --regress-interp-smoothness (default 5)");
 			logInfo("  --regress-gameplay-check     Assert every in-level Modern frame uses the gameplay");
 			logInfo("                               composition (drops the classic sidebar)");
+			logInfo("  --regress-demo-hud-check     Assert a played demo shows the active mode's HUD: the Modern");
+			logInfo("                               side panels, or the classic sidebar in Classic");
+			logInfo("  --regress-items-new        Equip a scenario with the variant's newest items (ship, Punch,");
+			logInfo("                               chargeable sidekick)");
+			logInfo("  --regress-fire               A --regress-level scenario fires and sweeps the ship");
 			logInfo("  --regress-parallax-check     Per level tick, assert the interpolated presentation leaves");
 			logInfo("                               the starfield/background scroll untouched (per-tick motion)");
 			logInfo("  --regress-smooth-effects-check  Per level tick, assert the interpolated palette fade and");
@@ -622,6 +630,15 @@ void JE_paramCheck(int argc, char *argv[])
 		case 289: // --regress-gameplay-check
 			regress_gameplay_check = 1;
 			break;
+		case 370: // --regress-demo-hud-check
+			regress_demo_hud_check = 1;
+			break;
+		case 371: // --regress-items-new
+			regress_loadout_new = 1;
+			break;
+		case 372: // --regress-fire
+			regress_fire = 1;
+			break;
 		case 290: // --light-tag-stats
 			modern_bloom_set_stats(true);
 			break;
@@ -814,6 +831,12 @@ void JE_paramCheck(int argc, char *argv[])
 	if (regress_interp_smoothness && regress_demo == 0 && regress_scenario_episode == 0)
 	{
 		logError("%s: --regress-interp-smoothness requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_demo_hud_check && regress_demo == 0 && regress_scenario_episode == 0)
+	{
+		logError("%s: --regress-demo-hud-check requires --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 

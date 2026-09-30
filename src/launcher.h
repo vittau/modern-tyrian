@@ -31,21 +31,12 @@
 // the whole run, because the loaders keep per-process state; there is no way
 // back to the launcher and no switching in process.
 
-// What the launcher knows about the Tyrian 2000 data when the player asks to
-// install it.
-typedef struct
-{
-	GameDataStatus status;    // result of locating and validating the data
-	char detail[256];         // why the data cannot be used ("" if not found)
-	char suggested_dir[512];  // where the game looks first; also shown to the player
-} Launcher2000Data;
-
-// The hook the data installer fills.  Called when the player confirms the
-// INSTALL button.  Return true if the installer put valid Tyrian 2000 data in
-// place: the launcher then checks the data again and turns the button into
-// PLAY.  Otherwise write the text the launcher shows the player into `message`.
-// Until the installer is wired in, this only says where to place the data.
-bool launcherInstall2000(const Launcher2000Data *data, char *message, size_t message_size);
+// INSTALL on the Tyrian 2000 panel opens the install dialog (download from
+// camanis.net, a local .zip, or an existing folder), which drives the
+// non-blocking installer (installer.h) from the launcher's own event loop.  When
+// the data validates the panel turns into PLAY.  Where no file dialog exists (the
+// Steam Deck's Game Mode, or a system without a portal) the zip and folder
+// choices explain where to put the files, and the launcher picks them up.
 
 // Shows the launcher on the window created by init_video() and returns once the
 // player has chosen a variant whose data is present and valid (true, *out set),
@@ -56,11 +47,21 @@ bool launcherInstall2000(const Launcher2000Data *data, char *message, size_t mes
 // The caller selects the variant and continues startup.
 bool launcherChoose(GameVariant preselect, const char *data_override, const char *initial_error, GameVariant *out);
 
-// --regress-launcher=WxH,installed|missing,1|2[,about|message] renders one
+// --regress-launcher=WxH,installed|missing,1|2[,about|message|install|install-nodlg|
+// progress|nocurl|success|manual] renders one
 // launcher frame at a fixed size in software, with no window, clock, data or
 // input, and writes a hash of the frame (to --regress-out=PATH, or stdout).
 // --launcher-png=PATH also saves the frame.  Nothing else is initialised.
 bool launcherRegressRequested(int argc, char *argv[]);
 int launcherRegressMain(int argc, char *argv[]);
+
+// --launcher-flow=REQUEST drives the launcher's install controller with no
+// window, through the same functions the screen uses, and prints the result.
+// REQUEST: download | zip=PATH | folder=PATH | scan | picker-zip=PATH |
+// picker-folder=PATH | picker-cancel | picker-error (the last four feed the
+// file-dialog callback directly).  --install-2000-spec=FILE applies as for
+// --install-2000.  Exit 0 when an install request ends installed.
+bool launcherFlowRequested(int argc, char *argv[]);
+int launcherFlowMain(int argc, char *argv[]);
 
 #endif // LAUNCHER_H

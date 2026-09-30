@@ -69,12 +69,35 @@ the panel; it never skips this screen. Down selects the About/Exit bar; About
 shows version, credits, licences, and the data paths in use.
 
 The package includes only the freeware 2.1 data. Until a valid 2000 installation
-is found, its button reads **INSTALL** and explains manual installation. Place
-your 2000 data in `~/Games/opentyrian/tyrian2000/`, beside the executable, or
-set the `TYRIAN2000_DATA` environment variable to its directory. Saves and
-scores are separate in `tyrian21/` and `tyrian2000/` under the shared user root.
-For automation, `--variant=2.1|2000` skips the launcher; leave normal Steam
-launch options empty to use the selector.
+is found, its button reads **INSTALL**. Confirming it opens an install dialog with
+three choices, all usable with the gamepad alone (d-pad up/down, A to choose, B
+to go back):
+
+- **Download from camanis.net** (the default, about 5 MB). The launcher shows a
+  progress bar; B cancels and leaves nothing behind. When it finishes, the button
+  becomes **PLAY**.
+- **Install from a .zip file…** and **Use an existing Tyrian 2000 folder…** (a GOG
+  copy, for example).
+
+In **Game Mode** there is no file dialog (no desktop portal), so the launcher
+never opens one. Those two choices instead show a "Place the files" screen with
+the exact locations. Put the files there with Desktop Mode's file manager, then
+come back to Game Mode and choose **Look now** (the launcher also looks again
+when its window regains focus):
+
+- a `tyrian2000.zip` in `~/.local/share/opentyrian/`, or
+- a folder with the game's files as `~/.local/share/opentyrian/data-tyrian2000/`
+  (this is also where the download installs), or
+- a folder named `tyrian2000` beside the executable, or set `TYRIAN2000_DATA`.
+
+The download needs the system `curl`. The Steam Linux Runtime 3.0 "sniper"
+container ships `curl` 7.74 with `ca-certificates` (checked in the runtime's
+public package list, `com.valvesoftware.SteamRuntime.Platform-amd64,i386-sniper.manifest.dpkg`),
+and SteamOS has it too, so the download should work in Game Mode; this has not
+been tried on a physical Deck. If `curl` is missing the launcher says so and
+offers the zip and folder choices. Saves and scores are separate in `tyrian21/`
+and `tyrian2000/` under the shared user root. For automation, `--variant=2.1|2000`
+skips the launcher; leave normal Steam launch options empty to use the selector.
 
 ## 4. Controller
 
