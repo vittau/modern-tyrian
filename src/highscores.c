@@ -19,6 +19,7 @@
 #include "highscores.h"
 
 #include "config.h"
+#include "game_rules.h"
 #include "game_schema.h"
 
 #include <assert.h>
@@ -36,13 +37,13 @@ static bool usesVariantBoards(void)
 	return gameSchema()->save_suffix_main_boards > 0;
 }
 
-// The variant table also holds the Timed Battle boards first.
+// A board number indexes the variant table directly: the Timed Battle boards
+// come first, then the main boards (highScoreBoard() and highScoreTimedBoard()
+// return numbers of that kind).
 static VariantHighScore *variantEntry(unsigned int board, unsigned int rank)
 {
-	const unsigned int index = gameSchema()->save_suffix_timed_boards + board;
-
-	assert(index < VARIANT_SCORE_BOARDS && rank < HIGH_SCORE_ENTRIES);
-	return &variantHighScores[index][rank];
+	assert(board < VARIANT_SCORE_BOARDS && rank < HIGH_SCORE_ENTRIES);
+	return &variantHighScores[board][rank];
 }
 
 static JE_SaveFileType *slotEntry(unsigned int board, unsigned int rank)
@@ -68,7 +69,20 @@ unsigned int highScoreEpisodes(void)
 unsigned int highScoreBoard(unsigned int episode, bool twoPlayer)
 {
 	assert(episode >= 1 && episode <= highScoreEpisodes());
-	return (episode - 1) * 2 + (twoPlayer ? 1 : 0);
+	const unsigned int board = (episode - 1) * 2 + (twoPlayer ? 1 : 0);
+
+	return usesVariantBoards() ? gameSchema()->save_suffix_timed_boards + board : board;
+}
+
+unsigned int highScoreTimedBattles(void)
+{
+	return gameRules()->timed_battle != NULL && usesVariantBoards() ? gameRules()->timed_battle->battle_count : 0;
+}
+
+unsigned int highScoreTimedBoard(unsigned int battle)
+{
+	assert(battle >= 1 && battle <= highScoreTimedBattles());
+	return battle - 1;
 }
 
 JE_longint highScoreValue(unsigned int board, unsigned int rank)

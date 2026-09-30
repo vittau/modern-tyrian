@@ -55,6 +55,10 @@ void JE_itemScreen(void);
 void JE_itemScreenStartAt(int menu, int cube);
 void JE_itemScreenStartSelection(int sel);  // menu row (2 = first item)
 
+// Regression flows: whether the item screen is open and, if it is, its current
+// menu (MENU_*) and selected row.
+bool JE_itemScreenState(int *menu, int *sel);
+
 void load_cubes(void);
 bool load_cube(int cube_slot, int cube_index);
 

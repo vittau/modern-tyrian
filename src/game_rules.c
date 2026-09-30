@@ -20,6 +20,7 @@
 
 #include "sndmast.h"
 
+#include <stdio.h>
 #include <string.h>
 
 // --- Arcade ships -----------------------------------------------------------
@@ -138,6 +139,11 @@ static const GameEventRule events2000[] =
 static const uint32_t initialCash21[]   = { 10000, 15000, 20000, 30000 };
 static const uint32_t initialCash2000[] = { 10000, 15000, 20000, 30000, 20000 };
 
+static const GameTimedBattleRules timedBattle2000 =
+{
+	3, { 1, 5, 5 }, 13, 100, 1000
+};
+
 const GameRules gameRules21 =
 {
 	NULL, 0,
@@ -147,7 +153,8 @@ const GameRules gameRules21 =
 	&arcade21,
 	false,
 	53, -1, false,
-	initialCash21, false
+	initialCash21, false,
+	NULL, false
 };
 
 const GameRules gameRules2000 =
@@ -159,7 +166,8 @@ const GameRules gameRules2000 =
 	&arcade2000,
 	true,
 	54, 198, true,
-	initialCash2000, true
+	initialCash2000, true,
+	&timedBattle2000, true
 };
 
 const GameRules *gameRules(void)
@@ -219,4 +227,12 @@ bool gameIsSmokeTrail(int trail)
 {
 	const int alternate = gameRules()->alt_smoke_trail;
 	return trail == 98 || (alternate >= 0 && trail == alternate);
+}
+
+void gameFormatLevelTimer(char *buffer, size_t size, int countdown)
+{
+	if (gameRules()->timer_truncated_tenths)
+		snprintf(buffer, size, "%d.%d", countdown / 100, (countdown / 10) % 10);
+	else
+		snprintf(buffer, size, "%.1f", countdown / 100.0f);
 }

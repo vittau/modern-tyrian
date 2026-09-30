@@ -213,6 +213,7 @@ JE_boolean twoPlayerMode, twoPlayerLinked, onePlayerAction, superTyrian;
 JE_boolean trentWin = false;
 JE_byte    superArcadeMode;
 bool       timedBattleMode;
+JE_byte    timeBattleSelection;
 
 JE_byte    superArcadePowerUp;
 
