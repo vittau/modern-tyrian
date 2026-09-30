@@ -618,3 +618,8 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - **Escopo:** só o modo painel do Modern. Em 4:3 os painéis teriam 28 px, abaixo do mínimo de 51 (`MODERN_HUD_MIN_PANEL_WIDTH`), então o 4:3 segue no fallback sem painéis e não muda. Classic, telas fora do gameplay e todos os baselines de estado continuam idênticos.
   - **Regressão:** mudaram 15 baselines Modern do 2.1, 15 do 2000 e os dois agregados de pausa Modern em `final-regression.txt` de cada variante. As suítes passam com 166 e 153 casos.
   - **Worker:** Codex `gpt-6.1-sol` (esforço medium), despachado por `--inject`.
+- **Segunda passada (`e3325be`)**, depois do teste do usuário: o filete não reagia aos glints e os glints eram espelhados, o que ficava repetitivo.
+  - **Bloom no filete:** longe dos glints o filete é ciano (~135,170,193); perto de cada glint ele sobe até quase branco numa queda quadrática de 40 a 56 linhas, espalha por três colunas do painel e vaza de leve numa coluna do playfield. Uma névoa quente fraca envolve o núcleo.
+  - **Glints diferentes por lado:** cada lado tem sua tabela estática (linha, pico, rastro, raio e força do bloom): esquerda nas linhas 11 e 133, direita nas 38 e 166.
+  - **Revisão:** a primeira versão do bloom foi recusada, porque subia só de ~150 para ~190 em ±10 linhas e o filete tinha perdido o tom frio. O worker refez com os valores medidos no relatório.
+  - **Regressão:** mudaram os mesmos baselines da primeira passada.
