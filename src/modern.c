@@ -190,6 +190,12 @@ static SDL_Surface *modern_screen_scratch = NULL;
 // Consumed (and cleared) by modern_build_frame().
 static bool modern_screen_pending = false;
 
+// Modal pixels are drawn in a separate classic-size surface, then laid over
+// the already widened backdrop. They must never participate in split detection.
+static SDL_Surface *modern_dialog_surface = NULL;
+static Uint8 modern_dialog_background[vga_width * vga_height];
+static Uint8 modern_dialog_underlay[vga_width * vga_height];
+
 // --- Non-gameplay backdrop (Phase 1, step S1) -------------------------------
 
 // Pristine 8-bit copy of the picture JE_loadPic last decoded (the current
@@ -214,8 +220,8 @@ static int modern_cursor_w = 0, modern_cursor_h = 0;
 // repeat, so the screen falls back to the blurred fill.
 //
 // MIN skips the panel's left divider and its shadow; MAX is the last flat column
-// before the right border (MODERN_PIC1_SPLIT_MAX, shared with the callers that
-// cap a code-drawn overlay's position).
+// before the right border (MODERN_PIC1_SPLIT_MAX). Modal overlays are composed
+// afterwards and do not constrain this split.
 #define MODERN_PIC1_SPLIT_MIN 170
 
 // Rows below the pic-1 right panel (the bottom frame band) carry the one-line
@@ -691,27 +697,49 @@ int modern_dialog_offset_x(int box_left, int box_w)
 	if (!modern_screen_wide())
 		return 0;
 
-	const int w = modern_frame_state.w;
-	const int canvas_left = (w - box_w) / 2;
-	int frame_left = box_left;
+	// The modal surface is centred independently of the backdrop's layout.
+	// Round in canvas space first: odd box/canvas widths must retain the
+	// existing centred-frame offset (also used by high-score cursor state).
+	return (modern_frame_state.w - box_w) / 2 -
+	       (modern_frame_state.w - vga_width) / 2 - box_left;
+}
 
-	if (modern_backdrop_valid && modern_backdrop_pic == 1)
+SDL_Surface *modern_dialog_begin(SDL_Surface *background)
+{
+	if (!modern_screen_wide())
+		return background;
+
+	assert(modern_dialog_surface == NULL);
+	modern_build_frame(background);
+	const int origin = (modern_frame_state.w - vga_width) / 2;
+	for (int y = 0; y < vga_height; ++y)
 	{
-		// Widened pic-1 layout: the frame is left-aligned, so the box's frame
-		// x is its canvas x.  Keep the box's right column left of the split.
-		frame_left = MIN(canvas_left, MODERN_PIC1_SPLIT_MAX - box_w);
+		const Uint8 *row = (const Uint8 *)background->pixels + y * background->pitch;
+		memcpy(modern_dialog_background + y * vga_width, row, vga_width);
+		for (int x = 0; x < vga_width; ++x)
+		{
+			int sx = x;
+			if (modern_last_kind == MODERN_FRAME_WIDEN)
+				sx = modern_remap_x[origin + x];
+			modern_dialog_underlay[y * vga_width + x] = row[sx];
+		}
 	}
-	else
+	modern_dialog_surface = SDL_CreateSurface(vga_width, vga_height, SDL_PIXELFORMAT_INDEX8);
+	if (modern_dialog_surface == NULL)
 	{
-		// Centred 320 frame: its centre maps to the canvas centre, so the box
-		// only moves inside the frame.
-		frame_left = canvas_left - (w - vga_width) / 2;
+		logFatal("Failed to allocate the Modern dialog: %s", SDL_GetError());
+		exit(EXIT_FAILURE);
 	}
+	for (int y = 0; y < vga_height; ++y)
+		memcpy((Uint8 *)modern_dialog_surface->pixels + y * modern_dialog_surface->pitch,
+		       modern_dialog_underlay + y * vga_width, vga_width);
+	return modern_dialog_surface;
+}
 
-	if (frame_left < box_left)
-		frame_left = box_left;
-
-	return frame_left - box_left;
+void modern_dialog_end(void)
+{
+	SDL_DestroySurface(modern_dialog_surface);
+	modern_dialog_surface = NULL;
 }
 
 void modern_mouse_cursor_set(int x, int y, int w, int h)
@@ -813,6 +841,7 @@ void modern_update_canvas_size(void)
 
 void modern_deinit(void)
 {
+	modern_dialog_end();
 	modern_ready = false;
 
 	if (modern_texture != NULL)
@@ -921,8 +950,8 @@ void modern_build_frame(SDL_Surface *src_surface)
 	ModernFrame *frame = &modern_frame_state;
 	assert(frame->pixels != NULL);
 
-	frame->src = src_surface->pixels;
-	frame->src_pitch = src_surface->pitch;
+	frame->src = modern_dialog_surface != NULL ? modern_dialog_background : src_surface->pixels;
+	frame->src_pitch = modern_dialog_surface != NULL ? vga_width : src_surface->pitch;
 	frame->palette = get_active_palette();
 
 	// The smooth presentation may ask this frame to redraw the dynamic HUD bars
@@ -1081,6 +1110,23 @@ void modern_build_frame(SDL_Surface *src_surface)
 		}
 
 		modern_frame_offset_x = offset_x;
+		modern_frame_offset_y = 0;
+	}
+
+	if (modern_dialog_surface != NULL)
+	{
+		const int origin = (frame->w - vga_width) / 2;
+		for (int y = 0; y < vga_height; ++y)
+		{
+			const Uint8 *row = (const Uint8 *)modern_dialog_surface->pixels + y * modern_dialog_surface->pitch;
+			for (int x = 0; x < vga_width; ++x)
+				if (row[x] != modern_dialog_underlay[y * vga_width + x])
+					frame->pixels[y * frame->w + origin + x] = rgb_palette[row[x]];
+		}
+		// Input coordinates belong to the centred modal surface, including its
+		// cursor and hit boxes, rather than to the backdrop's inserted band.
+		modern_last_kind = MODERN_FRAME_SCREEN;
+		modern_frame_offset_x = origin;
 		modern_frame_offset_y = 0;
 	}
 

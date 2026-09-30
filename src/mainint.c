@@ -2889,7 +2889,10 @@ void JE_operation(JE_byte slot)
 
 		flash = 8 * 16 + 10;
 
-		JE_barShade(VGAScreen, 65, 55, 255, 155);
+		SDL_Surface *background = VGAScreen;
+		VGAScreen = modern_dialog_begin(background);
+		const int dx = modern_dialog_offset_x(50, sprite(OPTION_SHAPES, 35)->width);
+		JE_barShade(VGAScreen, 65 + dx, 55, 255 + dx, 155);
 
 		SDL_StartTextInput(main_window);
 
@@ -2898,15 +2901,15 @@ void JE_operation(JE_byte slot)
 		{
 			setFrameCount(1);
 
-			blit_sprite(VGAScreen, 50, 50, OPTION_SHAPES, 35);  // message box
+			blit_sprite(VGAScreen, 50 + dx, 50, OPTION_SHAPES, 35);  // message box
 
-			JE_textShade(VGAScreen, 60, 55, miscText[1-1], 11, 4, DARKEN);
-			JE_textShade(VGAScreen, 70, 70, levelName, 11, 4, DARKEN);
+			JE_textShade(VGAScreen, 60 + dx, 55, miscText[1-1], 11, 4, DARKEN);
+			JE_textShade(VGAScreen, 70 + dx, 70, levelName, 11, 4, DARKEN);
 
-			int text_x = 54 + 45 - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
+			int text_x = 54 + 45 + dx - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
 			JE_outTextAdjust(VGAScreen, text_x, 128, miscText[9], 15, -5, FONT_SHAPES, true);
 
-			text_x = 149 + 45 - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
+			text_x = 149 + 45 + dx - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
 			JE_outTextAdjust(VGAScreen, text_x, 128, miscText[10], 15, -5, FONT_SHAPES, true);
 
 			// TODO: Rework this so that cursor blink timing is independent of input.
@@ -2917,8 +2920,8 @@ void JE_operation(JE_byte slot)
 
 				strcpy(tempStr, miscText[2-1]);
 				strncat(tempStr, stemp, temp);
-				JE_outText(VGAScreen, 65, 89, tempStr, 8, 3);
-				tempW = 65 + JE_textWidth(tempStr, TINY_FONT);
+				JE_outText(VGAScreen, 65 + dx, 89, tempStr, 8, 3);
+				tempW = 65 + dx + JE_textWidth(tempStr, TINY_FONT);
 				JE_barShade(VGAScreen, tempW + 2, 90, tempW + 6, 95);
 				fill_rectangle_xy(VGAScreen, tempW + 1, 89, tempW + 5, 94, flash);
 
@@ -2945,14 +2948,14 @@ void JE_operation(JE_byte slot)
 
 			if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 			{
-				if (mouseInput.x > 56 && mouseInput.x < 142 &&
+				if (mouseInput.x > 56 + dx && mouseInput.x < 142 + dx &&
 				    mouseInput.y > 123 && mouseInput.y < 149)
 				{
 					quit = true;
 					JE_saveGame(slot, stemp);
 					JE_playSampleNum(S_SELECT);
 				}
-				else if (mouseInput.x > 151 && mouseInput.x < 237 &&
+				else if (mouseInput.x > 151 + dx && mouseInput.x < 237 + dx &&
 				         mouseInput.y > 123 && mouseInput.y < 149)
 				{
 					quit = true;
@@ -2995,6 +2998,9 @@ void JE_operation(JE_byte slot)
 				}
 			}
 		}
+
+		VGAScreen = background;
+		modern_dialog_end();
 
 		SDL_StopTextInput(main_window);
 	}

@@ -358,23 +358,14 @@ const char *modern_message_text(void);
 #define MODERN_BACKDROP_W 320
 #define MODERN_BACKDROP_H 200
 
-// The pic-1 right-panel widening inserts its band at (or left of) this source
-// column: the last flat panel column before the frame's right border.  A screen
-// that draws code-drawn elements on a pic-1 backdrop must keep them left of it;
-// JE_quitRequest() caps its Modern centring shift so the message box (and its
-// clipped drop shadow) stays at or left of MODERN_PIC1_SPLIT_MAX - 1.
+// Last flat source column available to the pic-1 widening split.
 #define MODERN_PIC1_SPLIT_MAX 311
 
-// Horizontal offset to add to a dialog's original 320-frame x coordinates so
-// its message box (originally at `box_left`, `box_w` wide, with the dark drop
-// shadow drawn offset down-right of it) is centred on the Modern canvas.
-// Returns 0 in Classic / Modern 4:3.  On the widened pic-1 layout the frame is
-// left-aligned and the right panel cannot be widened past
-// MODERN_PIC1_SPLIT_MAX, so the box is capped to keep its right column left of
-// the split (on ultrawide it stops just left of centre).  The caller must clip
-// the shadow's right edge at MODERN_PIC1_SPLIT_MAX - 1 so the backdrop never
-// crosses the split (modern_compose_widen() would tear a backdrop-coloured hole
-// in it).  Display-only; no game state is touched.
+// Draw a modal independently of the widened backdrop. Returns the original
+// surface in Classic / Modern 4:3; otherwise a centred 320x200 drawing surface.
+// Restore the caller's original surface and call end when the modal closes.
+SDL_Surface *modern_dialog_begin(SDL_Surface *background);
+void modern_dialog_end(void);
 int modern_dialog_offset_x(int box_left, int box_w);
 
 void modern_backdrop_set(int pic_id, const Uint8 *pixels, int pitch);

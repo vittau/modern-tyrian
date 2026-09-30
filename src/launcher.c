@@ -946,6 +946,10 @@ static void drawDialog(SDL_Renderer *r, const LauncherLayout *l, LauncherView *v
 
 static void launcherDraw(SDL_Renderer *r, const LauncherTextures *tex, LauncherView *v, int w, int h)
 {
+	// Reset the viewport after asynchronous window changes before the first
+	// draw, rather than inheriting a renderer projection from the old size.
+	SDL_SetRenderViewport(r, NULL);
+	SDL_SetRenderScale(r, 1.0f, 1.0f);
 	LauncherLayout l;
 	layoutCompute(&l, w, h);
 
@@ -1712,7 +1716,12 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 	if (initial_error != NULL)
 		showMessage(&view, initial_error);
 
-	video_fit_launcher_window();
+	if (!video_fit_launcher_window())
+	{
+		logError("The launcher window resize did not settle: %s", SDL_GetError());
+		texturesFree(&tex);
+		return false;
+	}
 
 	while (step == STEP_CONTINUE)
 	{
@@ -1804,7 +1813,7 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 				SDL_RenderCoordinatesFromWindow(r, fx, fy, &fx, &fy);
 
 				int w = 0, h = 0;
-				SDL_GetCurrentRenderOutputSize(r, &w, &h);
+				SDL_GetRenderOutputSize(r, &w, &h);
 				LauncherLayout l;
 				layoutCompute(&l, w, h);
 				const int hit = layoutHit(&l, (int)fx, (int)fy);
@@ -1842,7 +1851,7 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 		}
 
 		int w = 0, h = 0;
-		SDL_GetCurrentRenderOutputSize(r, &w, &h);
+		SDL_GetRenderOutputSize(r, &w, &h);
 		launcherDraw(r, &tex, &view, w, h);
 		SDL_RenderPresent(r);
 	}
@@ -1889,9 +1898,9 @@ int launcherRegressMain(int argc, char *argv[])
 	    (strcmp(data, "installed") != 0 && strcmp(data, "missing") != 0) ||
 	    (fields == 5 && strcmp(extra, "about") != 0 && strcmp(extra, "message") != 0 &&
 	     strcmp(extra, "install") != 0 && strcmp(extra, "install-nodlg") != 0 && strcmp(extra, "progress") != 0 &&
-	     strcmp(extra, "nocurl") != 0 && strcmp(extra, "success") != 0 && strcmp(extra, "manual") != 0))
+	     strcmp(extra, "nocurl") != 0 && strcmp(extra, "success") != 0 && strcmp(extra, "manual") != 0 && strcmp(extra, "first-frame") != 0))
 	{
-		logError("Bad --regress-launcher; expected WxH,installed|missing,1|2[,about|message|install|install-nodlg|progress|nocurl|success|manual].");
+		logError("Bad --regress-launcher; expected WxH,installed|missing,1|2[,about|message|install|install-nodlg|progress|nocurl|success|manual|first-frame].");
 		return EXIT_FAILURE;
 	}
 
@@ -1952,6 +1961,14 @@ int launcherRegressMain(int argc, char *argv[])
 	else if (strcmp(extra, "manual") == 0)
 		openManual(&view, "File pickers are not available here.");
 
+	if (strcmp(extra, "first-frame") == 0)
+	{
+		// Model a renderer whose viewport still describes the pre-resize window.
+		const SDL_Rect old_viewport = { 0, 0, 320, 200 };
+		SDL_SetRenderViewport(r, &old_viewport);
+	}
+	SDL_GetRenderOutputSize(r, &w, &h);
+
 	launcherDraw(r, &tex, &view, w, h);
 
 	SDL_Surface *frame = SDL_RenderReadPixels(r, NULL);
@@ -1960,6 +1977,26 @@ int launcherRegressMain(int argc, char *argv[])
 	{
 		logError("Failed to read the frame: %s", SDL_GetError());
 		return EXIT_FAILURE;
+	}
+
+	if (strcmp(extra, "first-frame") == 0)
+	{
+		SDL_RenderPresent(r);
+		SDL_GetRenderOutputSize(r, &w, &h);
+		launcherDraw(r, &tex, &view, w, h);
+		SDL_Surface *steady = SDL_RenderReadPixels(r, NULL);
+		SDL_Surface *steady_rgba = steady != NULL ? SDL_ConvertSurface(steady, SDL_PIXELFORMAT_RGBA32) : NULL;
+		bool equal = steady_rgba != NULL && steady_rgba->w == rgba->w && steady_rgba->h == rgba->h;
+		for (int y = 0; equal && y < rgba->h; ++y)
+			equal = memcmp((Uint8 *)rgba->pixels + y * rgba->pitch,
+			               (Uint8 *)steady_rgba->pixels + y * steady_rgba->pitch, (size_t)rgba->w * 4) == 0;
+		SDL_DestroySurface(steady_rgba);
+		SDL_DestroySurface(steady);
+		if (!equal)
+		{
+			logError("Launcher first frame differs from its settled layout.");
+			return EXIT_FAILURE;
+		}
 	}
 
 	// 64-bit FNV-1a over the RGB bytes, row by row.

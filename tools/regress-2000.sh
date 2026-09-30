@@ -290,6 +290,7 @@ run_case frames "screen-credits" --regress-screen=credits
 # and 46; the weapon simulator shows the 2000 upgrade policy (front "None" keeps
 # its power controls, the rear weapon previews its two modes).
 SCREENS=(
+	"quit|quit"
 	"title|title"
 	"episode-select|episode-select"
 	"gameplay-select|gameplay-select"
@@ -330,6 +331,8 @@ for entry in "${SCREENS[@]}"; do
 		run_case frames "$name" --regress-screen="$screen" --regress-modern --regress-aspect="$aspect"
 	done
 done
+
+run_case frames "modern-screen-quit-32x9" --regress-screen=quit --regress-modern --regress-aspect=32:9
 
 # More than one preview cycle: cover both the power/cost line and rear-mode hint.
 for aspect in classic 16:9 21:9; do

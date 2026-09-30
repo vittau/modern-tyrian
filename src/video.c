@@ -325,13 +325,18 @@ static void set_windowed_size_for_mode(void)
 	int w, h;
 	windowed_size_for_mode(&w, &h);
 	SDL_SetWindowSize(main_window, w, h);
+	SDL_SyncWindow(main_window);
 	window_center_in_display(window_get_display());
 }
 
-void video_fit_launcher_window(void)
+bool video_fit_launcher_window(void)
 {
+	// Fullscreen entry and window resizes are asynchronous on Cocoa. The first
+	// launcher frame must use the settled native output, including HiDPI.
+	if (!SDL_SyncWindow(main_window))
+		return false;
 	if (fullscreen_display != -1)
-		return;
+		return true;
 
 	// The largest 16:9 window inside ~80% of the usable desktop.
 	int w = 1280, h = 720;
@@ -352,9 +357,11 @@ void video_fit_launcher_window(void)
 		}
 	}
 
-	SDL_SetWindowSize(main_window, w, h);
+	if (!SDL_SetWindowSize(main_window, w, h) || !SDL_SyncWindow(main_window))
+		return false;
 	window_center_in_display(window_get_display());
 	modern_update_canvas_size();
+	return true;
 }
 
 void video_apply_display_settings(void)
@@ -385,12 +392,14 @@ void reinit_fullscreen(int new_display)
 		fullscreen_display = 0;
 	}
 
+	// Preserve Auto's current aspect before leaving fullscreen: SDL may report
+	// the old restored window (initially 320x200) during the transition.
+	int w, h;
+	windowed_size_for_mode(&w, &h);
 	SDL_SetWindowFullscreen(main_window, false);
-	{
-		int w, h;
-		windowed_size_for_mode(&w, &h);
-		SDL_SetWindowSize(main_window, w, h);
-	}
+	SDL_SyncWindow(main_window);
+	SDL_SetWindowSize(main_window, w, h);
+	SDL_SyncWindow(main_window);
 
 	if (fullscreen_display == -1)
 	{
@@ -412,7 +421,8 @@ void reinit_fullscreen(int new_display)
 
 	SDL_free(displays);
 
-	// The window size just changed; the Modern canvas width follows it.
+	// Settle the display transition before allocating the canvas/HUD surfaces.
+	SDL_SyncWindow(main_window);
 	modern_update_canvas_size();
 }
 
@@ -434,6 +444,7 @@ void video_on_win_resize(void)
 		h = h < vga_height ? vga_height : h;
 
 		SDL_SetWindowSize(main_window, w, h);
+		SDL_SyncWindow(main_window);
 	}
 
 	// "auto" derives the Modern canvas width from the window size.
