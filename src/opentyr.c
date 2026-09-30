@@ -251,7 +251,7 @@ void setupMenu(void)
 			.items = {
 				{ MENU_ITEM_DISPLAY, "Display:", "Change the display mode.", getDisplayPickerItemsCount, getDisplayPickerItem },
 				{ MENU_ITEM_SCALING_MODE, "Scaling Mode:", "Change the scaling mode.", getScalingModePickerItemsCount, getScalingModePickerItem },
-				{ MENU_ITEM_PRESENTATION, "Presentation:", "Change the presentation mode.", getPresentationPickerItemsCount, getPresentationPickerItem, true },
+				{ MENU_ITEM_PRESENTATION, "Presentation:", "Change the presentation mode.", getPresentationPickerItemsCount, getPresentationPickerItem },
 				{ MENU_ITEM_ASPECT, "Aspect:", "Change the Modern aspect ratio.", getAspectPickerItemsCount, getAspectPickerItem, true },
 				{ MENU_ITEM_PIXEL_ASPECT, "Pixel Aspect:", "Change the pixel aspect.", getPixelAspectPickerItemsCount, getPixelAspectPickerItem },
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
