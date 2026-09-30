@@ -80,6 +80,7 @@
 #define VIT_BAR_H_1P      78
 #define VIT_BAR_H_COMPACT 26
 #define VIT_BAR_H_COMPACT_MAX 39
+#define VIT_COL_MAX_W     36  // keep the vital bars together on wide panels
 #define VIT_LABEL_GAP     7   // label row to bar top
 #define VIT_VALUE_GAP     1   // bar bottom to value row
 
@@ -446,7 +447,7 @@ static void hud_vbar(SDL_Surface *surface, int x, int y, int w, int h,
 // The shield / armor / power-reserve block: three vertical bars side by side,
 // each with its label above and its numeric value below.  `label_y` is the
 // label row; the bars start VIT_LABEL_GAP below it and are `bar_h` tall.  The
-// block spans the panel width (minus the content margin), centered.
+// block is centered until capped, then follows the panel's outer alignment.
 static void hud_draw_vitals(const HudPanel *p, int pi, int label_y, int bar_h)
 {
 	const uint values[3] = { player[pi].shield, player[pi].armor, MIN(power, 900u) };
@@ -458,10 +459,12 @@ static void hud_draw_vitals(const HudPanel *p, int pi, int label_y, int bar_h)
 	static const char *const labels_short[3] = { "SH",     "AR",    "PW"    };
 
 	const int avail = p->w - 2 * HUD_MARGIN;
-	int col_w = avail / 3;
+	int col_w = MIN(avail / 3, VIT_COL_MAX_W);
 	if (col_w < 12)
 		col_w = 12;
-	const int block_x = HUD_MARGIN + (avail - col_w * 3) / 2;
+	const int block_x = avail / 3 > VIT_COL_MAX_W
+	                  ? hud_start(p, col_w * 3)
+	                  : HUD_MARGIN + (avail - col_w * 3) / 2;
 
 	const int bar_w = MIN(col_w - 4, 16);
 	const int bar_y = label_y + VIT_LABEL_GAP;
