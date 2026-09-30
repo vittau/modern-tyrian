@@ -277,6 +277,8 @@ if ! "$ROOT/tools/check_installer.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/installer"
 	exit 1
 fi
 
+"$ROOT/tools/check_display.sh" "$BIN" "$DATA_DIR" || exit 1
+
 now() {
 	if command -v perl >/dev/null 2>&1; then
 		perl -MTime::HiRes=time -e 'printf "%.3f", time'
@@ -787,7 +789,7 @@ run_case "modern-screen-jukebox-21x9" \
 # The in-game Load screen is the "load-save" case above.  These cover the
 # screens the user reported: the in-game Save (same pic-1 layout), the title
 # Load Game (pic 2), and the quit confirmation dialog (over the pic-1 menu).
-# The quit 21:9 case guards the capped Modern centring shift, and the ship-specs
+# The quit 21:9 case guards the centred Modern modal layer, and the ship-specs
 # 21:9 case guards the full-width grid.
 
 pairs=$((pairs + 1))
