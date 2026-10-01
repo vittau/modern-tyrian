@@ -337,14 +337,18 @@ static void set_windowed_size_for_mode(void)
 	window_center_in_display(window_get_display());
 }
 
-bool video_fit_launcher_window(void)
+void video_fit_launcher_window(void)
 {
 	// Fullscreen entry and window resizes are asynchronous on Cocoa. The first
 	// launcher frame must use the settled native output, including HiDPI.
+	// A compositor that owns the window size (gamescope in Steam Deck Game
+	// Mode) never applies the request, so the sync times out; the launcher
+	// then draws at the size it got and follows later resize events.
+	// SDL_SyncWindow sets no error on a timeout, so SDL_GetError() is stale.
 	if (!SDL_SyncWindow(main_window))
-		return false;
+		logWarn("The window did not settle before the launcher; using its current size.");
 	if (fullscreen_display != -1)
-		return true;
+		return;
 
 	// The largest 16:9 window inside ~80% of the usable desktop.
 	int w = 1280, h = 720;
@@ -366,10 +370,9 @@ bool video_fit_launcher_window(void)
 	}
 
 	if (!SDL_SetWindowSize(main_window, w, h) || !SDL_SyncWindow(main_window))
-		return false;
+		logWarn("The launcher window resize did not settle; using the size the window manager chose.");
 	window_center_in_display(window_get_display());
 	modern_update_canvas_size();
-	return true;
 }
 
 void video_apply_display_settings(void)

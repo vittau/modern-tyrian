@@ -29,6 +29,7 @@ cat > "$WORK/display_test.c" <<'C'
 #include <string.h>
 
 static bool asynchronous;
+static bool compositor_owns_size;  // gamescope: resize requests never apply
 static int crt_window_height;
 static int pending_w, pending_h;
 bool display_test_set_size(SDL_Window *window, int w, int h)
@@ -48,6 +49,10 @@ bool display_test_fullscreen(SDL_Window *window, bool full)
 }
 bool display_test_sync(SDL_Window *window)
 {
+	if (compositor_owns_size) {
+		pending_w = pending_h = 0;
+		return false;  // SDL's timeout: no error is set
+	}
 	if (pending_w) {
 		SDL_SetWindowSize(window, pending_w, pending_h);
 		pending_w = pending_h = 0;
@@ -137,7 +142,16 @@ int main(void)
 		SDL_SetWindowSize(main_window, 3200, 900);
 		video_on_win_resize(); check_canvas();
 		assert(modern_current_frame()->w == 853);
-		assert(video_fit_launcher_window());
+		// A timed-out sync keeps the launcher on the size the compositor chose.
+		SDL_SetWindowSize(main_window, 1280, 800);
+		compositor_owns_size = true;
+		video_fit_launcher_window();
+		compositor_owns_size = false;
+		int w0, h0;
+		SDL_GetWindowSize(main_window, &w0, &h0);
+		assert(w0 == 1280 && h0 == 800);
+		check_canvas();
+		video_fit_launcher_window();
 		assert(pending_w == 0);
 		int w, h, rw, rh;
 		SDL_GetWindowSizeInPixels(main_window, &w, &h);

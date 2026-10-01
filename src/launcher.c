@@ -1716,12 +1716,7 @@ bool launcherChoose(GameVariant preselect, const char *data_override, const char
 	if (initial_error != NULL)
 		showMessage(&view, initial_error);
 
-	if (!video_fit_launcher_window())
-	{
-		logError("The launcher window resize did not settle: %s", SDL_GetError());
-		texturesFree(&tex);
-		return false;
-	}
+	video_fit_launcher_window();
 
 	while (step == STEP_CONTINUE)
 	{
