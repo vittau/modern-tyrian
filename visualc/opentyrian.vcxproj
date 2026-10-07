@@ -164,6 +164,7 @@
     <ClCompile Include="..\src\regress_crt.c" />
     <ClCompile Include="..\src\modern_bloom.c" />
     <ClCompile Include="..\src\modern_hud.c" />
+    <ClCompile Include="..\src\modern_progress.c" />
     <ClCompile Include="..\src\mouse.c" />
     <ClCompile Include="..\src\mouse_buttons.c" />
     <ClCompile Include="..\src\mtrand.c" />
@@ -247,6 +248,7 @@
     <ClInclude Include="..\src\crt_filter.h" />
     <ClInclude Include="..\src\modern_bloom.h" />
     <ClInclude Include="..\src\modern_hud.h" />
+    <ClInclude Include="..\src\modern_progress.h" />
     <ClInclude Include="..\src\mouse.h" />
     <ClInclude Include="..\src\mouse_buttons.h" />
     <ClInclude Include="..\src\mtrand.h" />

@@ -23,6 +23,7 @@
 #include "fonthand.h"
 #include "logging.h"
 #include "modern_bloom.h"
+#include "modern_hud.h"
 #include "opentyr.h"
 #include "regress.h"
 #include "video.h"
@@ -1077,6 +1078,7 @@ void modern_build_frame(SDL_Surface *src_surface)
 		if (bar_interp)
 			modern_hud_draw_interpolated_bars(bar_alpha);
 
+		modern_hud_draw_progress();
 		modern_composite_hud(frame, playfield_x);
 		modern_composite_message(frame, playfield_x);
 		modern_bevel_strip(frame, playfield_x);

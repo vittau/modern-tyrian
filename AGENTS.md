@@ -55,6 +55,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   | 380–399 | Phase 8 |
   | 400–409 | display |
   | 410–419 | CRT filter |
+  | 420–429 | progress |
 
 - **Guards run by `make regress`:**
   - `check_no_t2000_data.sh`, `check_variant_bootstrap.sh`, `check_user_paths.sh`, `check_game_rules.sh`;

@@ -155,6 +155,9 @@
     <ClCompile Include="..\src\modern_hud.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\modern_progress.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\mouse.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -394,6 +397,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern_hud.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\modern_progress.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\mouse.h">

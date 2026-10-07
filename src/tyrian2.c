@@ -41,6 +41,7 @@
 #include "mainint.h"
 #include "modern.h"
 #include "modern_hud.h"
+#include "modern_progress.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "musmast.h"
@@ -612,6 +613,8 @@ void JE_main(void)
 
 start_level:
 
+	modern_progress_resolve_end();
+
 	keyboardClearInput();
 	mouseClearInput();
 
@@ -719,6 +722,7 @@ start_level_first:
 	// The Modern HUD panels are carried across levels; clear them so the
 	// level's first frames cannot show the previous level's HUD.  Display-only.
 	modern_level_reset();
+	modern_progress_begin();
 
 	// Drop the VFX particles/events from the previous level.
 	vfx_reset();
@@ -2131,6 +2135,7 @@ draw_player_shot_loop_end:
 		if (levelTimerCountdown == 0)
 		{
 			regress_flow_coverage("level timer expired%s.", timedBattleMode ? " (Timed Battle)" : "");
+			modern_progress_timer_expired();
 			JE_eventJump(levelTimerJumpTo);
 		}
 
@@ -2167,6 +2172,7 @@ draw_player_shot_loop_end:
 	// the player after a number of ticks.
 	if (regress_flow_level_tick() && !endLevel)
 	{
+		modern_progress_cancel();
 		readyToEndLevel = false;
 		endLevel = true;
 		levelEnd = 40;
@@ -2227,6 +2233,7 @@ draw_player_shot_loop_end:
 
 		if (hasInput(INPUT_NO_MOTION))
 		{
+			modern_progress_cancel();
 			reallyEndLevel = true;
 
 			stoppedDemo = true;
@@ -2340,6 +2347,7 @@ draw_player_shot_loop_end:
 				}
 				if (requests & 4)
 				{
+					modern_progress_cancel();
 					levelTimer = true;
 					levelTimerCountdown = 0;
 					endLevel = true;
@@ -2380,6 +2388,7 @@ draw_player_shot_loop_end:
 		JE_filterScreen(levelFilter, levelBrightness);
 	}
 
+	modern_progress_tick();
 	draw_boss_bar();
 
 	JE_inGameDisplays();
@@ -2406,6 +2415,7 @@ draw_player_shot_loop_end:
 		stopBackgrounds = false;
 		if (waitToEndLevel)
 		{
+			modern_progress_end(true);
 			endLevel = true;
 			levelEnd = 40;
 		}
@@ -2419,6 +2429,7 @@ draw_player_shot_loop_end:
 	{
 		if (readyToEndLevel && !enemyStillExploding)
 		{
+			modern_progress_end(true);
 			if (levelTimerCountdown > 0)
 			{
 				levelTimer = false;
@@ -4431,6 +4442,7 @@ void JE_createNewEventEnemy(JE_byte enemyTypeOfs, JE_word enemyOffset, Sint16 un
 void JE_eventJump(JE_word jump)
 {
 	JE_word tempW;
+	const unsigned progress_before = curLoc;
 
 	if (jump == 65535)
 	{
@@ -4447,6 +4459,7 @@ void JE_eventJump(JE_word jump)
 		tempW++;
 	} while (!(eventRec[tempW-1].eventtime >= curLoc));
 	eventLoc = tempW - 1;
+	modern_progress_jump(progress_before, curLoc, jump == 65535);
 }
 
 bool JE_searchFor/*enemy*/(JE_byte PLType, JE_byte* out_index)
@@ -4484,7 +4497,10 @@ static void JE_eventSetLevelTimer(void)
 
 void JE_eventSystem(void)
 {
-	switch (gameEventCase(eventRec[eventLoc-1].eventtype))
+	const unsigned progress_before = curLoc;
+	const int progress_action = gameEventCase(eventRec[eventLoc-1].eventtype);
+	modern_progress_event(progress_action, eventLoc);
+	switch (progress_action)
 	{
 	case 1:
 		starfield_speed = eventRec[eventLoc-1].eventdat;
@@ -4591,6 +4607,7 @@ void JE_eventSystem(void)
 		break;
 
 	case 11:
+		modern_progress_end(true);
 		if (allPlayersGone || eventRec[eventLoc-1].eventdat == 1)
 		{
 			reallyEndLevel = true;
@@ -5394,6 +5411,8 @@ void JE_eventSystem(void)
 	}
 
 	eventLoc++;
+	if (progress_action == 38 || progress_action == 75)
+		modern_progress_reposition(progress_before, curLoc);
 }
 
 void JE_whoa(void)

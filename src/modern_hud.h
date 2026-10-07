@@ -54,6 +54,11 @@
 // untouched.
 void modern_hud_draw(void);
 
+// Pure snapshot redraw immediately before gameplay HUD composition. Uses the
+// free 1P armament rows or reserves part of the 2P message title row. No-op in
+// no-panel layouts (4:3 has no guaranteed area clear of timer/boss/text).
+void modern_hud_draw_progress(void);
+
 // Draws the level timer (label + value) in the armament panel (the left one in
 // single player, player 1's panel in two player).  Called from the exact spot
 // of the original level-timer draw so its condition and side effects stay where

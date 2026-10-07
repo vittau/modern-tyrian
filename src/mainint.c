@@ -39,6 +39,7 @@
 #include "menus.h"
 #include "modern.h"
 #include "modern_hud.h"
+#include "modern_progress.h"
 #include "mouse.h"
 #include "mouse_buttons.h"
 #include "mtrand.h"
@@ -1404,6 +1405,7 @@ void JE_doInGameSetup(void)
 		{
 			reallyEndLevel = true;
 			playerEndLevel = true;
+			modern_progress_cancel();
 		}
 		quitRequested = false;
 
@@ -1454,6 +1456,7 @@ void JE_doInGameSetup(void)
 					{
 						reallyEndLevel = true;
 						playerEndLevel = true;
+						modern_progress_cancel();
 
 						network_check();
 						break;
@@ -3265,6 +3268,7 @@ void JE_mainKeyboardInput(void)
 	if (keysactive[SDL_SCANCODE_F2] && keysactive[SDL_SCANCODE_F6] && (keysactive[SDL_SCANCODE_F7] || keysactive[SDL_SCANCODE_F8]) && !keysactive[SDL_SCANCODE_F9] &&
 	    !superTyrian && superArcadeMode == SA_NONE)
 	{
+		modern_progress_cancel();
 		if (isNetworkGame)
 		{
 			skipLevelRequest = true;
@@ -3639,6 +3643,7 @@ redo:
 				{
 					if (!playDemoKeys())
 					{
+						modern_progress_cancel();
 						endLevel = true;
 						levelEnd = 40;
 					}

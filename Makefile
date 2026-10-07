@@ -211,12 +211,14 @@ clean :
 .PHONY : regress
 regress :
 	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh
+	tools/check_progress.sh ./opentyrian 2.1 "$(TYRIAN_DATA)"
 
 # Tyrian 2000 suite: separate manifest, baselines (test/regress-2000) and data.
 # TYRIAN2000_DATA must name a verified Tyrian 2000 directory; there is no fallback.
 .PHONY : regress-2000
 regress-2000 :
 	TYRIAN2000_DATA="$(TYRIAN2000_DATA)" tools/regress-2000.sh
+	tools/check_progress.sh ./opentyrian 2000 "$(TYRIAN2000_DATA)"
 
 .PHONY : regress-replay
 regress-replay :

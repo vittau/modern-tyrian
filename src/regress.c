@@ -35,6 +35,7 @@
 #include "loudness.h"
 #include "mainint.h"
 #include "modern.h"
+#include "modern_progress.h"
 #include "crt_filter.h"
 #include "modern_bloom.h"
 #include "mtrand.h"
@@ -64,6 +65,8 @@ static const unsigned long scenario_seed = 32402394;
 
 const char *regress_data_audit_root = NULL;
 int regress_boss = 0;
+bool regress_progress_check;
+bool regress_observer_off;
 const char *regress_handoff = NULL;
 int regress_flow_gamepad = 0;
 
@@ -768,10 +771,89 @@ static Uint64 regress_state_hash(void)
 	return hash;
 }
 
+// Metadata-only checks deliberately exclude progress from the game-state hash.
+// Observer OFF/ON comparisons therefore still cover gameplay and the RNG.
+static ModernProgressState progress_previous;
+static bool progress_seen;
+static unsigned long progress_samples, progress_attempts, progress_resets;
+static unsigned long progress_advances, progress_events, progress_jumps;
+static unsigned long progress_returns, progress_rewinds, progress_waits;
+static unsigned long progress_successes, progress_blocked;
+static unsigned long progress_boss_waits, progress_loop_waits, progress_shot_samples;
+static unsigned long progress_early_ends, progress_boss_resumes, progress_loop_resumes;
+static unsigned long progress_post_boss_advances, progress_supported_loop_samples;
+static bool progress_boss_seen;
+
+static void regress_check_progress(void)
+{
+	if (!regress_progress_check || regress_observer_off)
+		return;
+	const ModernProgressState *current = modern_progress_snapshot();
+	if (current->attempt == 0)
+		return;  // Classic and pre-level setup are inert.
+	bool same = progress_seen && current->attempt == progress_previous.attempt;
+	bool bounds = (current->percent >= 0 && current->percent <= 100) ||
+	              (!current->supported && current->percent == -1);
+	if (!bounds || ((current->boss_wait || current->loop_wait) && !current->paused) ||
+	    (current->percent == 100 && !current->completed) ||
+	    (current->completed && current->percent != 100) ||
+	    (same && current->percent < progress_previous.percent) ||
+	    (same && current->paused && !current->completed &&
+	     current->percent != progress_previous.percent))
+	{
+		logError("Progress check FAILED: observer bounds, monotonicity, wait or success latch.");
+		exit(EXIT_FAILURE);
+	}
+	if (!same)
+	{
+		++progress_attempts;
+		progress_boss_seen = false;
+		if (current->ticks == 0)
+		{
+			if (current->percent != (current->supported ? 0 : -1) || current->completed)
+			{
+				logError("Progress check FAILED: new attempt retained prior progress.");
+				exit(EXIT_FAILURE);
+			}
+			++progress_resets;
+		}
+	}
+	++progress_samples;
+	if (same && progress_previous.boss_wait && !current->boss_wait && !current->ended)
+		++progress_boss_resumes;
+	if (same && progress_previous.loop_wait && !current->loop_wait && !current->ended)
+		++progress_loop_resumes;
+	if (current->boss_wait) progress_boss_seen = true;
+	if (same && progress_boss_seen && !current->boss_wait && !current->completed &&
+	    current->advances > progress_previous.advances)
+		progress_post_boss_advances += current->advances - progress_previous.advances;
+	progress_early_ends += current->early_ends - (same ? progress_previous.early_ends : 0);
+	for (unsigned i = 0; i < COUNTOF(shotAvail); ++i)
+		if (shotAvail[i] != 0)
+		{
+			++progress_shot_samples;
+			break;
+		}
+	progress_advances += current->advances - (same ? progress_previous.advances : 0);
+	progress_events += current->events - (same ? progress_previous.events : 0);
+	progress_jumps += current->jumps - (same ? progress_previous.jumps : 0);
+	progress_returns += current->returns - (same ? progress_previous.returns : 0);
+	progress_rewinds += current->rewinds - (same ? progress_previous.rewinds : 0);
+	if (current->paused) ++progress_waits;
+	if (current->boss_wait) ++progress_boss_waits;
+	if (current->loop_wait) ++progress_loop_waits;
+	if (current->loop_wait && current->supported) ++progress_supported_loop_samples;
+	if (current->completed) ++progress_successes;
+	if (current->blocked) ++progress_blocked;
+	progress_previous = *current;
+	progress_seen = true;
+}
+
 // Writes the frame and/or state record(s) for the current frame and honors the
 // scenario frame cap.  Either stream may be absent; at least one is open.
 static void regress_emit_records(bool write_frame, Uint64 frame_hash)
 {
+	regress_check_progress();
 	if (write_frame)
 		fprintf(regress_out, "%lu %016" PRIx64 "\n", regress_frame, frame_hash);
 
@@ -1081,6 +1163,9 @@ void regress_begin_scenario(void)
 
 void regress_init(void)
 {
+	if (regress_progress_check && regress_observer_off)
+		logFatal("Progress check requires the observer enabled.");
+	modern_progress_set_observer_enabled(!regress_observer_off);
 	if (regress_flow_active())
 		regress_flow_init();
 
@@ -1358,6 +1443,17 @@ void regress_finish(void)
 			logInfo("Regression: wrote %lu frames to '%s'.", regress_frame, regress_out_path);
 		if (regress_state_out_path != NULL)
 			logInfo("Regression: wrote %lu state records to '%s'.", regress_frame, regress_state_out_path);
+	}
+
+	if (regress_progress_check)
+	{
+		logInfo("Progress coverage: samples=%lu attempts=%lu reset_samples=%lu advances=%lu events=%lu jumps=%lu returns=%lu rewinds=%lu wait_samples=%lu success_samples=%lu blocked_samples=%lu boss_wait_samples=%lu loop_wait_samples=%lu shot_samples=%lu menu_requests=%d early_ends=%lu boss_resumes=%lu loop_resumes=%lu post_boss_advances=%lu supported_loop_samples=%lu final_percent=%d",
+		        progress_samples, progress_attempts, progress_resets, progress_advances,
+		        progress_events, progress_jumps, progress_returns, progress_rewinds,
+		        progress_waits, progress_successes, progress_blocked, progress_boss_waits, progress_loop_waits, progress_shot_samples, regress_menu_taken ? 1 : 0, progress_early_ends, progress_boss_resumes,
+		        progress_loop_resumes, progress_post_boss_advances, progress_supported_loop_samples, progress_previous.percent);
+		if (regress_modern && progress_samples == 0)
+			logFatal("Progress check FAILED: no observer attempt was sampled.");
 	}
 
 	if (regress_interp_check)

@@ -24,6 +24,7 @@
 #include "helptext.h"
 #include "mainint.h"
 #include "modern.h"
+#include "modern_progress.h"
 #include "network.h"
 #include "player.h"
 #include "sprite.h"
@@ -132,6 +133,8 @@
 #define AR_SK_L_ICON_Y    91
 #define AR_SK_R_LABEL_Y   114
 #define AR_SK_R_ICON_Y    123
+#define AR_PROGRESS_LABEL_Y 142
+#define AR_PROGRESS_BAR_Y   150
 #define AR_BOSS_Y         158
 #define AR_BOSS_STEP      9
 #define AR_TIMER_LABEL_Y  176
@@ -421,6 +424,66 @@ static void hud_vbar_draw(SDL_Surface *surface, int x, int y, int w, int h,
 
 		if (lit)
 			fill_rectangle_xy(surface, x + 1, ry, x + 1, ry, (Uint8)MIN(idx + 1, top));
+	}
+}
+
+// The shield trough rotated clockwise: fill advances left-to-right, with
+// the same anchored hue ramp, lit upper edge and bright leading meniscus.
+// Progress deliberately has no interpolation record: the observer is the sole
+// authority, and confirmed 100% must appear in the very next presentation.
+static void hud_progress_bar(SDL_Surface *surface, int x, int y, int w, int h, int percent)
+{
+	assert(w >= 4 && h >= 3 && x >= 0 && x + w <= surface->w);
+	HUD_ASSERT_FIT(surface, y, h);
+	const int base = HUD_BAR_SHIELD;
+	const int top = base | 15;
+	fill_rectangle_xy(surface, x, y, x + w - 1, y + h - 1, base);
+	fill_rectangle_xy(surface, x, y, x + w - 1, y, base + 2);
+	fill_rectangle_xy(surface, x, y + h - 1, x + w - 1, y + h - 1, base + 1);
+	const int span = w - 2;
+	const int filled = span * percent / 100;
+	for (int c = 0; c < filled; ++c)
+	{
+		int idx = base + 2 + c * HUD_BAR_RAMP / span;
+		if (c == filled - 1)
+			idx = MIN(idx + 3, top);
+		fill_rectangle_xy(surface, x + 1 + c, y + 1, x + 1 + c, y + h - 2, (Uint8)idx);
+		if (h >= 4)
+			fill_rectangle_xy(surface, x + 1 + c, y + 1, x + 1 + c, y + 1, (Uint8)MIN(idx + 1, top));
+	}
+}
+
+static void hud_progress_panel(void)
+{
+	SDL_Surface *surface = modern_hud_surface(0);
+	const int avail = modern_side_panel_width() - 2 * HUD_MARGIN;
+	// Clear only our reserved rows; neither the sidekick gauge (137..138)
+	// nor either preexisting boss bar (158 onward) belongs to this block.
+	fill_rectangle_xy(surface, HUD_MARGIN, AR_PROGRESS_LABEL_Y,
+	                  HUD_MARGIN + avail - 1, AR_PROGRESS_BAR_Y + 5, 0);
+	const int percent = modern_progress_percent();
+	if (percent < 0)
+		return;
+	assert(percent <= 100);
+	char value[8];
+	snprintf(value, sizeof value, "%d%%", percent);
+	const int lw = JE_textWidth("PROGRESS", TINY_FONT);
+	const int vw = JE_textWidth(value, TINY_FONT);
+	const int w = MIN(avail, 144);
+	assert(lw <= w);
+	hud_text(surface, HUD_MARGIN, AR_PROGRESS_LABEL_Y, "PROGRESS", HUD_LABEL_BANK, HUD_LABEL_DIM);
+	if (lw + 3 + vw <= w)
+	{
+		hud_text(surface, HUD_MARGIN + w - vw, AR_PROGRESS_LABEL_Y, value, HUD_NUM_BANK, 1);
+		hud_progress_bar(surface, HUD_MARGIN, AR_PROGRESS_BAR_Y, w, 5, percent);
+	}
+	else
+	{
+		// Narrow panels retain the full label; put the percentage beside the
+		// shorter bar on the second row instead of truncating either text.
+		assert(w - vw - 3 >= 4);
+		hud_progress_bar(surface, HUD_MARGIN, AR_PROGRESS_BAR_Y, w - vw - 3, 5, percent);
+		hud_text(surface, HUD_MARGIN + w - vw, AR_PROGRESS_BAR_Y, value, HUD_NUM_BANK, 1);
 	}
 }
 
@@ -955,9 +1018,31 @@ static void hud_draw_message_strip(void)
 	fill_rectangle_xy(surface, 0, 0, MODERN_PLAYFIELD_W - 1, surface->h - 1, 0);
 	fill_rectangle_xy(surface, 0, 0, MODERN_PLAYFIELD_W - 1, 0, HUD_SEP_COLOR);
 
-	const int name_w = JE_textWidth(levelName, TINY_FONT);
-	if (name_w > 0 && name_w <= MODERN_PLAYFIELD_W - 4)
-		hud_text(surface, 2, 2, levelName, HUD_LABEL_BANK, HUD_VALUE_BRIGHT);
+	int name_max = MODERN_PLAYFIELD_W - 4;
+	const int percent = modern_progress_percent();
+	if (twoPlayerMode && !galagaMode && percent >= 0)
+	{
+		assert(percent <= 100);
+		char value[8];
+		snprintf(value, sizeof value, "%d%%", percent);
+		const int lw = JE_textWidth("PROGRESS", TINY_FONT);
+		const int vw = JE_textWidth(value, TINY_FONT);
+		const int bar_w = 36;
+		const int value_w = JE_textWidth("100%", TINY_FONT);
+		const int block_w = lw + 3 + value_w + 4 + bar_w;
+		const int x = MODERN_PLAYFIELD_W - 2 - block_w;
+		name_max = x - 4;
+		hud_text(surface, x, 2, "PROGRESS", HUD_LABEL_BANK, HUD_LABEL_DIM);
+		hud_text(surface, x + lw + 3 + value_w - vw, 2, value, HUD_NUM_BANK, 1);
+		hud_progress_bar(surface, x + lw + 3 + value_w + 4, 2, bar_w, 5, percent);
+	}
+	char name[64];
+	if (name_max < MODERN_PLAYFIELD_W - 4)
+		hud_truncate(name, sizeof name, levelName, name_max);
+	else
+		snprintf(name, sizeof name, "%s", JE_textWidth(levelName, TINY_FONT) <= name_max ? levelName : "");
+	if (name[0] != '\0')
+		hud_text(surface, 2, 2, name, HUD_LABEL_BANK, HUD_VALUE_BRIGHT);
 
 	const char *message = modern_message_text();
 	if (message != NULL && message[0] != '\0')
@@ -982,6 +1067,17 @@ static void hud_draw_message_strip(void)
 // ---------------------------------------------------------------------------
 // Public entry points.
 // ---------------------------------------------------------------------------
+
+// Called only on the gameplay composition path, including held warp/fade
+// frames. Redrawing reads a snapshot; it never advances or resets the observer.
+void modern_hud_draw_progress(void)
+{
+	if (!modern_hud_in_panels())
+		return;
+	if (!(twoPlayerMode && !galagaMode))
+		hud_progress_panel();
+	hud_draw_message_strip();
+}
 
 void modern_hud_draw(void)
 {

@@ -245,6 +245,10 @@ void regress_capture_modern_frame(void);
 // same case must produce byte-identical files.
 
 extern const char *regress_data_audit_root;
+// Metadata-only observer assertions; requires a gameplay scenario/demo/flow.
+// OFF is test-only and never changes gameplay or RNG state.
+extern bool regress_progress_check;
+extern bool regress_observer_off;
 extern int regress_boss;
 extern const char *regress_handoff;
 extern int regress_flow_gamepad;

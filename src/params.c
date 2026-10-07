@@ -81,6 +81,8 @@ const Options *JE_paramOptions(void)
 		{ 'r', 'r', "record",            false },
 		{ 'l', 'l', "loot",              false },
 		
+		{ 420, 0, "regress-progress-check", false },
+		{ 421, 0, "regress-observer-off", false },
 		{ 410, 0, "regress-crt", true },
 		{ 411, 0, "regress-crt-check", false },
 		{ 412, 0, "regress-crt-height", true },
@@ -167,6 +169,12 @@ void JE_paramCheck(int argc, char *argv[])
 		
 		switch (option.value)
 		{
+		case 420:
+			regress_progress_check = true;
+			break;
+		case 421:
+			regress_observer_off = true;
+			break;
 		case 410:
 			if (!crt_filter_set_by_name(option.arg)) logFatal("Unknown CRT filter '%s'.", option.arg);
 			regress_crt_mode = crt_filter_mode();
@@ -238,6 +246,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-loadout=widest     Equip the items with the widest names (HUD fit check)");
 			logInfo("  --regress-xmas               Run a regress case with Christmas mode on");
 			logInfo("  --regress-data-audit=ROOT    Assert and log every resolved data-file open in ROOT");
+			logInfo("  --regress-progress-check     Assert progress bounds, monotonicity and end causes");
+			logInfo("  --regress-observer-off       Disable progress observer for state/RNG comparisons");
 			logInfo("  --regress-boss               Accelerate events to a runtime boss, then run 60 ticks");
 			logInfo("  --regress-gamepad            Route a flow through the controller menu adapter");
 			logInfo("  --regress-handoff=VARIANT    Headless launcher choice and normal startup handoff");
