@@ -211,7 +211,17 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] HUD Modern, layout (pedido do usuário, 2026-09-28): inverter os lados, com escudo, armadura e gerador/força no painel **direito**, como no original, e armas e sidekicks à esquerda. As barras desses três ficam **verticais** e um pouco mais compridas. Vale para 1P, 2P e arcade e para 16:10/16:9/21:9. Vai depois do merge de `hud-fade`, porque os dois mexem em `src/modern_hud.c`.
 
 ### Fase 3 — Opcional e cara
-- [ ] Separar as camadas de fundo (bg1, bg2, bg3, inimigos) em buffers próprios, preservando a matemática dos blends
+- [ ] **Camadas e profundidade (pedido do usuário, 2026-10-08).** Separar as camadas de fundo (bg1, bg2, bg3, inimigos) para dar profundidade ao Modern, preservando a matemática dos blends.
+  - **Como o quadro é montado hoje (`JE_main`, `tyrian2.c`):** tudo é pintado em ordem num único quadro de 8 bits: bg1 → estrelas → bg2 (por cima, misturado ou com filtro) → inimigos de chão (slots 25–49 e 75–99) → bg2 nos níveis com `background2over == 1` → bg3 quando `background3over == 2` → inimigos do céu (0–24) → bg3 → inimigos do topo (50–74) → tiros, nave, explosões. O `draw_background_2_blend`, o `JE_darkenBackground` e os filtros de lava, água, blur e iced blur leem o próprio framebuffer, e a ordem muda por nível.
+  - **Decisão técnica (coordenador):** em vez de um buffer de cor por camada, um **buffer de camada por pixel**, paralelo ao quadro e carimbado pelas mesmas primitivas que já carimbam o tag de emissão (`drawlist.c`). Buffers de cor separados obrigariam a refazer a composição dos blends e dos filtros fora do motor, que é justamente o risco "preservando a matemática dos blends". O buffer de camada deixa o quadro de 8 bits intocado e diz, para cada pixel, qual camada o pintou por último e em que ordem. Isso basta para sombras, névoa e luz por camada.
+  - **Etapa 1 — buffer de camada (só infraestrutura, nenhum pixel muda):**
+    - um byte por pixel em `game_screen`, `VGAScreen2` e nas duas cópias de replay, como o tag;
+    - quem carimba: as linhas de fundo (identidade 1/2/3 pelo contexto, com marca de "misturado" no `blend`), sprites pelo contexto (inimigo por faixa de slot, item, nave, sidekick, tiros, explosões), estrelas e superpixels; os preenchimentos e a limpeza zeram;
+    - o filtro que copia `VGAScreen2` para `game_screen` leva a camada junto; o `darken` não muda a dona do pixel;
+    - na apresentação, a janela 264×184 é copiada para o compositor com o mesmo mapeamento de flip do tag, e os pixels de VFX ficam marcados como "sem sombra";
+    - prova: Classic e todos os baselines atuais idênticos, estado e RNG idênticos, a camada interpolada em alpha = 1 igual à do tick, e uma ferramenta de depuração que exporta a camada em PNG para revisão local.
+  - **Etapa 2 — sombras projetadas (o primeiro efeito visível):** cada camada projeta uma sombra suave sobre as camadas pintadas antes dela, deslocada para baixo e para a direita (luz fixa do alto à esquerda), com o deslocamento proporcional à altura: bg2 sobre bg1, inimigos de chão, inimigos do céu e a nave sobre o terreno, bg3 (nuvens e estruturas altas) sobre tudo abaixo. Pass novo no canvas Modern, antes da luz e do bloom, na grade lógica. Opção `Depth:` em Setup → Graphics (Off/Low/High, padrão Low), só no Modern.
+  - **Etapa 3 (depois que o usuário vir as sombras):** névoa atmosférica no bg1 e luz dos tiros por camada (o terreno recebe a luz cheia; nuvens do bg3 quase nenhuma).
 - [ ] (movido para a Fase 2, "Taxa de quadros independente da lógica")
 
 ## 7. Decisões
