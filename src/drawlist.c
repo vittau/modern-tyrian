@@ -289,6 +289,13 @@ void drawlist_set_context(int obj_kind, int obj_id, int obj_sub)
 	dl_context_sub = obj_sub;
 }
 
+void drawlist_get_context(int *obj_kind, int *obj_id, int *obj_sub)
+{
+	if (obj_kind != NULL) *obj_kind = dl_context_kind;
+	if (obj_id != NULL) *obj_id = dl_context_id;
+	if (obj_sub != NULL) *obj_sub = dl_context_sub;
+}
+
 // --- emission tag buffer ------------------------------------------------------
 //
 // One byte per pixel, parallel to the 8-bit gameplay surfaces.  See drawlist.h

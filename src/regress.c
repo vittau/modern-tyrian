@@ -441,6 +441,56 @@ static unsigned long regress_demohud_frames = 0;
 static unsigned long regress_demohud_bad = 0;
 static bool regress_demohud_filled = false;  // a frame with both panels drawn was seen
 static char regress_demohud_first[160] = "";
+// "INSERT COIN" must not be an emitter.  The text is drawn over live objects,
+// so the tags under it are not zero; what matters is that drawing the text adds
+// none: pixels whose tag / light colour was clear before the text and is set
+// after it.  mainint.c brackets the draw with the two probes below.
+static unsigned long regress_coin_draws = 0;
+static unsigned long regress_coin_tagged = 0;
+static unsigned long regress_coin_lcol = 0;
+static unsigned long regress_coin_layer_shot = 0;
+static Uint8 regress_coin_tag0[12 * 160];
+static Uint8 regress_coin_lcol0[12 * 160];
+static Uint8 regress_coin_layer0[12 * 160];
+
+void regress_coin_probe(bool after, int x0, int y0, int w)
+{
+	if (!regress_demo_hud_check || w > 160)
+		return;
+
+	int pitch = 0, tw = 0, th = 0;
+	const Uint8 *tag = drawlist_tag_for_surface(VGAScreen, &pitch, &tw, &th);
+	const Uint8 *lcol = drawlist_lightcol_for_surface(VGAScreen, NULL, NULL, NULL);
+	int lw = 0, lh = 0, lpitch = 0;
+	const Uint8 *layer = drawlist_layer_for_surface(VGAScreen, &lpitch, &lw, &lh);
+	if (tag == NULL || lcol == NULL)
+		return;
+
+	for (int y = 0; y < 12; ++y)
+		for (int x = 0; x < w; ++x)
+		{
+			const size_t o = (size_t)(y0 + y) * pitch + (size_t)(x0 + x);
+			const size_t i = (size_t)y * 160 + (size_t)x;
+			const Uint8 lay = layer != NULL ? layer[(size_t)(y0 + y) * lpitch + (size_t)(x0 + x)] : 0;
+			if (!after)
+			{
+				regress_coin_tag0[i] = tag[o];
+				regress_coin_lcol0[i] = lcol[o];
+				regress_coin_layer0[i] = lay;
+			}
+			else
+			{
+				if (regress_coin_tag0[i] == 0 && tag[o] != 0)
+					regress_coin_tagged++;
+				if (regress_coin_lcol0[i] == 0 && lcol[o] != 0)
+					regress_coin_lcol++;
+				if (lay == DL_LAYER_PLAYER_SHOT && regress_coin_layer0[i] != DL_LAYER_PLAYER_SHOT)
+					regress_coin_layer_shot++;
+			}
+		}
+	if (after)
+		regress_coin_draws++;
+}
 
 static void regress_demohud_fail(const char *what)
 {
@@ -1563,6 +1613,17 @@ void regress_finish(void)
 		{
 			logError("Demo HUD check FAILED: no in-level frame with the HUD was presented");
 			exit(EXIT_FAILURE);
+		}
+		if (regress_coin_draws != 0)
+		{
+			logInfo("Insert coin: draws=%lu tagged_px=%lu lightcol_px=%lu shot_layer_px=%lu",
+			        regress_coin_draws, regress_coin_tagged, regress_coin_lcol,
+			        regress_coin_layer_shot);
+			if (regress_coin_tagged != 0 || regress_coin_lcol != 0 || regress_coin_layer_shot != 0)
+			{
+				logError("Demo HUD check FAILED: the INSERT COIN text is stamped as an emitter / shot");
+				exit(EXIT_FAILURE);
+			}
 		}
 		if (regress_demohud_bad != 0)
 		{

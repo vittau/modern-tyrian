@@ -766,7 +766,7 @@ run_case "modern-screen-setup-crt-picker" --regress-screen=setup-crt-picker \
 
 run_case "modern-light-demo1-d$MODERN_DETAIL" \
 	--regress-demo=1 --regress-detail="$MODERN_DETAIL" --regress-modern --regress-aspect=16:9 \
-	--regress-lighting=high
+	--regress-lighting=high --regress-demo-hud-check
 pairs=$((pairs + 1))
 run_case "modern-light-scenario-spotlight-d$MODERN_DETAIL" \
 	--regress-level=1:16 --regress-detail="$MODERN_DETAIL" --regress-frames=1200 --regress-modern --regress-aspect=16:9 \

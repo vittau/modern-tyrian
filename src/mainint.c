@@ -86,6 +86,13 @@ bool pause_pressed = false, ingamemenu_pressed = false;
 /* Draws a message at the bottom text window on the playing screen */
 void JE_drawTextWindow(const char *text)
 {
+	// Called from the pickup code, after the shots were drawn: text must not
+	// inherit that shot's emission, light colour or depth layer.  The caller's
+	// context is put back afterwards.
+	int prev_kind, prev_id, prev_sub;
+	drawlist_get_context(&prev_kind, &prev_id, &prev_sub);
+	drawlist_set_context(DL_OBJ_HUD, 0, 0);
+
 	if (textErase > 0) // erase current text
 		blit_sprite(VGAScreenSeg, 16, 189, OPTION_SHAPES, 36);  // in-game text area
 
@@ -94,6 +101,8 @@ void JE_drawTextWindow(const char *text)
 	// playfield can draw it.  The 8-bit frame drawing above is unchanged.
 	modern_message_set(text);
 	JE_outText(VGAScreenSeg, 20, 190, text, 0, 4);
+
+	drawlist_set_context(prev_kind, prev_id, prev_sub);
 }
 
 void JE_outCharGlow(JE_word x, JE_word y, const char *s)
@@ -4015,6 +4024,11 @@ redo:
 				trail_spacing++;
 			}
 
+			// The ship's own afterimages, not the shot drawn last.
+			int trail_prev_kind, trail_prev_id, trail_prev_sub;
+			drawlist_get_context(&trail_prev_kind, &trail_prev_id, &trail_prev_sub);
+			drawlist_set_context(DL_OBJ_PLAYER, playerNum_ - 1, 0);
+
 			for (int i = 1; i < num_trails; i++)
 			{
 				trail_y -= trail_spacing;
@@ -4038,11 +4052,24 @@ redo:
 					}
 				}
 			}
+
+			drawlist_set_context(trail_prev_kind, trail_prev_id, trail_prev_sub);
 		}
 	}
 
 	if (playDemo)
+	{
+		// Text, not an object: without its own context it inherits the last
+		// shot/sidekick drawn and is lit, tagged and layered as one.
+		int prev_kind, prev_id, prev_sub;
+		drawlist_get_context(&prev_kind, &prev_id, &prev_sub);
+		drawlist_set_context(DL_OBJ_HUD, 0, 0);
+		const int coin_w = JE_textWidth(miscText[7], SMALL_FONT_SHAPES) + 3; // + drop shadow
+		regress_coin_probe(false, 115, 10, coin_w);
 		JE_dString(VGAScreen, 115, 10, miscText[7], SMALL_FONT_SHAPES); // insert coin
+		regress_coin_probe(true, 115, 10, coin_w);
+		drawlist_set_context(prev_kind, prev_id, prev_sub);
+	}
 
 	if (this_player->is_alive && !endLevel)
 	{

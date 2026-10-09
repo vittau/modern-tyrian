@@ -65,6 +65,7 @@ extern int regress_replay_check;      // non-zero = record and replay-check ever
 extern int regress_interp_check;      // non-zero = record and validate the interpolated renderer
 extern int regress_interp_smoothness; // non-zero = per-tick monotonic motion check
 extern int regress_smooth_alphas;     // sub-frame alphas used by the smoothness check (>= 2)
+void regress_coin_probe(bool after, int x0, int y0, int w);  // INSERT COIN stamp probe (demo-hud-check)
 extern int regress_demo_hud_check;   // non-zero = assert a played demo follows the active mode's HUD
 extern int regress_gameplay_check;    // non-zero = assert every in-level frame drops the classic sidebar
 extern int regress_parallax_check;    // non-zero = assert the presentation never advances starfield/background

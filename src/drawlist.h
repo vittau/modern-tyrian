@@ -238,6 +238,10 @@ void drawlist_level_reset(void);
 // DL_OBJ_NONE to clear it.
 void drawlist_set_context(int obj_kind, int obj_id, int obj_sub);
 
+// Reads the current context back, so a caller that draws something of its own
+// (text) can restore what the code after it relied on.  Any pointer may be NULL.
+void drawlist_get_context(int *obj_kind, int *obj_id, int *obj_sub);
+
 // --- emission tag buffer ------------------------------------------------------
 //
 // The Modern bloom/lighting pass reads an 8-bit emission tag alongside the
