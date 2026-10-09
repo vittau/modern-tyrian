@@ -458,7 +458,15 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
 // bg1 through it, so it takes half the amount; opaque bg2 and everything above bg1
 // take none.
 
-#define MD_FOG_STRENGTH 40  // Q8 (~16%) blend toward the fog colour on a bg1 pixel
+#define MD_FOG_STRENGTH_DEFAULT 30  // Q8 (~12%; 40 until the 2026-10-09 preview) blend toward the fog colour on a bg1 pixel
+
+// Tuning/debug override (--regress-fog-strength=Q8); the default when absent.
+static int md_fog_strength = MD_FOG_STRENGTH_DEFAULT;
+
+void modern_depth_set_fog_strength(int q8)
+{
+	md_fog_strength = q8 < 0 ? MD_FOG_STRENGTH_DEFAULT : q8 > 256 ? 256 : q8;
+}
 
 bool modern_depth_fog_colour(const Uint32 *canvas, int canvas_pitch_px, const Uint8 *layers, Uint32 *rgb)
 {
@@ -509,9 +517,9 @@ unsigned long modern_depth_fog_apply(Uint32 *canvas, int canvas_pitch_px, const 
 			const Uint8 v = row[x];
 			int s;
 			if (v == DL_LAYER_BG1)
-				s = MD_FOG_STRENGTH;
+				s = md_fog_strength;
 			else if (v == (DL_LAYER_BG2 | DL_LAYER_BLEND))
-				s = MD_FOG_STRENGTH / 2;
+				s = md_fog_strength / 2;
 			else
 				continue;
 

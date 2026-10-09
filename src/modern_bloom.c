@@ -205,6 +205,21 @@ void modern_bloom_set_threshold(int threshold)
 	mb_threshold_override = threshold;
 }
 
+// Debug-only light overrides (--regress-light-scale / --regress-light-radius);
+// -1 = absent, and the shipped table is used untouched.
+static int mb_light_scale_percent = -1;
+static int mb_light_radius_override = -1;
+
+void modern_bloom_set_light_scale(int percent)
+{
+	mb_light_scale_percent = percent;
+}
+
+void modern_bloom_set_light_radius(int radius)
+{
+	mb_light_radius_override = radius;
+}
+
 static bool mb_stats_enabled = false;
 static bool mb_stats_registered = false;
 static unsigned long mb_stat_emissive[DL_TAG_MAX];
@@ -376,7 +391,8 @@ static inline Uint16 mb_tag_oscale(Uint8 tag)
 		: 256;
 }
 
-// Ceiling on the combined per-pixel glow before it is screen-blended.  Keeps a
+// Ceiling on the combined per-pixel glow before it is screen-blended (reached
+// asymptotically through mb_glow_limit() since round 4).  Keeps a
 // dense volley of overlapping shots from saturating into a solid coloured blob;
 // the base pixel keeps its own detail above it.  Round 3 raised the gains by
 // 1.3x and re-checked the cap on the busiest scene (busy-f530, the densest
@@ -385,6 +401,24 @@ static inline Uint16 mb_tag_oscale(Uint8 tag)
 // scenes, so the cap does not clip the increase and was left unchanged (raising
 // it would only weaken the flood guard).
 #define MB_GLOW_CAP 216
+#define MB_GLOW_CAP_Q8 (MB_GLOW_CAP * 256)
+
+// Round 4: at the new High gain the glow of an explosion or a dense volley reaches
+// 2x the cap (measured peak 424/255 on TYRIAN and 335 on HOLES, in about 5% of the
+// frames), so a hard clip at MB_GLOW_CAP would flatten those cores into a plateau.
+// Above the knee the glow is compressed smoothly towards the cap instead
+// (x -> knee + x*r / (x + r), slope 1 at the knee, asymptote MB_GLOW_CAP): below the
+// knee nothing changes, and the flood guard still holds.  Q8 in, Q8 out.
+#define MB_GLOW_KNEE_Q8 (150 * 256)
+
+static inline int mb_glow_limit(int v)
+{
+	if (v <= MB_GLOW_KNEE_Q8)
+		return v;
+	const int range = MB_GLOW_CAP_Q8 - MB_GLOW_KNEE_Q8;
+	const int x = v - MB_GLOW_KNEE_Q8;
+	return MB_GLOW_KNEE_Q8 + (int)((Uint64)x * (Uint64)range / (Uint64)(x + range));
+}
 
 static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int light_threshold)
 {
@@ -449,7 +483,7 @@ static void mb_build_tables(const SDL_Color *palette, int bloom_threshold, int l
 // samples in units of Uint8 (3 for a row, w*3 for a column); `recip` is
 // round(65536 / (2*radius+1)) so the per-sample division becomes a multiply
 // and a shift.  Edges clamp to the border sample.
-static void mb_blur_line(const Uint8 *src, Uint8 *dst, int base, int stride, int count,
+static void mb_blur_line(const Uint16 *src, Uint16 *dst, int base, int stride, int count,
                          int radius, Uint32 recip)
 {
 	int sr = 0, sg = 0, sb = 0;
@@ -457,7 +491,7 @@ static void mb_blur_line(const Uint8 *src, Uint8 *dst, int base, int stride, int
 	for (int i = -radius; i <= radius; ++i)
 	{
 		const int j = MIN(MAX(i, 0), count - 1);
-		const Uint8 *p = src + base + j * stride;
+		const Uint16 *p = src + base + j * stride;
 		sr += p[0];
 		sg += p[1];
 		sb += p[2];
@@ -465,15 +499,15 @@ static void mb_blur_line(const Uint8 *src, Uint8 *dst, int base, int stride, int
 
 	for (int i = 0; i < count; ++i)
 	{
-		Uint8 *d = dst + base + i * stride;
-		d[0] = (Uint8)(((Uint32)sr * recip + 0x8000u) >> 16);
-		d[1] = (Uint8)(((Uint32)sg * recip + 0x8000u) >> 16);
-		d[2] = (Uint8)(((Uint32)sb * recip + 0x8000u) >> 16);
+		Uint16 *d = dst + base + i * stride;
+		d[0] = (Uint16)(((Uint64)sr * recip + 0x8000u) >> 16);
+		d[1] = (Uint16)(((Uint64)sg * recip + 0x8000u) >> 16);
+		d[2] = (Uint16)(((Uint64)sb * recip + 0x8000u) >> 16);
 
 		const int jo = MIN(MAX(i - radius, 0), count - 1);
 		const int ji = MIN(MAX(i + radius + 1, 0), count - 1);
-		const Uint8 *po = src + base + jo * stride;
-		const Uint8 *pi = src + base + ji * stride;
+		const Uint16 *po = src + base + jo * stride;
+		const Uint16 *pi = src + base + ji * stride;
 		sr += pi[0] - po[0];
 		sg += pi[1] - po[1];
 		sb += pi[2] - po[2];
@@ -482,7 +516,7 @@ static void mb_blur_line(const Uint8 *src, Uint8 *dst, int base, int stride, int
 
 // Blurs `w` x `h` RGB into `a`, using `b` as scratch.  The horizontal pass
 // writes b, the vertical pass writes back into a, so the result is in a.
-static void mb_blur(Uint8 *a, Uint8 *b, int w, int h, int radius, int iterations)
+static void mb_blur(Uint16 *a, Uint16 *b, int w, int h, int radius, int iterations)
 {
 	const Uint32 recip = 65536u / (Uint32)(2 * radius + 1);
 
@@ -515,12 +549,17 @@ static void mb_blur(Uint8 *a, Uint8 *b, int w, int h, int radius, int iterations
 #define MB_QH (MB_H / 4)
 #define MB_QPIX (MB_QW * MB_QH)
 
-static Uint8 mb_bloom[MB_LPIX * 3];
-static Uint8 mb_bloom_scratch[MB_LPIX * 3];
-static Uint8 mb_light[MB_QPIX * 3];
-static Uint8 mb_light_scratch[MB_QPIX * 3];
-static Uint8 mb_light_half[MB_LPIX * 3];  // quarter light upsampled to half
-static Uint8 mb_light_glow[MB_LPIX * 3];  // the light's share of the glow (depth stage 3 split path)
+// Every plane is Q8 (16-bit, 256 = full scale) from the mask to the final blend.
+// The blurred masks of a small emitter peak at only a few 8-bit levels before the
+// gain, so keeping them in 8 bits quantised each colour channel on its own: the
+// gain turned the steps into blocks, a hue that wandered between olive, red and
+// magenta, and red streaks where one channel survived the rounding.
+static Uint16 mb_bloom[MB_LPIX * 3];
+static Uint16 mb_bloom_scratch[MB_LPIX * 3];
+static Uint16 mb_light[MB_QPIX * 3];
+static Uint16 mb_light_scratch[MB_QPIX * 3];
+static Uint16 mb_light_half[MB_LPIX * 3];  // quarter light upsampled to half
+static Uint16 mb_light_glow[MB_LPIX * 3];  // the light's share of the glow (depth stage 3 split path)
 
 // Per-quality tuning.  Threshold is the palette max-channel above which a pixel
 // emits; radius is the blur radius in buffer pixels (half-resolution for bloom,
@@ -553,6 +592,14 @@ typedef struct
 // not clip them (see the cap comment), so it is unchanged.  The ambient is
 // unchanged (a step closer to 256 than before, since with backgrounds excluded
 // the unlit field would otherwise read darker).
+//
+// Round 4 (user choice, 2026-10-09) changes only the light gains: High 832 ->
+// 3328 (4x) and Low 494 -> 1997 (still 0.6x High); the bloom gains above are
+// untouched.  The light was too faint to notice (+4 luma near a shot), so the
+// preview rendered 100/400/800% and the user kept 400% as High and dropped 800%.
+// The same round fixed the light pipeline (16-bit planes and the sample-grid
+// alignment, see mb_grid_taps()); the 8-bit planes used to floor away part of the
+// energy, so today's gain is about 1.3x brighter than the same number was before.
 static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
@@ -563,8 +610,8 @@ static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 static const MbParams mb_light_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 216,  2,   494, 252, 3 },  // low  (0.6x high's gain, see above)
-	{ 216,  2,   832, 248, 3 },  // high
+	{ 216,  2,  1997, 252, 3 },  // low  (0.6x high's gain, see above)
+	{ 216,  2,  3328, 248, 3 },  // high
 };
 
 // --- Explicit light sources (extension point) -------------------------------
@@ -620,10 +667,10 @@ static void mb_add_explicit_sources(void)
 					continue;
 
 				const int fall = (r2 - d2) * 255 / r2;
-				Uint8 *p = mb_light + ((size_t)ly * MB_QW + lx) * 3;
-				p[0] = (Uint8)MIN(255, p[0] + src->r * fall / 255);
-				p[1] = (Uint8)MIN(255, p[1] + src->g * fall / 255);
-				p[2] = (Uint8)MIN(255, p[2] + src->b * fall / 255);
+				Uint16 *p = mb_light + ((size_t)ly * MB_QW + lx) * 3;
+				p[0] = (Uint16)MIN(65535, p[0] + src->r * fall * 256 / 255);
+				p[1] = (Uint16)MIN(65535, p[1] + src->g * fall * 256 / 255);
+				p[2] = (Uint16)MIN(65535, p[2] + src->b * fall * 256 / 255);
 			}
 		}
 	}
@@ -662,7 +709,7 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 			const Uint8 *tag1 = tag0 + MODERN_PLAYFIELD_W;
 			const Uint8 *lc0 = mb_lcol + (size_t)(ly * 2) * MODERN_PLAYFIELD_W;
 			const Uint8 *lc1 = lc0 + MODERN_PLAYFIELD_W;
-			Uint8 *bloom = mb_bloom + (size_t)ly * MB_LW * 3;
+			Uint16 *bloom = mb_bloom + (size_t)ly * MB_LW * 3;
 
 			for (int lx = 0; lx < MB_LW; ++lx)
 			{
@@ -684,10 +731,10 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 					sb += v & 0xff;
 				}
 
-				Uint8 *d = bloom + lx * 3;
-				d[0] = (Uint8)(sr >> 2);
-				d[1] = (Uint8)(sg >> 2);
-				d[2] = (Uint8)(sb >> 2);
+				Uint16 *d = bloom + lx * 3;  // mean of the 4 pixels, Q8
+				d[0] = (Uint16)(sr << 6);
+				d[1] = (Uint16)(sg << 6);
+				d[2] = (Uint16)(sb << 6);
 			}
 		}
 	}
@@ -696,7 +743,7 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 	{
 		for (int qy = 0; qy < MB_QH; ++qy)
 		{
-			Uint8 *d = mb_light + (size_t)qy * MB_QW * 3;
+			Uint16 *d = mb_light + (size_t)qy * MB_QW * 3;
 
 			for (int qx = 0; qx < MB_QW; ++qx)
 			{
@@ -721,9 +768,9 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 					}
 				}
 
-				d[qx * 3 + 0] = (Uint8)(sr >> 4);
-				d[qx * 3 + 1] = (Uint8)(sg >> 4);
-				d[qx * 3 + 2] = (Uint8)(sb >> 4);
+				d[qx * 3 + 0] = (Uint16)(sr << 4);  // mean of the 16 pixels, Q8
+				d[qx * 3 + 1] = (Uint16)(sg << 4);
+				d[qx * 3 + 2] = (Uint16)(sb << 4);
 			}
 		}
 	}
@@ -793,35 +840,49 @@ static unsigned long mb_count_tags(const ModernFrame *frame, bool do_bloom, bool
 	return item_tagged;
 }
 
+// Bilinear taps of a pixel on a grid that is half as fine (every buffer in the
+// chain is a 2x step: quarter -> half, half -> full).  A coarse cell is two pixels
+// wide and its centre sits at 0.5 in pixel index coordinates, so pixel d samples
+// the coarse grid at (d - 0.5) / 2 = d * 128 - 64 in Q8.  The old maps used +64:
+// they read half a coarse cell too far on, which shifted the glow up-left by 1
+// logical px per step (3 px over the quarter -> half -> full chain).  Pixels left
+// of the first cell centre clamp to the first cell.
+static inline void mb_grid_taps(int d, int *i0, int *i1, int *w0, int *w1, int n)
+{
+	const int p = d * 128 - 64;
+	const int a = p >> 8;
+	*i0 = MIN(MAX(a, 0), n - 1);
+	*i1 = MIN(MAX(a + 1, 0), n - 1);
+	*w1 = p & 0xff;
+	*w0 = 256 - *w1;
+}
+
 // Bilinearly upsamples the quarter-resolution light into mb_light_half, so it
 // can be combined with the half-resolution bloom.
 static void mb_upsample_light_half(void)
 {
 	for (int hy = 0; hy < MB_LH; ++hy)
 	{
-		const Uint32 qy = (Uint32)hy * 128 + 64;
-		const int j0 = (int)(qy >> 8);
-		const int j1 = MIN(j0 + 1, MB_QH - 1);
-		const int wy0 = 256 - (int)(qy & 0xff), wy1 = (int)(qy & 0xff);
-		const Uint8 *r0 = mb_light + (size_t)j0 * MB_QW * 3;
-		const Uint8 *r1 = mb_light + (size_t)j1 * MB_QW * 3;
-		Uint8 *d = mb_light_half + (size_t)hy * MB_LW * 3;
+		int j0, j1, wy0, wy1;
+		mb_grid_taps(hy, &j0, &j1, &wy0, &wy1, MB_QH);
+		const Uint16 *r0 = mb_light + (size_t)j0 * MB_QW * 3;
+		const Uint16 *r1 = mb_light + (size_t)j1 * MB_QW * 3;
+		Uint16 *d = mb_light_half + (size_t)hy * MB_LW * 3;
 
 		for (int hx = 0; hx < MB_LW; ++hx)
 		{
-			const Uint32 qx = (Uint32)hx * 128 + 64;
-			const int i0 = (int)(qx >> 8);
-			const int i1 = MIN(i0 + 1, MB_QW - 1);
-			const int wx0 = 256 - (int)(qx & 0xff), wx1 = (int)(qx & 0xff);
-			const Uint8 *c00 = r0 + i0 * 3;
-			const Uint8 *c10 = r0 + i1 * 3;
-			const Uint8 *c01 = r1 + i0 * 3;
-			const Uint8 *c11 = r1 + i1 * 3;
-			const int w00 = wx0 * wy0, w10 = wx1 * wy0, w01 = wx0 * wy1, w11 = wx1 * wy1;
+			int i0, i1, wx0, wx1;
+			mb_grid_taps(hx, &i0, &i1, &wx0, &wx1, MB_QW);
+			const Uint16 *c00 = r0 + i0 * 3;
+			const Uint16 *c10 = r0 + i1 * 3;
+			const Uint16 *c01 = r1 + i0 * 3;
+			const Uint16 *c11 = r1 + i1 * 3;
+			const Uint32 w00 = (Uint32)(wx0 * wy0), w10 = (Uint32)(wx1 * wy0);
+			const Uint32 w01 = (Uint32)(wx0 * wy1), w11 = (Uint32)(wx1 * wy1);
 
-			d[hx * 3 + 0] = (Uint8)((c00[0] * w00 + c10[0] * w10 + c01[0] * w01 + c11[0] * w11) >> 16);
-			d[hx * 3 + 1] = (Uint8)((c00[1] * w00 + c10[1] * w10 + c01[1] * w01 + c11[1] * w11) >> 16);
-			d[hx * 3 + 2] = (Uint8)((c00[2] * w00 + c10[2] * w10 + c01[2] * w01 + c11[2] * w11) >> 16);
+			for (int c = 0; c < 3; ++c)
+				d[hx * 3 + c] = (Uint16)(((Uint64)c00[c] * w00 + (Uint64)c10[c] * w10 +
+				                          (Uint64)c01[c] * w01 + (Uint64)c11[c] * w11) >> 16);
 		}
 	}
 }
@@ -836,17 +897,15 @@ static void mb_combine(const MbParams *bloom, const MbParams *light)
 
 	for (int i = 0; i < MB_LPIX * 3; ++i)
 	{
-		int v = (mb_bloom[i] * bgain >> 7) + (mb_light_half[i] * lgain >> 7);
-		if (v > MB_GLOW_CAP)
-			v = MB_GLOW_CAP;
-		mb_bloom[i] = (Uint8)v;
+		const int v = (int)(((Uint32)mb_bloom[i] * (Uint32)bgain >> 7) + ((Uint32)mb_light_half[i] * (Uint32)lgain >> 7));
+		mb_bloom[i] = (Uint16)mb_glow_limit(v);
 	}
 }
 
 // Depth stage 3: the same combine, but the bloom and the light stay in two planes
-// (each scaled by its gain and capped) so mb_apply_layered() can weight the light
-// by the receiving pixel's layer.  min(cap, bloom + light) of the two capped planes
-// equals the one-plane result, so a full-weight pixel is lit as before.
+// (each scaled by its gain) so mb_apply_layered() can weight the light by the
+// receiving pixel's layer.  limit(bloom + light) of the two planes equals the
+// one-plane result, so a full-weight pixel is lit as before.
 static void mb_combine_split(const MbParams *bloom, const MbParams *light)
 {
 	const int bgain = bloom->gain;
@@ -854,18 +913,15 @@ static void mb_combine_split(const MbParams *bloom, const MbParams *light)
 
 	for (int i = 0; i < MB_LPIX * 3; ++i)
 	{
-		int b = mb_bloom[i] * bgain >> 7;
-		int l = mb_light_half[i] * lgain >> 7;
-		mb_bloom[i] = (Uint8)(b > MB_GLOW_CAP ? MB_GLOW_CAP : b);
-		mb_light_glow[i] = (Uint8)(l > MB_GLOW_CAP ? MB_GLOW_CAP : l);
+		int b = (int)((Uint32)mb_bloom[i] * (Uint32)bgain >> 7);
+		int l = (int)((Uint32)mb_light_half[i] * (Uint32)lgain >> 7);
+		mb_bloom[i] = (Uint16)(b > 65535 ? 65535 : b);  // limited after the layer weight, in mb_apply_layered()
+		mb_light_glow[i] = (Uint16)(l > 65535 ? 65535 : l);
 	}
 }
 
-// Per-column bilinear weights for the 2x upsample, in Q8.  A logical pixel at
-// x maps to half-resolution coordinate x/2 + 0.25, so i0 = (x*128 + 64) >> 8
-// and the two weights are (256 - fx) and fx.  Precomputing them once removes
-// the per-row index/weight work; `mb_ly0`/`mb_ly1` are the equivalent per-row
-// values, recomputed inside the loop.
+// Per-column bilinear taps for the 2x upsample (half -> full), see
+// mb_grid_taps().  Precomputing them once removes the per-row work.
 static int mb_lx0[MB_W];
 static int mb_lx1[MB_W];
 static int mb_lwx0[MB_W];
@@ -874,19 +930,12 @@ static int mb_lwx1[MB_W];
 static void mb_build_xmap(void)
 {
 	for (int x = 0; x < MB_W; ++x)
-	{
-		const int p = x * 128 + 64;
-		const int i0 = p >> 8;
-		mb_lx0[x] = i0;
-		mb_lx1[x] = MIN(i0 + 1, MB_LW - 1);
-		mb_lwx0[x] = 256 - (p & 0xff);
-		mb_lwx1[x] = (p & 0xff);
-	}
+		mb_grid_taps(x, &mb_lx0[x], &mb_lx1[x], &mb_lwx0[x], &mb_lwx1[x], MB_LW);
 }
 
 // Applies the combined half-resolution glow to the playfield.  The glow is
-// bilinearly upsampled (fixed-point Q8 weights) so it has no 2-px blocks, and
-// blended with a screen-style saturating add:
+// bilinearly upsampled (fixed-point Q8 weights, Q8 values) so it has no 2-px
+// blocks, and blended with a screen-style saturating add:
 //
 //   out = base * ambient/256 + glow * (255 - base * ambient/256) / 256
 //
@@ -904,13 +953,10 @@ static unsigned long mb_apply(ModernFrame *frame, int playfield_x, const MbParam
 	for (int y = 0; y < MB_H; ++y)
 	{
 		Uint32 *canvas = frame->pixels + (size_t)y * frame->w + playfield_x;
-		const Uint32 q = (Uint32)y * 128 + 64;
-		const int j0 = (int)(q >> 8);
-		const int j1 = MIN(j0 + 1, MB_LH - 1);
-		const int wy0 = 256 - (int)(q & 0xff);
-		const int wy1 = (int)(q & 0xff);
-		const Uint8 *lrow0 = mb_bloom + (size_t)j0 * MB_LW * 3;
-		const Uint8 *lrow1 = mb_bloom + (size_t)j1 * MB_LW * 3;
+		int j0, j1, wy0, wy1;
+		mb_grid_taps(y, &j0, &j1, &wy0, &wy1, MB_LH);
+		const Uint16 *lrow0 = mb_bloom + (size_t)j0 * MB_LW * 3;
+		const Uint16 *lrow1 = mb_bloom + (size_t)j1 * MB_LW * 3;
 		const Uint8 *skip = overlay != NULL ? overlay + (size_t)y * MB_W : NULL;
 
 		for (int x = 0; x < MB_W; ++x)
@@ -920,26 +966,22 @@ static unsigned long mb_apply(ModernFrame *frame, int playfield_x, const MbParam
 				continue;
 
 			const Uint32 base = canvas[x];
-			const int i0 = mb_lx0[x], i1 = mb_lx1[x];
-			const int wx0 = mb_lwx0[x], wx1 = mb_lwx1[x];
-			const Uint8 *c00 = lrow0 + i0 * 3;
-			const Uint8 *c10 = lrow0 + i1 * 3;
-			const Uint8 *c01 = lrow1 + i0 * 3;
-			const Uint8 *c11 = lrow1 + i1 * 3;
-			const int w00 = wx0 * wy0, w10 = wx1 * wy0;
-			const int w01 = wx0 * wy1, w11 = wx1 * wy1;
+			const int i0 = mb_lx0[x] * 3, i1 = mb_lx1[x] * 3;
+			const Uint32 w00 = (Uint32)(mb_lwx0[x] * wy0), w10 = (Uint32)(mb_lwx1[x] * wy0);
+			const Uint32 w01 = (Uint32)(mb_lwx0[x] * wy1), w11 = (Uint32)(mb_lwx1[x] * wy1);
 
-			const int gr = (c00[0] * w00 + c10[0] * w10 + c01[0] * w01 + c11[0] * w11) >> 16;
-			const int gg = (c00[1] * w00 + c10[1] * w10 + c01[1] * w01 + c11[1] * w11) >> 16;
-			const int gb = (c00[2] * w00 + c10[2] * w10 + c01[2] * w01 + c11[2] * w11) >> 16;
+			int glow[3];
+			for (int c = 0; c < 3; ++c)
+				glow[c] = (int)(((Uint64)lrow0[i0 + c] * w00 + (Uint64)lrow0[i1 + c] * w10 +
+				                 (Uint64)lrow1[i0 + c] * w01 + (Uint64)lrow1[i1 + c] * w11) >> 16);
 
 			const int r0 = (int)((base >> 16) & 0xff) * amb >> 8;
 			const int g0 = (int)((base >> 8) & 0xff) * amb >> 8;
 			const int b0 = (int)(base & 0xff) * amb >> 8;
 
-			int r = r0 + (gr * (255 - r0) >> 8);
-			int g = g0 + (gg * (255 - g0) >> 8);
-			int bl = b0 + (gb * (255 - b0) >> 8);
+			int r = r0 + (glow[0] * (255 - r0) >> 16);
+			int g = g0 + (glow[1] * (255 - g0) >> 16);
+			int bl = b0 + (glow[2] * (255 - b0) >> 16);
 			if (r > 255) r = 255;
 			if (g > 255) g = 255;
 			if (bl > 255) bl = 255;
@@ -969,15 +1011,12 @@ static unsigned long mb_apply_layered(ModernFrame *frame, int playfield_x, const
 	for (int y = 0; y < MB_H; ++y)
 	{
 		Uint32 *canvas = frame->pixels + (size_t)y * frame->w + playfield_x;
-		const Uint32 q = (Uint32)y * 128 + 64;
-		const int j0 = (int)(q >> 8);
-		const int j1 = MIN(j0 + 1, MB_LH - 1);
-		const int wy0 = 256 - (int)(q & 0xff);
-		const int wy1 = (int)(q & 0xff);
-		const Uint8 *brow0 = mb_bloom + (size_t)j0 * MB_LW * 3;
-		const Uint8 *brow1 = mb_bloom + (size_t)j1 * MB_LW * 3;
-		const Uint8 *lrow0 = mb_light_glow + (size_t)j0 * MB_LW * 3;
-		const Uint8 *lrow1 = mb_light_glow + (size_t)j1 * MB_LW * 3;
+		int j0, j1, wy0, wy1;
+		mb_grid_taps(y, &j0, &j1, &wy0, &wy1, MB_LH);
+		const Uint16 *brow0 = mb_bloom + (size_t)j0 * MB_LW * 3;
+		const Uint16 *brow1 = mb_bloom + (size_t)j1 * MB_LW * 3;
+		const Uint16 *lrow0 = mb_light_glow + (size_t)j0 * MB_LW * 3;
+		const Uint16 *lrow1 = mb_light_glow + (size_t)j1 * MB_LW * 3;
 		const Uint8 *skip = overlay != NULL ? overlay + (size_t)y * MB_W : NULL;
 		const Uint8 *layer = layers + (size_t)y * MB_W;
 
@@ -988,26 +1027,28 @@ static unsigned long mb_apply_layered(ModernFrame *frame, int playfield_x, const
 
 			const Uint32 base = canvas[x];
 			const int i0 = mb_lx0[x] * 3, i1 = mb_lx1[x] * 3;
-			const int w00 = mb_lwx0[x] * wy0, w10 = mb_lwx1[x] * wy0;
-			const int w01 = mb_lwx0[x] * wy1, w11 = mb_lwx1[x] * wy1;
+			const Uint32 w00 = (Uint32)(mb_lwx0[x] * wy0), w10 = (Uint32)(mb_lwx1[x] * wy0);
+			const Uint32 w01 = (Uint32)(mb_lwx0[x] * wy1), w11 = (Uint32)(mb_lwx1[x] * wy1);
 			const unsigned weight = modern_depth_light_weight(layer[x]);
 
 			int glow[3];
 			for (int c = 0; c < 3; ++c)
 			{
-				const int bl = (brow0[i0 + c] * w00 + brow0[i1 + c] * w10 + brow1[i0 + c] * w01 + brow1[i1 + c] * w11) >> 16;
-				int li = (lrow0[i0 + c] * w00 + lrow0[i1 + c] * w10 + lrow1[i0 + c] * w01 + lrow1[i1 + c] * w11) >> 16;
+				const int bl = (int)(((Uint64)brow0[i0 + c] * w00 + (Uint64)brow0[i1 + c] * w10 +
+				                      (Uint64)brow1[i0 + c] * w01 + (Uint64)brow1[i1 + c] * w11) >> 16);
+				int li = (int)(((Uint64)lrow0[i0 + c] * w00 + (Uint64)lrow0[i1 + c] * w10 +
+				                (Uint64)lrow1[i0 + c] * w01 + (Uint64)lrow1[i1 + c] * w11) >> 16);
 				li = (int)((unsigned)li * weight >> 8);
-				glow[c] = bl + li > MB_GLOW_CAP ? MB_GLOW_CAP : bl + li;
+				glow[c] = mb_glow_limit(bl + li);
 			}
 
 			const int r0 = (int)((base >> 16) & 0xff) * amb >> 8;
 			const int g0 = (int)((base >> 8) & 0xff) * amb >> 8;
 			const int b0 = (int)(base & 0xff) * amb >> 8;
 
-			int r = r0 + (glow[0] * (255 - r0) >> 8);
-			int g = g0 + (glow[1] * (255 - g0) >> 8);
-			int bl = b0 + (glow[2] * (255 - b0) >> 8);
+			int r = r0 + (glow[0] * (255 - r0) >> 16);
+			int g = g0 + (glow[1] * (255 - g0) >> 16);
+			int bl = b0 + (glow[2] * (255 - b0) >> 16);
 			if (r > 255) r = 255;
 			if (g > 255) g = 255;
 			if (bl > 255) bl = 255;
@@ -1036,7 +1077,15 @@ void modern_bloom_pass(ModernFrame *frame)
 	}
 
 	const MbParams *bloom = &mb_bloom_params[modern_bloom_quality];
-	const MbParams *light = &mb_light_params[modern_lighting_quality];
+	MbParams light_tuned = mb_light_params[modern_lighting_quality];
+	const MbParams *light = &light_tuned;
+	if (light_tuned.gain != 0)
+	{
+		if (mb_light_scale_percent >= 0)
+			light_tuned.gain = (Uint16)MIN(65535, (int)light_tuned.gain * mb_light_scale_percent / 100);
+		if (mb_light_radius_override >= 0)
+			light_tuned.radius = (Uint8)mb_light_radius_override;
+	}
 
 	if (bloom->gain == 0 && light->gain == 0)
 	{
@@ -1149,7 +1198,7 @@ static double find_isophote(const double *k, int maxd, double thr, int diagonal)
 
 int main(void)
 {
-	static Uint8 a[RT_N * 3], b[RT_N * 3];
+	static Uint16 a[RT_N * 3], b[RT_N * 3];
 	static double k[RT_N];
 
 	static const struct { const char *name; int radius; int iters; } tests[] =

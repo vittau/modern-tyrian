@@ -129,6 +129,9 @@ unsigned long modern_depth_fog_apply(Uint32 *canvas, int canvas_pitch_px, const 
 // by its layer byte.  A VFX-flagged pixel and any non-world layer take 256.
 unsigned modern_depth_light_weight(Uint8 layer_byte);
 
+// Tuning override (--regress-fog-strength=Q8): the bg1 fog blend strength; < 0 restores 30.
+void modern_depth_set_fog_strength(int q8);
+
 // The layer buffer the lighting pass may weight by, or NULL when this frame has
 // no per-layer light (Depth Off, not a fresh gameplay frame, a starfield level).
 // Valid only between modern_depth_pass() and the end of the same frame.

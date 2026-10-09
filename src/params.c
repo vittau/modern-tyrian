@@ -133,6 +133,9 @@ const Options *JE_paramOptions(void)
 		{ 432, 0,   "regress-depth",     true },
 		{ 433, 0,   "regress-depth-check", false },
 		{ 434, 0,   "regress-held-check", false },
+		{ 435, 0,   "regress-light-scale", true },
+		{ 436, 0,   "regress-light-radius", true },
+		{ 437, 0,   "regress-fog-strength", true },
 		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
@@ -314,6 +317,9 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
 			logInfo("  --regress-depth=off|on        Pin the Modern Depth setting (soft shadows) in regress modes (default off)");
 			logInfo("  --regress-depth-check        Run the synthetic depth-shadow fixture and exit");
+			logInfo("  --regress-light-scale=PCT    Tuning: scale the light gain (100 = shipped)");
+			logInfo("  --regress-light-radius=N     Tuning: force the light blur radius (quarter-res px, shipped 2)");
+			logInfo("  --regress-fog-strength=Q8    Tuning: bg1 fog blend strength (Q8, shipped 30)");
 			logInfo("  --regress-held-check         With --regress-menu: compare the held frame with the last live frame outside the overlay");
 			logInfo("  --light-tag-stats            Count emitted playfield pixels per tag class and exit");
 			logInfo("  --light-threshold=N          Debug: force both bloom/light thresholds to N");
@@ -755,6 +761,18 @@ void JE_paramCheck(int argc, char *argv[])
 
 		case 433: // --regress-depth-check
 			regress_depth_check = true;
+			break;
+
+		case 435: // --regress-light-scale=PERCENT (tuning only)
+			modern_bloom_set_light_scale(atoi(option.arg));
+			break;
+
+		case 436: // --regress-light-radius=N (tuning only)
+			modern_bloom_set_light_radius(atoi(option.arg));
+			break;
+
+		case 437: // --regress-fog-strength=Q8 (tuning only)
+			modern_depth_set_fog_strength(atoi(option.arg));
 			break;
 
 		case 434: // --regress-held-check

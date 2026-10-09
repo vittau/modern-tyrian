@@ -111,6 +111,11 @@ void modern_bloom_set_stats(bool enabled);
 // N instead of the per-level values.  N < 0 restores the table.
 void modern_bloom_set_threshold(int threshold);
 
+// Tuning flags (--regress-light-scale=PERCENT, --regress-light-radius=N):
+// scale the light gain / force its quarter-resolution blur radius.  < 0 = off.
+void modern_bloom_set_light_scale(int percent);
+void modern_bloom_set_light_radius(int radius);
+
 // --- Per-object light sources (extension point) -----------------------------
 //
 // Today the light map is derived entirely from the emissive pixels of the
