@@ -9,31 +9,58 @@
 #
 #   TYRIAN2000_DATA=<dir> tools/regress-2000.sh            build, run all cases, compare
 #   TYRIAN2000_DATA=<dir> tools/regress-2000.sh --update   regenerate the baselines
+#   tools/regress-2000.sh -j 6 --case='^depth-'           parallel area filter
 #
-# The Tyrian 2000 data directory is explicit.  It is never searched for, never
-# fetched and never replaced by ./data (which holds Tyrian 2.1): missing or
-# mismatching data is an error, not a skipped suite.
+# Full runs require an explicit Tyrian 2000 data directory. Quick runs may
+# discover a manifest-verified installer location and skip if none exists. Data
+# is never fetched or replaced by ./data (Tyrian 2.1); explicit missing or
+# mismatching data remains an error.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 UPDATE=0
-CASE_FILTER='.*'
+CASE_FILTER=${REGRESS_ONLY:-.*}
+QUICK=0
+SUITE_VARIANT=2000
+SORT_SUMMARY=1
+source "$ROOT/tools/regress_selection.sh"
 LAUNCHER_ONLY=0
 UPDATE_CASES=""
-for arg in "$@"; do
-	case "$arg" in
+default_jobs() {
+    local count
+    count=$(nproc 2>/dev/null) || count=$(sysctl -n hw.ncpu 2>/dev/null) || count=${NUMBER_OF_PROCESSORS:-1}
+    case "$count" in ''|*[!0-9]*|0) count=1 ;; esac
+    printf '%s\n' "$count"
+}
+JOBS=${REGRESS_JOBS:-$(default_jobs)}
+while [ "$#" -gt 0 ]; do
+    arg=$1
+    case "$arg" in
 		--update) UPDATE=1 ;;
+        --quick) QUICK=1 ;;
+        -j|--jobs)
+            [ "$#" -ge 2 ] || { echo "ERROR: $arg requires a positive integer" >&2; exit 2; }
+            JOBS=$2; shift ;;
+        --jobs=*) JOBS=${arg#*=} ;;
+        -j[0-9]*) JOBS=${arg#-j} ;;
 		--update-case=*) UPDATE=1; UPDATE_CASES="$UPDATE_CASES ${arg#*=}" ;;
 		--case=*) CASE_FILTER=${arg#*=} ;;
 		--only-launcher) LAUNCHER_ONLY=1 ;;
 		-h|--help)
-			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update | --update-case=LABEL ...] [--case=REGEX] [--only-launcher]"
+			echo "Usage: TYRIAN2000_DATA=<dir> tools/regress-2000.sh [--update | --update-case=LABEL ...] [--quick] [-j N|--jobs N] [--case=REGEX] [--only-launcher]"
+			echo "Jobs default to REGRESS_JOBS or the number of CPUs; --case overrides REGRESS_ONLY."
 			exit 0 ;;
 		*) echo "ERROR: unknown option: $arg" >&2; exit 2 ;;
-	esac
+    esac
+    shift
 done
+validate_case_filter || exit 2
+if [ "$QUICK" -eq 1 ] && [ "$UPDATE" -eq 1 ]; then echo "ERROR: --quick cannot update baselines" >&2; exit 2; fi
+case "$JOBS" in ''|*[!0-9]*|0) echo "ERROR: jobs must be a positive integer" >&2; exit 2 ;; esac
+while [ "${JOBS#0}" != "$JOBS" ]; do JOBS=${JOBS#0}; done
+if [ -z "$JOBS" ] || [ "${#JOBS}" -gt 9 ]; then echo "ERROR: invalid job count" >&2; exit 2; fi
 
 DATA_DIR="${TYRIAN2000_DATA:-}"
 BIN="$ROOT/opentyrian"
@@ -42,6 +69,27 @@ ACTUAL_DIR="$BASELINE_DIR/actual"
 MANIFEST="$BASELINE_DIR/data-manifest.txt"
 MODERN_DETAIL=4
 
+if [ "$QUICK" -eq 1 ] && [ -z "$DATA_DIR" ]; then
+    # Discover only installed data; never fetch it or fall back to 2.1.
+    candidates=("$ROOT/data-tyrian2000")
+    case "$(uname -s)" in
+        Darwin) candidates+=("$HOME/Library/Application Support/OpenTyrian/data-tyrian2000") ;;
+        MINGW*|MSYS*|CYGWIN*) candidates+=("${APPDATA:-}/OpenTyrian/data-tyrian2000") ;;
+        *) candidates+=("${XDG_DATA_HOME:-$HOME/.local/share}/opentyrian/data-tyrian2000") ;;
+    esac
+    for candidate in "${candidates[@]}"; do
+        valid=1
+        while read -r size crc name; do
+            size=${size%$'\r'}; crc=${crc%$'\r'}; name=${name%$'\r'}
+            case "$size" in ''|'#'*) continue ;; esac
+            [ -f "$candidate/$name" ] || { valid=0; break; }
+            read -r got_crc got_size _ < <(cksum "$candidate/$name")
+            [ "$got_crc" = "$crc" ] && [ "$got_size" = "$size" ] || { valid=0; break; }
+        done < "$MANIFEST"
+        if [ "$valid" -eq 1 ]; then DATA_DIR=$candidate; break; fi
+    done
+    if [ -z "$DATA_DIR" ]; then echo "2000 quick: skipped (no data)"; exit 0; fi
+fi
 if [ -z "$DATA_DIR" ]; then
 	echo "ERROR: TYRIAN2000_DATA is not set."
 	echo "Point it at a verified Tyrian 2000 data directory:"
@@ -90,7 +138,7 @@ rm -rf "$ACTUAL_DIR"
 mkdir -p "$ACTUAL_DIR"
 
 # The installer cases use synthetic data and stub curl, even in this suite.
-if ! "$ROOT/tools/check_installer.sh" "$BIN" "" "$ACTUAL_DIR/installer"; then
+if guard_selected check_installer.sh && ! "$ROOT/tools/check_installer.sh" "$BIN" "" "$ACTUAL_DIR/installer"; then
 	echo "ERROR: Tyrian 2000 installer checks failed"
 	exit 1
 fi
@@ -106,11 +154,61 @@ describe_status() {
 	if [ "$1" -gt 128 ] && [ "$1" -le 192 ]; then echo "CRASH: signal $(($1 - 128))"; else echo "exit code $1"; fi
 }
 
+case_cost() {
+    local label=$2 frames=1200 factor=1 arg
+    [ ! -f "$BASELINE_DIR/$label.txt" ] || frames=$(wc -l < "$BASELINE_DIR/$label.txt")
+    for arg in "$@"; do
+        case "$arg" in
+            --regress-frames=*) frames=${arg#*=} ;;
+            --regress-modern) factor=$((factor * 3)) ;;
+        esac
+    done
+    case "$1" in layer_case) factor=$((factor * 4)) ;; depth_case) factor=$((factor * 2)) ;; held_case) factor=$((factor * 3)) ;; esac
+    case "$label" in flows) frames=60000 ;; level-sweep|final-regression|audio) frames=30000 ;; arcade-flows) frames=10000 ;; esac
+    printf '%s' "$((frames * factor))"
+}
+exit_status_description() { describe_status "$@"; }
+source "$ROOT/tools/regress_scheduler.sh"
+
+case_wanted() {
+	case_selected "$1" || return 1
+	if [ -n "$UPDATE_CASES" ]; then
+		case " $UPDATE_CASES " in *" $1 "*) ;; *) return 1 ;; esac
+	fi
+	return 0
+}
+
+run_data_audit() {
+    local out="$ACTUAL_DIR/data-open-audit.txt" log="$ACTUAL_DIR/data-open-audit.log" rc=0
+    SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy run_binary --variant=2000 --data="$DATA_DIR" \
+        --regress-screen=title --regress-data-audit="$DATA_DIR" --regress-out="$out" > "$log" 2>&1 || rc=$?
+    if [ "$rc" -ne 0 ] || ! cmp -s "$BASELINE_DIR/screen-title.txt" "$out" || ! grep -Fq 'Data audit:' "$log"; then
+        echo "FAIL data-open-audit: title baseline or audited opens"; failures=$((failures + 1)); return
+    fi
+    rc=0
+    SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy run_binary --variant=2000 --data="$DATA_DIR" \
+        --regress-screen=title --regress-data-audit="$ACTUAL_DIR" --regress-out="$out.reject" > "$log.reject" 2>&1 || rc=$?
+    if [ "$rc" != 1 ] || ! grep -Fq 'Data audit FAIL: open outside selected root.' "$log.reject"; then
+        echo "FAIL data-open-audit: observer did not reject wrong root"; failures=$((failures + 1)); return
+    fi
+    echo "PASS data-open-audit: title baseline, resolved roots and rejection"
+}
+
 # run_case KIND LABEL args...: KIND is frames (--regress-out) or state (--regress-state-out).
+queued_run_case() {
+    local label=$1 kind=$2
+    shift 2
+    run_case "$kind" "$label" "$@"
+}
 run_case() {
+    if [ "${CASE_WORKER:-0}" != 1 ]; then
+        case_wanted "$2" || return
+        queue_case queued_run_case "$2" "$1" "${@:3}"
+        return
+    fi
 	local kind=$1 label=$2 out log baseline rc start elapsed lines
 	shift 2
-	[[ "$label" =~ $CASE_FILTER ]] || return
+	case_selected "$label" || return
 	if [ -n "$UPDATE_CASES" ]; then
 		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
 	fi
@@ -122,7 +220,7 @@ run_case() {
 	[ "$kind" = state ] && flag=--regress-state-out
 	start=$(now)
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --variant=2000 --data="$DATA_DIR" "$flag=$out" "$@" >"$log" 2>&1
+		run_binary --variant=2000 --data="$DATA_DIR" "$flag=$out" "$@" >"$log" 2>&1
 	rc=$?
 	elapsed=$(awk "BEGIN { printf \"%.2f\", $(now) - $start }")
 	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
@@ -187,6 +285,8 @@ for extra in install install-nodlg progress nocurl success manual; do
 done
 run_case launcher launcher-1920x1080-install --regress-launcher=1920x1080,missing,2,install
 if [ "$LAUNCHER_ONLY" -eq 1 ]; then
+	run_queued_cases
+	cases=$case_count
 	if [ "$failures" -eq 0 ]; then
 		echo "All $cases launcher cases passed."
 		exit 0
@@ -264,9 +364,15 @@ run_case frames "xmas-e5-level1-d$MODERN_DETAIL" --regress-xmas --regress-level=
 # really ran.  Nothing new is committed: only counts and hashes leave the run.
 # LABEL BASELINE_LABEL REQUIRE args...
 layer_case() {
+    if [ "${CASE_WORKER:-0}" != 1 ]; then
+        case_wanted "$1" || return
+        [ "$UPDATE" -eq 0 ] || return
+        queue_case layer_case "$@"
+        return
+    fi
 	local label=$1 baseline_label=$2 require=$3 baseline=-
 	shift 3
-	[[ "$label" =~ $CASE_FILTER ]] || return
+	case_selected "$label" || return
 	[ "$UPDATE" -eq 1 ] && return  # these cases own no baseline
 	cases=$((cases + 1))
 	[ "$baseline_label" = - ] || baseline="$BASELINE_DIR/$baseline_label.txt"
@@ -306,9 +412,14 @@ layer_case "layer-smooth-e4-level12-d$MODERN_DETAIL" - "interpolated>0 flipped>0
 # all: the space levels).
 # LABEL OFF_BASELINE_LABEL LEVEL REQUIRE args...
 depth_case() {
+    if [ "${CASE_WORKER:-0}" != 1 ]; then
+        case_wanted "$1" || return
+        queue_case depth_case "$@"
+        return
+    fi
 	local label=$1 off_label=$2 level=$3 require=$4 off_baseline=-
 	shift 4
-	[[ "$label" =~ $CASE_FILTER ]] || return
+	case_selected "$label" || return
 	if [ -n "$UPDATE_CASES" ]; then
 		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
 	fi
@@ -362,9 +473,14 @@ depth_case "depth-smooth-e4-level12-on-d$MODERN_DETAIL" - on \
 # "Depth held:", "Light held:" and "Held check:" lines (the overlay stayed untouched).
 # LABEL REQUIRE args...
 held_case() {
+    if [ "${CASE_WORKER:-0}" != 1 ]; then
+        case_wanted "$1" || return
+        queue_case held_case "$@"
+        return
+    fi
 	local label=$1 require=$2
 	shift 2
-	[[ "$label" =~ $CASE_FILTER ]] || return
+	case_selected "$label" || return
 	if [ -n "$UPDATE_CASES" ]; then
 		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
 	fi
@@ -527,7 +643,7 @@ flow_run() {
 	out="$ACTUAL_DIR/${label//:/-}.state"
 	log="$ACTUAL_DIR/${label//:/-}.log"
 	SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy \
-		"$BIN" --variant=2000 --data="$DATA_DIR" --regress-state-out="$out" "$@" >"$log" 2>&1
+		run_binary --variant=2000 --data="$DATA_DIR" --regress-state-out="$out" "$@" >"$log" 2>&1
 	rc=$?
 	if [ "$rc" -ne 0 ] || [ ! -s "$out" ]; then
 		echo "  FAIL $label: $(describe_status "$rc")"
@@ -548,15 +664,8 @@ flow_run() {
 	rm -f "$out"
 }
 
-case_wanted() {
-	[[ "$1" =~ $CASE_FILTER ]] || return 1
-	if [ -n "$UPDATE_CASES" ]; then
-		case " $UPDATE_CASES " in *" $1 "*) ;; *) return 1 ;; esac
-	fi
-	return 0
-}
 
-if case_wanted flows; then
+run_flows() {
 	cases=$((cases + 1))
 	flow_failed=0
 	flows_actual="$ACTUAL_DIR/flows.txt"
@@ -608,12 +717,13 @@ Flow coverage: flow complete" \
 		aggregate_case flows "$flows_actual"
 		echo "  (flows took ${elapsed}s)"
 	fi
-fi
+}
+if case_wanted flows; then queue_case run_flows flows; fi
 
 # Arcade paths, from the secret codes typed at the title screen: the nine arcade
 # ships of Tyrian 2000 (the last two are new), Super Tyrian with its choice of
 # starting episode, and Destruct (its intro and mode menu, then back out).
-if case_wanted arcade-flows; then
+run_arcade_flows() {
 	cases=$((cases + 1))
 	flow_failed=0
 	arcade_actual="$ACTUAL_DIR/arcade-flows.txt"
@@ -643,20 +753,21 @@ Flow coverage: script complete" \
 		aggregate_case arcade-flows "$arcade_actual"
 		echo "  (arcade flows took ${elapsed}s)"
 	fi
-fi
+}
+if case_wanted arcade-flows; then queue_case run_arcade_flows arcade-flows; fi
 
 # Every level of the five episodes, started through the episode script and run
 # for a short, fixed number of frames; the list of levels is read from the
 # installed episode files (--regress-flow=list-levels) so nothing about them is
 # kept here.  Logic-state hashes, so renderer work cannot move them.
-if case_wanted level-sweep; then
+run_level_sweep() {
 	cases=$((cases + 1))
 	sweep_actual="$ACTUAL_DIR/level-sweep.txt"
 	: > "$sweep_actual"
 	sweep_failed=0
 	start=$(now)
 	for ep in 1 2 3 4 5; do
-		levels=$(SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy "$BIN" --variant=2000 --data="$DATA_DIR" \
+		levels=$(SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy run_binary --variant=2000 --data="$DATA_DIR" \
 			--regress-flow="list-levels:ep=$ep" --regress-out="$ACTUAL_DIR/levels.tmp" 2>/dev/null | grep -E '^[0-9]+:[0-9]+$')
 		[ -n "$levels" ] || { echo "  FAIL level-sweep: no levels listed for episode $ep"; sweep_failed=1; continue; }
 		for level in $levels; do
@@ -677,18 +788,20 @@ if case_wanted level-sweep; then
 		aggregate_case level-sweep "$sweep_actual"
 		echo "  (level sweep took ${elapsed}s, $(wc -l < "$sweep_actual" | tr -d ' ') levels)"
 	fi
-fi
+}
+if case_wanted level-sweep; then queue_case run_level_sweep level-sweep; fi
 
 # Final matrix observers have their own state/frame aggregate and coverage
 # assertions. No existing case or baseline is updated when adding this family.
-if case_wanted final-regression; then
+run_final_regression() {
 	cases=$((cases + 1))
 	if "$ROOT/tools/check_final_regression.sh" "$BIN" 2000 "$DATA_DIR" "$ACTUAL_DIR/final-regression"; then
 		aggregate_case final-regression "$ACTUAL_DIR/final-regression/final-regression.txt"
 	else
 		failures=$((failures + 1))
 	fi
-fi
+}
+if case_wanted final-regression; then queue_case run_final_regression final-regression; fi
 
 # Offline audio: 31 effects and nine voices at their 2000 IDs, 41 songs.
 run_case frames "audio" --regress-audio
@@ -696,43 +809,51 @@ run_case frames "audio" --regress-audio
 # Save codec against the real HDT: a fresh 2000 save is 4,722 bytes, its score
 # boards get their names from the HDT, every difficulty starts at zero, and a
 # second start loads it without regenerating anything.
-cases=$((cases + 1))
-# Generated defaults contain HDT names, so these saves also stay outside the
-# checkout.  Logs and frame/state hashes in actual/ carry no extracted strings.
-save_root=$(mktemp -d "${TMPDIR:-/tmp}/tyrian2000-save.XXXXXX") || exit 1
-trap 'rm -rf "$save_root"' EXIT
-save_cwd="$save_root/cwd"
-mkdir -p "$save_cwd"
-save_run() {
-	(cd "$save_cwd" && HOME="$save_cwd" XDG_CONFIG_HOME="$save_cwd" APPDATA="$save_cwd" \
-		SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy "$BIN" --variant=2000 --data="$DATA_DIR" \
-		--regress-user-root="$save_root" --regress-user-files --regress-out="$ACTUAL_DIR/save.out") > "$ACTUAL_DIR/$1.log" 2>&1
+run_save() {
+	cases=$((cases + 1))
+	# Generated defaults contain HDT names, so these saves also stay outside the
+	# checkout.  Logs and frame/state hashes in actual/ carry no extracted strings.
+	save_root=$(mktemp -d "${TMPDIR:-/tmp}/tyrian2000-save.XXXXXX") || exit 1
+	trap 'rm -rf "$save_root"' EXIT
+	save_cwd="$save_root/cwd"
+	mkdir -p "$save_cwd"
+	save_run() {
+		(cd "$save_cwd" && HOME="$save_cwd" XDG_CONFIG_HOME="$save_cwd" APPDATA="$save_cwd" \
+			SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy run_binary --variant=2000 --data="$DATA_DIR" \
+			--regress-user-root="$save_root" --regress-user-files --regress-out="$ACTUAL_DIR/save.out") > "$ACTUAL_DIR/$1.log" 2>&1
+	}
+	save_ok=1
+	save_run save-fresh || save_ok=0
+	save="$save_root/tyrian2000/tyrian.sav"
+	if [ "$save_ok" -eq 1 ]; then
+		[ "$(wc -c < "$save" | tr -d ' ')" -eq 4722 ] || save_ok=0
+		[ ! -e "$save_root/tyrian21" ] || save_ok=0
+		# Difficulty bytes: last byte of each 35-byte (Timed Battle) and 39-byte entry.
+		for i in $(seq 0 29); do
+			[ "$(od -An -tu1 -j $((2502 + i * 35 + 34)) -N1 "$save" | tr -d ' ')" = 0 ] || save_ok=0
+		done
+		for i in $(seq 0 29); do
+			[ "$(od -An -tu1 -j $((3552 + i * 39 + 38)) -N1 "$save" | tr -d ' ')" = 0 ] || save_ok=0
+		done
+		cp "$save" "$save_root/first.sav"
+		save_run save-reload || save_ok=0
+		cmp -s "$save_root/first.sav" "$save" || save_ok=0
+		if grep -Fq "is invalid or missing" "$ACTUAL_DIR/save-reload.log"; then save_ok=0; fi
+	fi
+	if [ "$save_ok" -eq 1 ]; then
+		echo "PASS save2000-fresh: 4,722 bytes, zero difficulties, exact reload"
+	else
+		echo "FAIL save2000-fresh"
+		tail -n 8 "$ACTUAL_DIR/save-fresh.log" | sed 's/^/  /'
+		failures=$((failures + 1))
+	fi
+
 }
-save_ok=1
-save_run save-fresh || save_ok=0
-save="$save_root/tyrian2000/tyrian.sav"
-if [ "$save_ok" -eq 1 ]; then
-	[ "$(wc -c < "$save" | tr -d ' ')" -eq 4722 ] || save_ok=0
-	[ ! -e "$save_root/tyrian21" ] || save_ok=0
-	# Difficulty bytes: last byte of each 35-byte (Timed Battle) and 39-byte entry.
-	for i in $(seq 0 29); do
-		[ "$(od -An -tu1 -j $((2502 + i * 35 + 34)) -N1 "$save" | tr -d ' ')" = 0 ] || save_ok=0
-	done
-	for i in $(seq 0 29); do
-		[ "$(od -An -tu1 -j $((3552 + i * 39 + 38)) -N1 "$save" | tr -d ' ')" = 0 ] || save_ok=0
-	done
-	cp "$save" "$save_root/first.sav"
-	save_run save-reload || save_ok=0
-	cmp -s "$save_root/first.sav" "$save" || save_ok=0
-	if grep -Fq "is invalid or missing" "$ACTUAL_DIR/save-reload.log"; then save_ok=0; fi
-fi
-if [ "$save_ok" -eq 1 ]; then
-	echo "PASS save2000-fresh: 4,722 bytes, zero difficulties, exact reload"
-else
-	echo "FAIL save2000-fresh"
-	tail -n 8 "$ACTUAL_DIR/save-fresh.log" | sed 's/^/  /'
-	failures=$((failures + 1))
-fi
+if case_wanted save2000-fresh; then queue_case run_save save2000-fresh; fi
+
+if [ "$QUICK" -eq 1 ] && case_wanted data-open-audit; then queue_case run_data_audit data-open-audit; fi
+run_queued_cases
+cases=$case_count
 
 total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 if [ "$UPDATE" -eq 1 ]; then

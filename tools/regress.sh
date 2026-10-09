@@ -22,6 +22,8 @@
 #   tools/regress.sh --update     regenerate the baselines from the current tree
 #   tools/regress.sh -j 3         run up to three cases at once (default: CPUs)
 #   make regress REGRESS_JOBS=1  run serially
+#   make regress-quick           critical subset plus cheap guards
+#   REGRESS_ONLY='^depth-' make regress   case labels / guard script names
 #
 # The Tyrian data directory comes from $TYRIAN_DATA, defaulting to ./data.  If
 # the data is missing, ./get_data.sh fetches the freeware Tyrian 2.1 release.
@@ -33,7 +35,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 UPDATE=0
-CASE_FILTER=".*"
+CASE_FILTER=${REGRESS_ONLY:-.*}
+QUICK=0
+source "$ROOT/tools/regress_selection.sh"
 UPDATE_MANIFEST=0
 REPLAY_CHECK=0
 INTERP_CHECK=0
@@ -51,6 +55,7 @@ JOBS=${REGRESS_JOBS:-$(default_jobs)}
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--update) UPDATE=1 ;;
+		--quick) QUICK=1 ;;
 		--case=*) CASE_FILTER=${1#*=} ;;
 		--update-manifest) UPDATE_MANIFEST=1 ;;
 		--replay-check) REPLAY_CHECK=1 ;;
@@ -67,13 +72,17 @@ while [ "$#" -gt 0 ]; do
 		--jobs=*) JOBS=${1#*=} ;;
 		-j[0-9]*) JOBS=${1#-j} ;;
 		-h|--help)
-			echo "Usage: tools/regress.sh [-j N|--jobs N] [--case=REGEX] [--update|--update-manifest|--replay-check|--interp-check|--smoothness-check|--parallax-check]"
-			echo "Jobs default to REGRESS_JOBS or the number of CPUs."
+			echo "Usage: tools/regress.sh [-j N|--jobs N] [--quick] [--case=REGEX] [--update|--update-manifest|--replay-check|--interp-check|--smoothness-check|--parallax-check]"
+			echo "Jobs default to REGRESS_JOBS or the number of CPUs; REGRESS_ONLY filters case labels and guard names."
 			exit 0 ;;
 		*) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
 	esac
 	shift
 done
+validate_case_filter || exit 2
+if [ "$QUICK" -eq 1 ] && [ "$((UPDATE + UPDATE_MANIFEST + REPLAY_CHECK + INTERP_CHECK + SMOOTH_CHECK + PARALLAX_CHECK))" -ne 0 ]; then
+	echo "ERROR: --quick is a comparison tier; use the full suite for updates or sweeps" >&2; exit 2
+fi
 case "$JOBS" in
 	''|*[!0-9]*|0) echo "ERROR: jobs must be a positive integer" >&2; exit 2 ;;
 esac
@@ -142,7 +151,7 @@ fi
 # therefore come out in a compiler-dependent order, which would silently break
 # the baselines on another toolchain.  Refuse to run the suite if any such site
 # is present.  See tools/check_rng_order.sh and .worker-reports/rng-order.md.
-if ! "$ROOT/tools/check_rng_order.sh"; then
+if guard_selected check_rng_order.sh && ! "$ROOT/tools/check_rng_order.sh"; then
 	echo ""
 	echo "ERROR: an expression draws from the RNG more than once; the order of"
 	echo "evaluation is unspecified by C.  Hoist each call into its own statement."
@@ -254,38 +263,41 @@ rm -rf "$ACTUAL_DIR"
 mkdir -p "$ACTUAL_DIR"
 
 # No Tyrian 2000 file may land in the tree (metadata-only check, no game data).
-if ! "$ROOT/tools/check_no_t2000_data.sh"; then
+if guard_selected check_no_t2000_data.sh && ! "$ROOT/tools/check_no_t2000_data.sh"; then
 	echo "ERROR: a Tyrian 2000 data file is in the source tree"
 	exit 1
 fi
 
-if ! "$ROOT/tools/check_variant_bootstrap.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/variant-bootstrap"; then
+if guard_selected check_variant_bootstrap.sh && ! "$ROOT/tools/check_variant_bootstrap.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/variant-bootstrap"; then
 	echo "ERROR: variant/bootstrap checks failed"
 	exit 1
 fi
 
-if ! "$ROOT/tools/check_user_paths.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/user-paths"; then
+if guard_selected check_user_paths.sh && ! "$ROOT/tools/check_user_paths.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/user-paths"; then
 	echo "ERROR: user-path/migration checks failed"
 	exit 1
 fi
 
-if ! "$ROOT/tools/check_game_rules.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/rules-21"; then
+if guard_selected check_game_rules.sh && ! "$ROOT/tools/check_game_rules.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/rules-21"; then
 	echo "ERROR: game-rules checks failed"
 	exit 1
 fi
 
-if ! "$ROOT/tools/check_installer.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/installer"; then
+if guard_selected check_installer.sh && ! "$ROOT/tools/check_installer.sh" "$BIN" "$DATA_DIR" "$ACTUAL_DIR/installer"; then
 	echo "ERROR: Tyrian 2000 installer checks failed"
 	exit 1
 fi
 
-if ! "$ROOT/tools/check_final_regression.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/final-regression" ||
-   ! cmp "$BASELINE_DIR/final-regression.txt" "$ACTUAL_DIR/final-regression/final-regression.txt"; then
-	echo "ERROR: final matrix checks failed"
-	exit 1
+if guard_selected check_final_regression.sh; then
+	if ! "$ROOT/tools/check_final_regression.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/final-regression" ||
+       ! cmp "$BASELINE_DIR/final-regression.txt" "$ACTUAL_DIR/final-regression/final-regression.txt"; then
+		echo "ERROR: final matrix checks failed"
+		exit 1
+	fi
 fi
-
-"$ROOT/tools/check_display.sh" "$BIN" "$DATA_DIR" || exit 1
+if guard_selected check_display.sh; then
+	"$ROOT/tools/check_display.sh" "$BIN" "$DATA_DIR" || exit 1
+fi
 
 now() {
 	if command -v perl >/dev/null 2>&1; then
@@ -305,41 +317,6 @@ line_count() {
 	lines=$(wc -l < "$1")
 	printf '%d' "$lines"
 }
-
-# A worker owns its engine child, including on an interrupted suite run.
-run_binary() {
-	"$BIN" "$@" &
-	local binary_pid=$! rc
-	trap 'kill "$binary_pid" 2>/dev/null; wait "$binary_pid" 2>/dev/null; exit 130' INT TERM
-	wait "$binary_pid"
-	rc=$?
-	trap - INT TERM
-	return "$rc"
-}
-
-# Declaration order is separate from execution order. Arguments are escaped by
-# Bash itself, so labels/paths containing spaces remain a single argument.
-case_commands=()
-case_labels=()
-case_order=()
-case_count=0
-active_pids=('')
-active_cases=()
-queue_dir=$(mktemp -d "$ACTUAL_DIR/.queue.XXXXXX") || exit 1
-
-cleanup_queue() {
-	local pid
-	for pid in "${active_pids[@]}"; do
-		[ -z "$pid" ] || kill "$pid" 2>/dev/null
-	done
-	for pid in "${active_pids[@]}"; do
-		[ -z "$pid" ] || wait "$pid" 2>/dev/null
-	done
-	rm -rf "$queue_dir"
-}
-trap cleanup_queue EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 # Estimate relative work from the unchanged frame streams and render paths.
 # Profiling puts Modern/SuperWild demos and audio first; cheap screen cases go
@@ -374,79 +351,7 @@ case_cost() {
 	fi
 }
 
-queue_case() {
-	[[ "$2" =~ $CASE_FILTER ]] || return
-	local command cost
-	printf -v command '%q ' "$@"
-	case_commands[case_count]=$command
-	case_labels[case_count]=$2
-	cost=$(case_cost "$@")
-	printf '%s %s\n' "$cost" "$case_count" >> "$queue_dir/order"
-	case_count=$((case_count + 1))
-}
-
-case_worker() {
-	local index=$1
-	failures=0
-	CASE_WORKER=1
-	# Only strings made by printf %q above are evaluated, never game/log data.
-	eval "${case_commands[$index]}"
-	printf '%s\n' "$failures" > "$queue_dir/$index.result"
-}
-
-run_queued_cases() {
-	local next=0 finished=0 printed=0 slot index pid status case_failures
-	local progressed order_index=0
-	if [ "$JOBS" -gt 1 ]; then
-		# Stable tie-break by declaration index; Bash 3.2 has no wait -n.
-		while read -r _ index; do
-			case_order[order_index]=$index
-			order_index=$((order_index + 1))
-		done < <(LC_ALL=C sort -k1,1nr -k2,2n "$queue_dir/order")
-	else
-		for ((index=0; index<case_count; index++)); do case_order[index]=$index; done
-	fi
-	# There is no benefit in creating more worker slots than cases.
-	[ "$JOBS" -le "$case_count" ] || JOBS=$case_count
-	while [ "$finished" -lt "$case_count" ]; do
-		progressed=0
-		for ((slot=0; slot<JOBS; slot++)); do
-			pid=${active_pids[$slot]:-}
-			if [ -n "$pid" ]; then
-				index=${active_cases[$slot]}
-				if [ -f "$queue_dir/$index.result" ] || ! kill -0 "$pid" 2>/dev/null; then
-					wait "$pid" 2>> "$queue_dir/$index.output"
-					status=$?
-					if [ "$status" -eq 0 ] && [ -f "$queue_dir/$index.result" ]; then
-						read -r case_failures < "$queue_dir/$index.result"
-					else
-						echo "FAIL ${case_labels[$index]}: worker failed ($(exit_status_description "$status"))" >> "$queue_dir/$index.output"
-						case_failures=1
-					fi
-					failures=$((failures + case_failures))
-					: > "$queue_dir/$index.done"
-					active_pids[slot]=''
-					finished=$((finished + 1))
-					progressed=1
-				fi
-			fi
-			if [ -z "${active_pids[$slot]:-}" ] && [ "$next" -lt "$case_count" ]; then
-				index=${case_order[$next]}
-				case_worker "$index" > "$queue_dir/$index.output" 2>&1 &
-				active_pids[slot]=$!
-				active_cases[slot]=$index
-				next=$((next + 1))
-				progressed=1
-			fi
-		done
-		# Emit whole case buffers only when all earlier declarations printed.
-		while [ "$printed" -lt "$case_count" ] && [ -f "$queue_dir/$printed.done" ]; do
-			cat "$queue_dir/$printed.output"
-			printed=$((printed + 1))
-		done
-		[ "$progressed" -ne 0 ] || sleep 0.05
-	done
-}
+source "$ROOT/tools/regress_scheduler.sh"
 
 # Describe a process exit status.  The shell reports a process killed by a
 # signal as 128 + N, so a crash is distinguished from a plain non-zero exit.
@@ -1685,12 +1590,40 @@ if [ "$REPLAY_CHECK" -eq 1 ]; then
 	exit 1
 fi
 
+# Quick pause aggregate reuses the pause rows of the full matrix baseline.
+# Both state/RNG and presented frames are compared, with real menu coverage.
+run_modern_pause() {
+    local label=pause-pause out="$ACTUAL_DIR/modern-pause" crc bytes rc=0
+    SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy run_binary --variant=2.1 --data="$DATA_DIR" \
+        --regress-script=1:3 --regress-seed=32402394 --regress-detail=4 \
+        --regress-frames=700 --regress-menu=pause --regress-modern --regress-aspect=16:9 \
+        --regress-gameplay-check --regress-data-audit="$DATA_DIR" --regress-state-out="$out.state" --regress-out="$out.frames" > "$out.log" 2>&1 || rc=$?
+    : > "$out.txt"
+    if [ "$rc" -eq 0 ] && grep -Fq 'Menu coverage: in-level request' "$out.log" && grep -Fq 'Gameplay composition check:' "$out.log"; then
+        read -r crc bytes _ < <(cksum "$out.state")
+        printf '%s %s %s\n' "$label" "$bytes" "$crc" >> "$out.txt"
+        read -r crc bytes _ < <(cksum "$out.frames")
+        printf '%s %s %s\n' "$label-frames" "$bytes" "$crc" >> "$out.txt"
+        grep '^pause-pause ' "$BASELINE_DIR/final-regression.txt" > "$out.expected"
+        grep '^pause-pause-frames ' "$BASELINE_DIR/final-regression.txt" >> "$out.expected"
+        if cmp -s "$out.expected" "$out.txt"; then echo "PASS modern-pause: state/frame aggregate and pause coverage"; return; fi
+    fi
+    echo "FAIL modern-pause: aggregate or coverage differs"
+    failures=$((failures + 1))
+}
+if [ "$QUICK" -eq 1 ]; then queue_case run_modern_pause modern-pause; fi
+
 # --- offline audio -----------------------------------------------------------
 
 pairs=$((pairs + 1))
 run_case "audio" --regress-audio
 
 run_queued_cases
+pairs=$case_count
+
+if [ "$QUICK" -eq 1 ]; then
+	REGRESS_SKIP_BUILD=1 "$ROOT/tools/regress-2000.sh" --quick --case="$CASE_FILTER" -j "$JOBS" || failures=$((failures + 1))
+fi
 
 total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 

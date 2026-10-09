@@ -29,6 +29,8 @@ cp "$SOURCE_BIN" "$BIN"
 run_isolated() (
 	cd "$SANDBOX/cwd"
 	export HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/xdg" APPDATA="$SANDBOX/appdata"
+	# Codec rejection fixtures require absent 2000 data even if the caller has it.
+	export XDG_DATA_HOME="$SANDBOX/xdg" TYRIAN2000_DATA=
 	export SteamDeck=1 SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy
 	"$BIN" "$@"
 )

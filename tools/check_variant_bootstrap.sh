@@ -2,17 +2,21 @@
 # Cheap bootstrap/provider guards; no new baselines or original asset fixtures.
 set -eu
 
-BIN=$1
+SOURCE_BIN=$1
 DATA_DIR=$(cd "$2" && pwd)
 OUT=$3
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 SANDBOX="$OUT/user-sandbox"
-mkdir -p "$SANDBOX/home" "$SANDBOX/xdg" "$SANDBOX/appdata" "$SANDBOX/cwd"
+mkdir -p "$SANDBOX/home" "$SANDBOX/xdg" "$SANDBOX/appdata" "$SANDBOX/cwd" "$SANDBOX/bin"
+# Isolate executable/portable data discovery as well as the platform user root.
+BIN="$SANDBOX/bin/$(basename "$SOURCE_BIN")"
+cp "$SOURCE_BIN" "$BIN"
 
 run_isolated() (
 	cd "$SANDBOX/cwd"
 	export HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/xdg" APPDATA="$SANDBOX/appdata"
+	export XDG_DATA_HOME="$SANDBOX/xdg" TYRIAN2000_DATA=
 	export SteamDeck=1 SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy
 	"$BIN" "$@"
 )
@@ -92,7 +96,7 @@ grep -Fq 'validation: missing-file; file: tyrian.hdt.' "$OUT/v2000-missing-file.
 expect_failure v2000-no-fallback 'A required Tyrian 2000 data file could not be opened.' \
 	--data="$OUT/nofallback-2000" "${v2000_args[@]}"
 
-if [ -n "$(find "$SANDBOX" -type f -print | grep -v '/cwd/data/tyrian1.lvl$')" ]; then
+if [ -n "$(find "$SANDBOX" -type f ! -path "$BIN" -print | grep -v '/cwd/data/tyrian1.lvl$')" ]; then
 	echo 'FAIL variant-bootstrap: a user file was created'
 	find "$SANDBOX" -type f -print
 	exit 1

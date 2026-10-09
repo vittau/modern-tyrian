@@ -28,12 +28,17 @@ Plans and journals are in Portuguese, in `MODERNIZATION_PLAN.md` (the general mo
 
 ```sh
 make                         # release;  `make debug` = -O0 -Werror, asserts on (run `make clean` between them)
-make regress                 # 2.1: 172 cases + guards, ~1–3 min
-make regress-2000 TYRIAN2000_DATA=<dir>   # 2000: ~150 cases, needs the 2000 data (clear error if missing)
+make regress                 # full 2.1: 203 cases + guards; CI gate
+make regress-quick           # critical 2.1 subset + cheap guards + optional installed 2000 data
+make regress-2000 TYRIAN2000_DATA=<dir>   # full 2000: 180 cases, parallel; data required
+REGRESS_ONLY='^depth-' make regress-quick  # regex over case labels (both suites)
+TYRIAN2000_DATA=<dir> tools/regress-2000.sh -j 6 --case='^depth-' # --case overrides REGRESS_ONLY; both suites support -j / REGRESS_JOBS
 tools/regress.sh --update                 # regenerate 2.1 baselines (intentional output changes only)
 tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --only-launcher for launcher hashes
 ```
 
+- **Quick tier:** `tools/regress.sh --quick` / `make regress-quick` compares existing baselines: `demo[1-5]-d4`, `scenario-{water,spotlight,flip,blur}-d4` (spotlight covers lava; flip also covers lava), `modern-demo1-d4`, `modern-wide-demo1-d4`, `modern-crt-scanlines`, `depth-tyrian-on-d4`, `depth-held-pause-{wide,smooth}-d4`, and `modern-pause` (pause state/frame rows of the full matrix). Optional 2000: `demo1-d4`, `modern-demo1-16x9-d4`, `depth-e1-level16-2p-on-d4`, `data-open-audit` (title baseline plus wrong-root rejection). Uses `TYRIAN2000_DATA` or a manifest-verified installer location; otherwise prints `2000 quick: skipped (no data)`. Measured total: 24.38 s with explicit 2000 data, 28.44 s with installer discovery, 19.63 s without data (6 cores, existing binary); see `.worker-reports/regress-quick.md` for costs.
+- **Quick guards:** no-data, user-paths, variant-bootstrap and game-rules. Installer, full final matrix, display, progress and RNG-order remain in the full gate; quick omits their compilation, large scenario matrices and broad source scan. `REGRESS_ONLY` / `--case=REGEX` intersects the quick list; unlabelled guards run in full suites unless a filter is supplied, then only when their script basename matches. `REGRESS_SKIP_BUILD=1` reuses the binary; `REGRESS_TIMINGS=1` prints per-case wall times. Full CI targets stay unchanged.
 - **Harness:** headless (`SDL_VIDEO_DRIVER=dummy`) with a virtual clock. Cases compare per-tick frame/state hashes. Coverage lines in the log, such as `Rule coverage: …`, `Rule fixture PASS: …` and `boss N active …`, prove that a path really ran; a hash alone does not.
 - **Useful `--regress-*` options:**
   - scenarios: `demo=N`, `level=E:L`, `script=E:L`, `screen=<name>`, `modern`, `aspect=`, `detail=`, `frames=N`, `players=N`, `seed=`;

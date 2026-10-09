@@ -208,17 +208,24 @@ clean :
 	rm -f $(RES)
 	rm -f $(TARGET)
 
+# Pass regexes through the environment so shell metacharacters stay literal.
+export REGRESS_ONLY
+
 .PHONY : regress
 regress :
 	TYRIAN_DATA="$(TYRIAN_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh
-	tools/check_progress.sh ./opentyrian 2.1 "$(TYRIAN_DATA)"
+	if [ -z "$$REGRESS_ONLY" ] || printf '%s\n' check_progress.sh | grep -Eq "$$REGRESS_ONLY"; then tools/check_progress.sh ./opentyrian 2.1 "$(TYRIAN_DATA)"; fi
+
+.PHONY : regress-quick
+regress-quick :
+	TYRIAN_DATA="$(TYRIAN_DATA)" TYRIAN2000_DATA="$(TYRIAN2000_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress.sh --quick
 
 # Tyrian 2000 suite: separate manifest, baselines (test/regress-2000) and data.
 # TYRIAN2000_DATA must name a verified Tyrian 2000 directory; there is no fallback.
 .PHONY : regress-2000
 regress-2000 :
-	TYRIAN2000_DATA="$(TYRIAN2000_DATA)" tools/regress-2000.sh
-	tools/check_progress.sh ./opentyrian 2000 "$(TYRIAN2000_DATA)"
+	TYRIAN2000_DATA="$(TYRIAN2000_DATA)" REGRESS_JOBS="$(REGRESS_JOBS)" tools/regress-2000.sh
+	if [ -z "$$REGRESS_ONLY" ] || printf '%s\n' check_progress.sh | grep -Eq "$$REGRESS_ONLY"; then tools/check_progress.sh ./opentyrian 2000 "$(TYRIAN2000_DATA)"; fi
 
 .PHONY : regress-replay
 regress-replay :
