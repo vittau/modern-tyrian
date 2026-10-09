@@ -520,6 +520,7 @@ static Uint8 mb_bloom_scratch[MB_LPIX * 3];
 static Uint8 mb_light[MB_QPIX * 3];
 static Uint8 mb_light_scratch[MB_QPIX * 3];
 static Uint8 mb_light_half[MB_LPIX * 3];  // quarter light upsampled to half
+static Uint8 mb_light_glow[MB_LPIX * 3];  // the light's share of the glow (depth stage 3 split path)
 
 // Per-quality tuning.  Threshold is the palette max-channel above which a pixel
 // emits; radius is the blur radius in buffer pixels (half-resolution for bloom,
@@ -842,6 +843,24 @@ static void mb_combine(const MbParams *bloom, const MbParams *light)
 	}
 }
 
+// Depth stage 3: the same combine, but the bloom and the light stay in two planes
+// (each scaled by its gain and capped) so mb_apply_layered() can weight the light
+// by the receiving pixel's layer.  min(cap, bloom + light) of the two capped planes
+// equals the one-plane result, so a full-weight pixel is lit as before.
+static void mb_combine_split(const MbParams *bloom, const MbParams *light)
+{
+	const int bgain = bloom->gain;
+	const int lgain = light->gain;
+
+	for (int i = 0; i < MB_LPIX * 3; ++i)
+	{
+		int b = mb_bloom[i] * bgain >> 7;
+		int l = mb_light_half[i] * lgain >> 7;
+		mb_bloom[i] = (Uint8)(b > MB_GLOW_CAP ? MB_GLOW_CAP : b);
+		mb_light_glow[i] = (Uint8)(l > MB_GLOW_CAP ? MB_GLOW_CAP : l);
+	}
+}
+
 // Per-column bilinear weights for the 2x upsample, in Q8.  A logical pixel at
 // x maps to half-resolution coordinate x/2 + 0.25, so i0 = (x*128 + 64) >> 8
 // and the two weights are (256 - fx) and fx.  Precomputing them once removes
@@ -934,6 +953,80 @@ static unsigned long mb_apply(ModernFrame *frame, int playfield_x, const MbParam
 	return lit;
 }
 
+// mb_apply() for depth stage 3: identical blend, but the light plane is scaled by
+// the Q8 weight of the receiving pixel's layer before it joins the bloom plane.
+// `lit_by_layer` receives, per receiving layer, the pixels the glow changed;
+// returns how many of the lit pixels took a weight below 256.
+static unsigned long mb_apply_layered(ModernFrame *frame, int playfield_x, const MbParams *light,
+                                      const Uint8 *overlay, const Uint8 *layers,
+                                      unsigned long *lit_by_layer, unsigned long *lit_total)
+{
+	const int amb = light->ambient;
+	unsigned long lit = 0, reduced = 0;
+
+	mb_build_xmap();
+
+	for (int y = 0; y < MB_H; ++y)
+	{
+		Uint32 *canvas = frame->pixels + (size_t)y * frame->w + playfield_x;
+		const Uint32 q = (Uint32)y * 128 + 64;
+		const int j0 = (int)(q >> 8);
+		const int j1 = MIN(j0 + 1, MB_LH - 1);
+		const int wy0 = 256 - (int)(q & 0xff);
+		const int wy1 = (int)(q & 0xff);
+		const Uint8 *brow0 = mb_bloom + (size_t)j0 * MB_LW * 3;
+		const Uint8 *brow1 = mb_bloom + (size_t)j1 * MB_LW * 3;
+		const Uint8 *lrow0 = mb_light_glow + (size_t)j0 * MB_LW * 3;
+		const Uint8 *lrow1 = mb_light_glow + (size_t)j1 * MB_LW * 3;
+		const Uint8 *skip = overlay != NULL ? overlay + (size_t)y * MB_W : NULL;
+		const Uint8 *layer = layers + (size_t)y * MB_W;
+
+		for (int x = 0; x < MB_W; ++x)
+		{
+			if (skip != NULL && skip[x])
+				continue;
+
+			const Uint32 base = canvas[x];
+			const int i0 = mb_lx0[x] * 3, i1 = mb_lx1[x] * 3;
+			const int w00 = mb_lwx0[x] * wy0, w10 = mb_lwx1[x] * wy0;
+			const int w01 = mb_lwx0[x] * wy1, w11 = mb_lwx1[x] * wy1;
+			const unsigned weight = modern_depth_light_weight(layer[x]);
+
+			int glow[3];
+			for (int c = 0; c < 3; ++c)
+			{
+				const int bl = (brow0[i0 + c] * w00 + brow0[i1 + c] * w10 + brow1[i0 + c] * w01 + brow1[i1 + c] * w11) >> 16;
+				int li = (lrow0[i0 + c] * w00 + lrow0[i1 + c] * w10 + lrow1[i0 + c] * w01 + lrow1[i1 + c] * w11) >> 16;
+				li = (int)((unsigned)li * weight >> 8);
+				glow[c] = bl + li > MB_GLOW_CAP ? MB_GLOW_CAP : bl + li;
+			}
+
+			const int r0 = (int)((base >> 16) & 0xff) * amb >> 8;
+			const int g0 = (int)((base >> 8) & 0xff) * amb >> 8;
+			const int b0 = (int)(base & 0xff) * amb >> 8;
+
+			int r = r0 + (glow[0] * (255 - r0) >> 8);
+			int g = g0 + (glow[1] * (255 - g0) >> 8);
+			int bl = b0 + (glow[2] * (255 - b0) >> 8);
+			if (r > 255) r = 255;
+			if (g > 255) g = 255;
+			if (bl > 255) bl = 255;
+
+			const Uint32 out = ((Uint32)(Uint8)r << 16) | ((Uint32)(Uint8)g << 8) | (Uint32)(Uint8)bl;
+			if (out != base)
+			{
+				lit++;
+				lit_by_layer[layer[x] & DL_LAYER_ID_MASK]++;
+				reduced += weight < 256;
+			}
+			canvas[x] = out;
+		}
+	}
+
+	*lit_total = lit;
+	return reduced;
+}
+
 void modern_bloom_pass(ModernFrame *frame)
 {
 	if (!frame->gameplay || frame->src == NULL || frame->palette == NULL)
@@ -990,10 +1083,25 @@ void modern_bloom_pass(ModernFrame *frame)
 		mb_upsample_light_half();
 	}
 
-	mb_combine(bloom, light);
-
+	// Depth stage 3: with the light on and the depth pass having armed this
+	// frame's layer buffer, the light is weighted per receiving layer.
+	const Uint8 *layers = light->gain != 0 ? modern_depth_light_layers() : NULL;
 	const Uint8 *overlay = modern_held_overlay();
-	const unsigned long lit = mb_apply(frame, playfield_x, light, overlay);
+	unsigned long lit;
+	if (layers != NULL)
+	{
+		unsigned long lit_by_layer[DL_LAYER_COUNT] = { 0 };
+		const Uint64 t0 = SDL_GetPerformanceCounter();
+		mb_combine_split(bloom, light);
+		const unsigned long reduced = mb_apply_layered(frame, playfield_x, light, overlay, layers,
+		                                               lit_by_layer, &lit);
+		modern_depth_note_light(lit_by_layer, reduced, SDL_GetPerformanceCounter() - t0);
+	}
+	else
+	{
+		mb_combine(bloom, light);
+		lit = mb_apply(frame, playfield_x, light, overlay);
+	}
 	if (overlay != NULL)
 	{
 		unsigned long emitters = 0;

@@ -331,6 +331,92 @@ int regress_depth_selfcheck(void)
 	}
 	printf("Depth fixture PASS: On darkness %ld, deterministic\n", on_sum);
 
+	// --- stage 3: atmospheric fog on bg1 ----------------------------------------
+	{
+		static const Uint32 bg1_px = 0x00604020u;  // a brown terrain colour
+		Uint32 fog = 0;
+		ModernDepthFogStats fs;
+
+		// The fog colour comes from the bg1 mean, desaturated and lightened.
+		df_reset(DL_LAYER_BG1);
+		for (int i = 0; i < DF_PITCH * DF_ROWS; ++i)
+			df_canvas[i] = bg1_px;
+		DF_REQUIRE(modern_depth_fog_colour(df_canvas + DF_X0, DF_PITCH, df_layers, &fog));
+		{
+			const int r = (int)((fog >> 16) & 0xff), g = (int)((fog >> 8) & 0xff), b = (int)(fog & 0xff);
+			DF_REQUIRE(r > 0x60 && g > 0x40 && b > 0x20);                 // lightened
+			DF_REQUIRE(r - b < 0x60 - 0x20 && r >= g && g >= b);          // hue kept, saturation halved
+		}
+		// Too few bg1 samples: no colour.
+		df_reset(DL_LAYER_BG3);
+		df_block(0, 0, 9, 9, DL_LAYER_BG1);
+		DF_REQUIRE(!modern_depth_fog_colour(df_canvas + DF_X0, DF_PITCH, df_layers, &fog));
+		fog = 0x00c0c0c0u;
+
+		// Off is the identity; On fogs exactly the bg1 pixels, towards the fog colour.
+		df_reset(DL_LAYER_BG1);
+		df_block(100, 60, 120, 80, DL_LAYER_BG2);
+		df_block(130, 60, 140, 80, DL_LAYER_BG2 | DL_LAYER_BLEND);
+		df_block(150, 60, 160, 80, DL_LAYER_BG1 | DL_LAYER_VFX_FLAG);
+		df_block(170, 60, 180, 80, DL_LAYER_BG3);
+		for (int i = 0; i < DF_PITCH * DF_ROWS; ++i)
+			df_canvas[i] = bg1_px;
+		memset(&fs, 0, sizeof fs);
+		DF_REQUIRE(modern_depth_fog_apply(df_canvas + DF_X0, DF_PITCH, df_layers, MODERN_DEPTH_OFF, fog, &fs) == 0);
+		for (int i = 0; i < DF_PITCH * DF_ROWS; ++i)
+			DF_REQUIRE(df_canvas[i] == bg1_px);
+		const unsigned long applied = modern_depth_fog_apply(df_canvas + DF_X0, DF_PITCH, df_layers, MODERN_DEPTH_ON, fog, &fs);
+		DF_REQUIRE(applied == fs.fogged + fs.blend_fogged && fs.fogged > 0 && fs.blend_fogged == 11u * 21u);
+		DF_REQUIRE(df_px(10, 10) != bg1_px && df_px(10, 10) > bg1_px);      // bg1 moved toward the lighter fog
+		DF_REQUIRE((df_px(10, 10) & 0xff) > 0x20 && (df_px(10, 10) & 0xff) < (fog & 0xff));  // partly, not fully
+		DF_REQUIRE(df_px(110, 70) == bg1_px);                                // opaque bg2: none
+		DF_REQUIRE(df_px(155, 70) == bg1_px);                                // VFX pixel: none
+		DF_REQUIRE(df_px(175, 70) == bg1_px);                                // bg3: none
+		{
+			const int full = (int)(df_px(10, 10) & 0xff) - 0x20, half = (int)(df_px(135, 70) & 0xff) - 0x20;
+			DF_REQUIRE(half > 0 && half * 2 <= full + 1 && half * 2 >= full - 1);  // translucent bg2: half
+		}
+		for (int y = 0; y < DF_ROWS; ++y)        // the margin (all bg1_px) was not fogged
+			for (int x = 0; x < DF_PITCH; ++x)
+				if (!(y < DF_H && x >= DF_X0 && x < DF_X0 + DF_W))
+					DF_REQUIRE(df_canvas[y * DF_PITCH + x] == bg1_px);
+		// Subtle: no channel moves by more than 1/5 of its distance to the fog colour.
+		for (int c = 0; c < 3; ++c)
+		{
+			const int sh = 16 - 8 * c, from = (int)((bg1_px >> sh) & 0xff), to = (int)((fog >> sh) & 0xff);
+			const int moved = (int)((df_px(10, 10) >> sh) & 0xff) - from;
+			DF_REQUIRE(abs(moved) * 5 <= abs(to - from));
+		}
+	}
+	puts("Depth fixture PASS: fog colour from the bg1 mean; only bg1 fogged (blend half, VFX/bg2/bg3 none), subtle, margin clean");
+
+	// --- stage 3: per-layer light weights ---------------------------------------
+	{
+		static const int terrain[] = { DL_LAYER_BG1, DL_LAYER_BG2, DL_LAYER_GROUND_ENEMY };
+		for (size_t i = 0; i < sizeof terrain / sizeof terrain[0]; ++i)
+			DF_REQUIRE(modern_depth_light_weight((Uint8)terrain[i]) == 256);
+		DF_REQUIRE(modern_depth_light_weight(DL_LAYER_BG2 | DL_LAYER_BLEND) == 256);
+		const unsigned sky = modern_depth_light_weight(DL_LAYER_SKY_ENEMY);
+		const unsigned player = modern_depth_light_weight(DL_LAYER_PLAYER);
+		const unsigned bg3 = modern_depth_light_weight(DL_LAYER_BG3);
+		DF_REQUIRE(sky < 256 && player < 256 && bg3 < player && bg3 < sky && bg3 * 8 <= 256);
+		DF_REQUIRE(modern_depth_light_weight(DL_LAYER_SIDEKICK) == player);
+		DF_REQUIRE(modern_depth_light_weight(DL_LAYER_TOP_ENEMY) < 256);
+		static const int unweighted[] =
+		{
+			DL_LAYER_PLAYER_SHOT, DL_LAYER_ENEMY_SHOT, DL_LAYER_EXPLOSION, DL_LAYER_SUPERPIXEL,
+			DL_LAYER_STARFIELD, DL_LAYER_HUD, DL_LAYER_OTHER, DL_LAYER_NONE,
+		};
+		for (size_t i = 0; i < sizeof unweighted / sizeof unweighted[0]; ++i)
+			DF_REQUIRE(modern_depth_light_weight((Uint8)unweighted[i]) == 256);
+		// A VFX pixel over bg3 or the ship is lit as VFX (full), not as its layer.
+		DF_REQUIRE(modern_depth_light_weight(DL_LAYER_BG3 | DL_LAYER_VFX_FLAG) == 256);
+		DF_REQUIRE(modern_depth_light_weight(DL_LAYER_PLAYER | DL_LAYER_VFX_FLAG) == 256);
+		// An id outside the table cannot read out of it.
+		DF_REQUIRE(modern_depth_light_weight(DL_LAYER_ID_MASK) == 256);
+	}
+	puts("Depth fixture PASS: light weights: terrain full, sky/ship reduced, bg3 almost none, shots/VFX full");
+
 	puts("Depth fixture PASS: all rules");
 	return 0;
 }

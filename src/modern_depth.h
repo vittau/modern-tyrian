@@ -103,6 +103,42 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
                                         const Uint8 *layers, const Uint8 *rank,
                                         ModernDepth quality, ModernDepthShadowStats *stats);
 
+// --- atmospheric fog on bg1 and per-layer light (stage 3) ---------------------------
+
+// Counters of one modern_depth_fog_apply() call.
+typedef struct
+{
+	unsigned long fogged;        // bg1 pixels blended toward the fog colour
+	unsigned long blend_fogged;  // translucent bg2 pixels (bg1 shows through) fogged at half strength
+} ModernDepthFogStats;
+
+// Derives the fog colour of a frame from the UNFOGGED canvas: the mean colour of
+// the bg1 pixels (sampled on a 2x2 grid), desaturated by half toward its luma and
+// lightened by about a third toward white.  Returns false (leaving *rgb alone)
+// when fewer than MODERN_DEPTH_FOG_MIN_SAMPLES bg1 pixels were sampled.
+#define MODERN_DEPTH_FOG_MIN_SAMPLES 256
+bool modern_depth_fog_colour(const Uint32 *canvas, int canvas_pitch_px, const Uint8 *layers, Uint32 *rgb);
+
+// Blends every bg1 pixel (not a VFX pixel) of `canvas` toward `fog_rgb` by a small
+// fixed amount; translucent bg2 pixels get half of it, everything else none.
+// Quality Off is the identity.  Returns the number of pixels fogged.
+unsigned long modern_depth_fog_apply(Uint32 *canvas, int canvas_pitch_px, const Uint8 *layers,
+                                     ModernDepth quality, Uint32 fog_rgb, ModernDepthFogStats *stats);
+
+// Q8 weight (256 = full) of the light a pixel receives from the lighting pass,
+// by its layer byte.  A VFX-flagged pixel and any non-world layer take 256.
+unsigned modern_depth_light_weight(Uint8 layer_byte);
+
+// The layer buffer the lighting pass may weight by, or NULL when this frame has
+// no per-layer light (Depth Off, not a fresh gameplay frame, a starfield level).
+// Valid only between modern_depth_pass() and the end of the same frame.
+const Uint8 *modern_depth_light_layers(void);
+
+// Called by the lighting pass with the number of lit pixels per receiving layer
+// of this frame (DL_LAYER_COUNT entries), how many of them took a weight < 256 and the
+// performance-counter ticks the split combine + layered apply took.
+void modern_depth_note_light(const unsigned long *lit_by_layer, unsigned long reduced, Uint64 ticks);
+
 // The registered Modern pass (before the bloom/lighting pass).  Gameplay frames
 // only, and only when the layer buffer of this very frame is valid.
 void modern_depth_pass(ModernFrame *frame);

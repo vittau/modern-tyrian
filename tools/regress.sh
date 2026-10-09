@@ -1214,57 +1214,80 @@ if [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -
 	# names the casters and paths that must really have run ("identical" = the
 	# case must not shadow at all).
 	run_depth_case "depth-wide-demo1-on-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" on \
-		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 sidekick>0 bg3>0 top>0 blend>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 sidekick>0 bg3>0 top>0 blend>0 space_frames=0 fog.fogged_px>0" \
 		--regress-demo=1 $M4 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-wide-demo5-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 bg2>0 blend=0 ground>0 sky>0 player>0 sidekick>0 bg3>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg2>0 blend=0 ground>0 sky>0 player>0 sidekick>0 bg3>0 space_frames=0 fog.fogged_px>0" \
 		--regress-demo=5 $M4 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-e1-level16-bg3-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 bg3>0 top>0 sky>0 player>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg3>0 top>0 sky>0 player>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=1:16 $M4 --regress-frames=1200 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-e1-level16-2p-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 player>0 sidekick>0 bg3>0 space_frames=0" \
+		"frames>0 shadowed_px>0 player>0 sidekick>0 bg3>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=1:16 $M4 --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-scenario-water-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 sky>0 player>0 blend>0 space_frames=0" \
+		"frames>0 shadowed_px>0 sky>0 player>0 blend>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=4:9 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-scenario-flip-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 bg2>0 sky>0 top>0 player>0 flipped>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg2>0 sky>0 top>0 player>0 flipped>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-demo4-space-on-d$MODERN_DETAIL" - on \
-		"identical frames>0 shadowed_px=0 space_frames>0 bg3=0 top=0 sky=0 player=0" \
+		"identical frames>0 shadowed_px=0 space_frames>0 bg3=0 top=0 sky=0 player=0 fog.fogged_px=0 fog.space_frames>0" \
 		--regress-demo=4 $M4 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	run_depth_case "depth-e1-level1-space-on-d$MODERN_DETAIL" - on \
-		"identical frames>0 shadowed_px=0 space_frames>0" \
+		"identical frames>0 shadowed_px=0 space_frames>0 fog.fogged_px=0 fog.space_frames>0" \
 		--regress-level=1:1 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	# Modern 4:3: no side panels, the playfield sits at the canvas's own offset.
 	run_depth_case "depth-demo1-4x3-on-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" on \
-		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 bg3>0 top>0 space_frames=0 fog.fogged_px>0" \
 		--regress-demo=1 $M4
 	pairs=$((pairs + 1))
 	# 16:9 with smooth motion: the presented frames are the interpolated ones.
 	run_depth_case "depth-smooth-wide-flip-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 	pairs=$((pairs + 1))
 
 	# HOLES (physical 11, script section 28): floating land on BG3 above BG1.
 	run_depth_case "depth-holes-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 bg3>0 bg2>0 blend>0 player>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg3>0 bg2>0 blend>0 player>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=1:11 $M4 --regress-frames=1200 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	# TYRIAN is physical 9, section 3, the first Full Game level (not physical 1).
 	run_depth_case "depth-tyrian-on-d$MODERN_DETAIL" - on \
-		"frames>0 shadowed_px>0 bg2>0 blend>0 ground>0 player>0 space_frames=0" \
+		"frames>0 shadowed_px>0 bg2>0 blend>0 ground>0 player>0 space_frames=0 fog.fogged_px>0" \
 		--regress-level=1:9 $M4 --regress-frames=1200 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+
+	# --- depth stage 3: fog on bg1 and per-layer light --------------------------
+	#
+	# With Lighting on, Depth Off must reproduce the committed lighting baselines of the
+	# same scenarios (so the per-layer path leaves the old light bit for bit), and Depth On
+	# must change the frames: fog on bg1, light weighted by layer ("light." keys read the
+	# "Depth light:" line, "fog." keys the "Depth fog:" line).  A space level gets neither.
+	run_depth_case "depth-light-demo1-on-d$MODERN_DETAIL" "modern-light-demo1-d$MODERN_DETAIL" on \
+		"frames>0 fog.fogged_px>0 fog.blend_fogged_px>0 fog.space_frames=0 light.frames>0 light.reduced_px>0 light.bg1>0 light.bg2>0 light.ground>0 light.sky>0 light.player>0 light.bg3>0" \
+		--regress-demo=1 $M4 --regress-aspect=16:9 --regress-lighting=high --regress-demo-hud-check
+	pairs=$((pairs + 1))
+	run_depth_case "depth-light-level16-on-d$MODERN_DETAIL" "modern-light-scenario-spotlight-d$MODERN_DETAIL" on \
+		"frames>0 fog.fogged_px>0 light.frames>0 light.reduced_px>0 light.bg3>0 light.top>0 light.player>0" \
+		--regress-level=1:16 $M4 --regress-frames=1200 --regress-aspect=16:9 --regress-lighting=high
+	pairs=$((pairs + 1))
+	run_depth_case "depth-light-holes-on-d$MODERN_DETAIL" - on \
+		"frames>0 fog.fogged_px>0 fog.blend_fogged_px>0 light.reduced_px>0 light.bg3>0 light.bg1>0" \
+		--regress-level=1:11 $M4 --regress-frames=1200 --regress-aspect=16:9 --regress-lighting=high
+	pairs=$((pairs + 1))
+	run_depth_case "depth-light-space-on-d$MODERN_DETAIL" - on \
+		"identical fog.fogged_px=0 fog.frames=0 fog.space_frames>0 light.frames=0 light.reduced_px=0" \
+		--regress-level=1:1 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9 --regress-lighting=high
 	pairs=$((pairs + 1))
 
 	# --- held in-level screens: shadows and light kept on the frozen playfield ---
@@ -1276,34 +1299,34 @@ if [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -
 	# the last live frame to within the fringe of what sits under the overlay.
 	H4="--regress-script=1:3 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern"
 	run_held_case "depth-held-pause-wide-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 compared_px>40000 mismatch_max_dist<12" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 compared_px>40000 mismatch_max_dist<12 fogged_px>0 reduced_px>0" \
 		$H4 --regress-frames=350 --regress-menu=pause --regress-aspect=16:9
 	run_held_case "depth-held-ingame-wide-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 compared_px>10000 mismatch_max_dist<20" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 compared_px>10000 mismatch_max_dist<20 fogged_px>0 reduced_px>0" \
 		$H4 --regress-frames=1050 --regress-menu=ingame --regress-aspect=16:9
 	run_held_case "depth-held-help-wide-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
+		"frames=1 shadowed_px>0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4 fogged_px>0 reduced_px>0" \
 		$H4 --regress-frames=350 --regress-menu=help --regress-aspect=16:9
 	# Modern 4:3 (no side panels): the playfield sits at x = 0.
 	run_held_case "depth-held-pause-4x3-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12 fogged_px>0 reduced_px>0" \
 		$H4 --regress-frames=350 --regress-menu=pause
 	run_held_case "depth-held-ingame-21x9-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<20" \
+		"frames=1 shadowed_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<20 fogged_px>0 reduced_px>0" \
 		$H4 --regress-frames=350 --regress-menu=ingame --regress-aspect=21:9
 	# A starfield level: no shadow on a held frame either, but the held light stays.
 	run_held_case "depth-held-pause-space-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px=0 space_frames=1 lit_px>5000 overlay_px>0 overlay_changed_px=0 mismatch_px=0" \
+		"frames=1 shadowed_px=0 space_frames=1 lit_px>5000 overlay_px>0 overlay_changed_px=0 mismatch_px=0 fogged_px=0 reduced_px=0" \
 		--regress-script=1:5 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern \
 		--regress-frames=300 --regress-menu=pause --regress-aspect=16:9
 	# Lava level with a big explosion under the PAUSED text.
 	run_held_case "depth-held-ingame-lava-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<40" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<40 fogged_px>0 reduced_px>0" \
 		--regress-script=4:12 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern \
 		--regress-frames=2400 --regress-menu=ingame --regress-aspect=16:9
 	# Smooth motion: the last live frame came from the interpolated renderer.
 	run_held_case "depth-held-pause-smooth-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12 fogged_px>0 reduced_px>0" \
 		$H4 --regress-frames=350 --regress-menu=pause --regress-aspect=16:9 --regress-interp-alpha=0.5
 fi
 

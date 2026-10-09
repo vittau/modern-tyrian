@@ -12,7 +12,11 @@
 # LEVEL            on: the setting the baseline belongs to.
 # REQUIRE          space-separated assertions over the "Depth shadows:" log line of the
 #                  LEVEL run, KEY>N or KEY=N (frames, shadowed_px, bg2, ground, sky,
-#                  player, sidekick, bg3, top, blend, space_frames).  A hash alone cannot
+#                  player, sidekick, bg3, top, blend, space_frames).  Stage 3 keys are
+#                  prefixed with their line: fog.KEY (frames, fogged_px, blend_fogged_px,
+#                  space_frames) over "Depth fog:", light.KEY (frames, lit_px, reduced_px,
+#                  bg1, bg2, ground, sky, top, player, sidekick, bg3) over "Depth light:"
+#                  (the light line needs --regress-lighting in ARGS).  A hash alone cannot
 #                  show that a path ran.  The word "identical" says the LEVEL run must
 #                  present the very same frames as Off (the space levels: no shadow).
 # ARGS             the scenario, e.g. --regress-demo=1 --regress-modern --regress-detail=4.
@@ -85,7 +89,12 @@ cmp -s "$SHADOW_BASE" "$OUT_DIR/$LABEL.$LEVEL.txt" || fail "depth $LEVEL frame h
 fi
 
 depth_stat() {
-	grep -E 'Depth shadows:' "$log" | grep -oE "[[:space:]]$1=[0-9]+" | head -n 1 | cut -d= -f2
+	local line='Depth shadows:' key=$1
+	case "$key" in
+		fog.*) line='Depth fog:'; key=${key#fog.} ;;
+		light.*) line='Depth light:'; key=${key#light.} ;;
+	esac
+	grep -E "$line" "$log" | grep -oE "[[:space:]]$key=[0-9]+" | head -n 1 | cut -d= -f2
 }
 
 summary=""

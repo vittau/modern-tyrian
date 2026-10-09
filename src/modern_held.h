@@ -89,5 +89,9 @@ void modern_held_log_stats(void);
 // on a held frame, and pixels lit by the bloom/lighting pass on a held frame.
 void modern_held_note_shadow(unsigned long shadowed, bool space);
 void modern_held_note_light(unsigned long emitters, unsigned long lit);
+// Stage 3: bg1 pixels fogged on a held frame, and lit pixels that took a per-layer
+// light weight below full on a held frame.
+void modern_held_note_fog(unsigned long fogged);
+void modern_held_note_light_layers(unsigned long reduced);
 
 #endif // MODERN_HELD_H

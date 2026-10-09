@@ -242,6 +242,18 @@ static Uint32 md_hgt[2][MD_W * MD_H];
 // Rank protection remains at apply time after the full silhouette is softened.
 static Uint32 md_order[2][MD_W * MD_H];
 
+static bool md_light_ok = false;   // this frame's lighting pass may weight by layer
+
+// Fog colour of the last live frame; held frames reuse it so they match the live
+// picture exactly (their own canvas has overlay pixels in the bg1 area).
+static Uint32 md_fog_rgb = 0;
+static bool md_fog_have = false;
+
+static unsigned long md_fog_frames = 0, md_fog_px = 0, md_fog_blend_px = 0, md_fog_space = 0;
+static unsigned long md_light_frames = 0, md_light_reduced = 0;
+static Uint64 md_fog_ticks = 0, md_light_ticks = 0;
+static unsigned long md_light_lit[DL_LAYER_COUNT];
+
 static unsigned long md_stat_frames = 0;
 static unsigned long md_stat_shadowed = 0;
 static unsigned long md_stat_space = 0;
@@ -435,6 +447,144 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
 	return shadowed;
 }
 
+// --- atmospheric fog on bg1 (stage 3) ----------------------------------------------
+//
+// bg1 is the deepest terrain.  A haze of the terrain's own mean colour, desaturated
+// and lightened, is blended over it at a low fixed strength: contrast and saturation
+// drop a little, so bg1 reads as farther than bg2/bg3 and the enemies without any
+// hue shift.  The colour follows the frame's bg1 content (a large-area mean, so it
+// drifts slowly with the scroll and never flickers) and uses no noise, so nothing
+// can swim against the terrain.  Translucent bg2 (water, clouds over land) shows
+// bg1 through it, so it takes half the amount; opaque bg2 and everything above bg1
+// take none.
+
+#define MD_FOG_STRENGTH 40  // Q8 (~16%) blend toward the fog colour on a bg1 pixel
+
+bool modern_depth_fog_colour(const Uint32 *canvas, int canvas_pitch_px, const Uint8 *layers, Uint32 *rgb)
+{
+	unsigned long sum_r = 0, sum_g = 0, sum_b = 0, n = 0;
+	for (int y = 0; y < MD_H; y += 2)
+	{
+		const Uint8 *row = layers + (size_t)y * MD_W;
+		const Uint32 *px = canvas + (size_t)y * (size_t)canvas_pitch_px;
+		for (int x = 0; x < MD_W; x += 2)
+		{
+			if (row[x] != DL_LAYER_BG1)  // exact: no VFX flag, no blend
+				continue;
+			const Uint32 p = px[x];
+			sum_r += (p >> 16) & 0xff;
+			sum_g += (p >> 8) & 0xff;
+			sum_b += p & 0xff;
+			n++;
+		}
+	}
+	if (n < MODERN_DEPTH_FOG_MIN_SAMPLES)
+		return false;
+
+	int c[3] = { (int)(sum_r / n), (int)(sum_g / n), (int)(sum_b / n) };
+	const int luma = (77 * c[0] + 150 * c[1] + 29 * c[2]) >> 8;
+	for (int i = 0; i < 3; ++i)
+	{
+		c[i] += (luma - c[i]) / 2;         // half desaturated
+		c[i] += (255 - c[i]) * 90 >> 8;    // lightened about 35% toward white
+	}
+	*rgb = ((Uint32)c[0] << 16) | ((Uint32)c[1] << 8) | (Uint32)c[2];
+	return true;
+}
+
+unsigned long modern_depth_fog_apply(Uint32 *canvas, int canvas_pitch_px, const Uint8 *layers,
+                                     ModernDepth quality, Uint32 fog_rgb, ModernDepthFogStats *stats)
+{
+	if (quality <= MODERN_DEPTH_OFF || quality >= MODERN_DEPTH_MAX || canvas == NULL || layers == NULL)
+		return 0;
+
+	const int fr = (int)((fog_rgb >> 16) & 0xff), fg = (int)((fog_rgb >> 8) & 0xff), fb = (int)(fog_rgb & 0xff);
+	unsigned long fogged = 0, blend = 0;
+	for (int y = 0; y < MD_H; ++y)
+	{
+		const Uint8 *row = layers + (size_t)y * MD_W;
+		Uint32 *out = canvas + (size_t)y * (size_t)canvas_pitch_px;
+		for (int x = 0; x < MD_W; ++x)
+		{
+			const Uint8 v = row[x];
+			int s;
+			if (v == DL_LAYER_BG1)
+				s = MD_FOG_STRENGTH;
+			else if (v == (DL_LAYER_BG2 | DL_LAYER_BLEND))
+				s = MD_FOG_STRENGTH / 2;
+			else
+				continue;
+
+			const Uint32 p = out[x];
+			const int r = (int)((p >> 16) & 0xff), g = (int)((p >> 8) & 0xff), b = (int)(p & 0xff);
+			const int nr = r + ((fr - r) * s >> 8), ng = g + ((fg - g) * s >> 8), nb = b + ((fb - b) * s >> 8);
+			out[x] = (p & 0xff000000u) | ((Uint32)nr << 16) | ((Uint32)ng << 8) | (Uint32)nb;
+			if (v == DL_LAYER_BG1) fogged++; else blend++;
+		}
+	}
+
+	if (stats != NULL)
+	{
+		stats->fogged += fogged;
+		stats->blend_fogged += blend;
+	}
+	return fogged + blend;
+}
+
+// --- per-layer light (stage 3) -----------------------------------------------------
+//
+// How much of the lighting pass's glow a pixel receives (Q8, 256 = all).  Terrain
+// stands in the light of the fire above it; things that fly are lit less, and the
+// tall bg3 structures and clouds, far above the fires, almost not at all.  Bloom is
+// not weighted: it is the glow around the emitter itself.
+static const Uint16 md_light_q8[DL_LAYER_COUNT] =
+{
+	[DL_LAYER_NONE]         = 256,
+	[DL_LAYER_BG1]          = 256,
+	[DL_LAYER_STARFIELD]    = 256,
+	[DL_LAYER_BG2]          = 256,  // opaque and blended alike
+	[DL_LAYER_GROUND_ENEMY] = 256,
+	[DL_LAYER_SKY_ENEMY]    = 160,  // ~0.63
+	[DL_LAYER_BG3]          = 24,   // ~0.09
+	[DL_LAYER_TOP_ENEMY]    = 160,  // ~0.63, flies like the sky enemies
+	[DL_LAYER_PLAYER]       = 144,  // ~0.56
+	[DL_LAYER_SIDEKICK]     = 144,
+	[DL_LAYER_PLAYER_SHOT]  = 256,
+	[DL_LAYER_ENEMY_SHOT]   = 256,
+	[DL_LAYER_EXPLOSION]    = 256,
+	[DL_LAYER_SUPERPIXEL]   = 256,
+	[DL_LAYER_HUD]          = 256,
+	[DL_LAYER_OTHER]        = 256,
+};
+
+unsigned modern_depth_light_weight(Uint8 layer_byte)
+{
+	if (layer_byte & DL_LAYER_VFX_FLAG)
+		return 256;
+	const unsigned id = layer_byte & DL_LAYER_ID_MASK;
+	return id < DL_LAYER_COUNT ? md_light_q8[id] : 256;
+}
+
+const Uint8 *modern_depth_light_layers(void)
+{
+	return md_light_ok && md_valid ? md_layer : NULL;
+}
+
+void modern_depth_note_light(const unsigned long *lit_by_layer, unsigned long reduced, Uint64 ticks)
+{
+	const bool held = modern_held_overlay() != NULL;
+	if (held)
+	{
+		modern_held_note_light_layers(reduced);
+		return;
+	}
+	md_light_frames++;
+	md_light_reduced += reduced;
+	md_light_ticks += ticks;
+	for (int i = 0; i < DL_LAYER_COUNT; ++i)
+		md_light_lit[i] += lit_by_layer[i];
+}
+
 void modern_depth_pass(ModernFrame *frame)
 {
 	// Consume the frame: a frame that never copied the layer buffer (the level
@@ -442,6 +592,7 @@ void modern_depth_pass(ModernFrame *frame)
 	// stale buffer's.
 	const bool fresh = md_fresh && md_valid;
 	md_fresh = false;
+	md_light_ok = false;
 
 	if (!frame->gameplay || !fresh || modern_depth_quality == MODERN_DEPTH_OFF)
 		return;
@@ -457,21 +608,52 @@ void modern_depth_pass(ModernFrame *frame)
 	if (!held)
 		md_stat_frames++;
 
-	// Never cast a shadow onto the void: the starfield levels (the same test
-	// vfx_ambient.c uses for its space style).
+	// Never cast a shadow onto the void, and no fog or per-layer light either:
+	// the starfield levels (the same test vfx_ambient.c uses for its space style).
 	if (starActive)
 	{
 		if (held)
 			modern_held_note_shadow(0, true);
 		else
+		{
 			md_stat_space++;
+			md_fog_space++;
+		}
 		return;
 	}
+	md_light_ok = true;
+
+	const Uint64 t0 = SDL_GetPerformanceCounter();
+
+	// Fog first, on the unshadowed canvas: the shadow pass then darkens the fogged
+	// terrain by the same factor, so shadows keep their strength on top of the haze
+	// (fogging after would lift them back toward the fog colour and flatten them).
+	// A held frame reuses the last live frame's fog colour.
+	Uint32 *const origin = frame->pixels + playfield_x;
+	if (!held)
+		md_fog_have = modern_depth_fog_colour(origin, frame->w, md_layer, &md_fog_rgb);
+	const Uint64 tf = SDL_GetPerformanceCounter();
+	if (md_fog_have)
+	{
+		ModernDepthFogStats fog;
+		memset(&fog, 0, sizeof fog);
+		const unsigned long fogged = modern_depth_fog_apply(origin, frame->w, md_layer,
+		                                                    modern_depth_quality, md_fog_rgb, &fog);
+		if (held)
+			modern_held_note_fog(fogged);
+		else
+		{
+			md_fog_frames++;
+			md_fog_px += fog.fogged;
+			md_fog_blend_px += fog.blend_fogged;
+		}
+	}
+	if (!held)
+		md_fog_ticks += SDL_GetPerformanceCounter() - tf;
 
 	ModernDepthShadowStats stats;
 	memset(&stats, 0, sizeof stats);
-	const Uint64 t0 = SDL_GetPerformanceCounter();
-	const unsigned long shadowed = modern_depth_shadow_apply(frame->pixels + playfield_x, frame->w,
+	const unsigned long shadowed = modern_depth_shadow_apply(origin, frame->w,
 	                                                         md_layer, md_rank, modern_depth_quality, &stats);
 	if (held)
 	{
@@ -496,8 +678,23 @@ void modern_depth_log_stats(void)
 	        md_stat_casters[DL_LAYER_BG3], md_stat_casters[DL_LAYER_TOP_ENEMY],
 	        md_stat_blend_casters, md_stat_space,
 	        md_frames_interpolated, md_frames_flipped);
+	logInfo("Depth fog: frames=%lu fogged_px=%lu blend_fogged_px=%lu space_frames=%lu",
+	        md_fog_frames, md_fog_px, md_fog_blend_px, md_fog_space);
+	unsigned long lit_total = 0;
+	for (int i = 0; i < DL_LAYER_COUNT; ++i)
+		lit_total += md_light_lit[i];
+	logInfo("Depth light: frames=%lu lit_px=%lu reduced_px=%lu bg1=%lu bg2=%lu ground=%lu sky=%lu top=%lu player=%lu sidekick=%lu bg3=%lu",
+	        md_light_frames, lit_total, md_light_reduced, md_light_lit[DL_LAYER_BG1], md_light_lit[DL_LAYER_BG2],
+	        md_light_lit[DL_LAYER_GROUND_ENEMY], md_light_lit[DL_LAYER_SKY_ENEMY], md_light_lit[DL_LAYER_TOP_ENEMY],
+	        md_light_lit[DL_LAYER_PLAYER], md_light_lit[DL_LAYER_SIDEKICK], md_light_lit[DL_LAYER_BG3]);
+	if (md_fog_frames > 0)
+		logInfo("Depth fog cost: %.3f ms per frame over %lu frames.",
+		        1000.0 * (double)md_fog_ticks / (double)SDL_GetPerformanceFrequency() / (double)md_fog_frames, md_fog_frames);
+	if (md_light_frames > 0)
+		logInfo("Depth light cost: %.3f ms per frame over %lu frames (split combine + layered apply).",
+		        1000.0 * (double)md_light_ticks / (double)SDL_GetPerformanceFrequency() / (double)md_light_frames, md_light_frames);
 	if (md_stat_timed > 0)
-		logInfo("Depth cost: %.3f ms per presented frame over %lu frames (shadow core only).",
+		logInfo("Depth cost: %.3f ms per presented frame over %lu frames (fog + shadow core).",
 		        1000.0 * (double)md_stat_ticks / (double)SDL_GetPerformanceFrequency() / (double)md_stat_timed,
 		        md_stat_timed);
 }

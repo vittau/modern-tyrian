@@ -55,6 +55,8 @@ static unsigned long mh_shadowed = 0;
 static unsigned long mh_space_frames = 0;
 static unsigned long mh_emitters = 0;
 static unsigned long mh_lit = 0;
+static unsigned long mh_fogged = 0;
+static unsigned long mh_reduced = 0;
 
 void modern_held_set(bool held)
 {
@@ -251,12 +253,22 @@ void modern_held_note_light(unsigned long emitters, unsigned long lit)
 	mh_lit += lit;
 }
 
+void modern_held_note_fog(unsigned long fogged)
+{
+	mh_fogged += fogged;
+}
+
+void modern_held_note_light_layers(unsigned long reduced)
+{
+	mh_reduced += reduced;
+}
+
 void modern_held_log_stats(void)
 {
-	logInfo("Depth held: frames=%lu shadowed_px=%lu space_frames=%lu overlay_px=%lu overlay_changed_px=%lu",
-	        mh_frames, mh_shadowed, mh_space_frames, mh_overlay_total, mh_overlay_changed);
-	logInfo("Light held: frames=%lu emitter_px=%lu lit_px=%lu overlay_px=%lu overlay_changed_px=%lu",
-	        mh_frames, mh_emitters, mh_lit, mh_overlay_total, mh_overlay_changed);
+	logInfo("Depth held: frames=%lu fogged_px=%lu shadowed_px=%lu space_frames=%lu overlay_px=%lu overlay_changed_px=%lu",
+	        mh_frames, mh_fogged, mh_shadowed, mh_space_frames, mh_overlay_total, mh_overlay_changed);
+	logInfo("Light held: frames=%lu emitter_px=%lu lit_px=%lu reduced_px=%lu overlay_px=%lu overlay_changed_px=%lu",
+	        mh_frames, mh_emitters, mh_lit, mh_reduced, mh_overlay_total, mh_overlay_changed);
 	if (mh_check)
 		logInfo("Held check: frames=%lu compared_px=%lu mismatch_px=%lu mismatch_max_dist=%d",
 		        mh_frames, mh_compared, mh_mismatch, mh_mismatch_dist);
