@@ -681,3 +681,22 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - A etapa 3 (névoa no bg1 e luz por camada) fica para depois.
 - **Processo:** o usuário achou as suítes longas. A partir daqui o coordenador não roda mais as suítes completas localmente: revisa, faz push do branch e usa a CI como portão. Entra uma tarefa de `make regress-quick` (menos de 1 min), com filtro por área e a suíte 2000 em paralelo.
 
+
+### 2026-10-09 — Release v0.6.0, testes rápidos e CI sem retrabalho
+- **Release v0.6.0** ("Modern Tyrian v0.6.0: depth shadows") no commit `2ecacc4`, a pedido do usuário, publicada depois da CI verde nos três sistemas. A CI anexou os quatro pacotes (Linux x86_64/arm64, Windows x86_64, macOS universal).
+- **Regressão rápida (`61ef2e7`, `e3dff92`)**, a pedido do usuário ("essas suítes são muito longas"). Worker: Codex `gpt-6.1-sol` (medium).
+  - **`make regress-quick`:** ~20–25 s. Cobre as 5 demos Classic e os cenários de água/spotlight/flip/blur, o núcleo Modern (4:3, 16:9, CRT, Depth On na TYRIAN, pausa segurada, a linha de pausa da matriz), os guards baratos e 4 casos do 2000 quando os dados existem. Sem dados, imprime `2000 quick: skipped (no data)`.
+  - **Filtro por área:** `REGRESS_ONLY=<regex>` ou `--case=REGEX`, nas duas suítes.
+  - **Suíte 2000 em paralelo:** caiu de ~4,5 min para ~1 min 45 s, com os mesmos 180 casos. Os alvos completos e a CI não mudaram.
+  - A primeira versão falhou só no Windows: no MSYS2 o `cp` de `./opentyrian` grava `opentyrian.exe`, e o guard de bootstrap acusou a própria cópia do executável. Corrigido no mesmo worker.
+- **CI sem retrabalho (`6af6638`)**, depois de o usuário notar builds repetidos. Cada workflow ganhou um job de decisão (`.github/ci/decide.cjs`):
+  - um push só de Markdown, `docs/` ou `.worker-reports/` pula o build e a regressão e termina verde;
+  - um push cujo SHA já passou no mesmo workflow em outro branch também é pulado, então o fast-forward do `master` para um branch testado não custa nada;
+  - a release baixa os pacotes do push verde do mesmo SHA e anexa os bytes originais. Ela só recompila se não houver push verde, e falha alto se os pacotes tiverem expirado;
+  - o `workflow_dispatch` sempre roda tudo.
+
+  O caminho da release só será exercitado de verdade na próxima release (ou numa pré-release descartável).
+- **Processo:**
+  - merges por fast-forward quando o branch já contém o `master`;
+  - o coordenador roda só o quick localmente e usa a CI como portão completo;
+  - um trabalho pausado é retomado com `codex resume <sessão>` mais `worker-start --task … --terminal …`, depois de um reinício do Orca.
