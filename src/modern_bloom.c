@@ -601,6 +601,10 @@ typedef struct
 // The same round fixed the light pipeline (16-bit planes and the sample-grid
 // alignment, see mb_grid_taps()); the 8-bit planes used to floor away part of the
 // energy, so today's gain is about 1.3x brighter than the same number was before.
+//
+// Round 5 (user choice, 2026-10-09, after playing round 4): "good, but reduce
+// both Low and High to about 60%".  Light gains High 3328 -> 1997 and Low 1997 ->
+// 1198 (both x0.6; Low is still 0.6x High).  Nothing else moved.
 static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
@@ -611,8 +615,8 @@ static const MbParams mb_bloom_params[MODERN_QUALITY_MAX] =
 static const MbParams mb_light_params[MODERN_QUALITY_MAX] =
 {
 	{   0,  0,     0, 256, 0 },  // off
-	{ 216,  2,  1997, 252, 3 },  // low  (0.6x high's gain, see above)
-	{ 216,  2,  3328, 248, 3 },  // high
+	{ 216,  2,  1198, 252, 3 },  // low  (0.6x high's gain, see above)
+	{ 216,  2,  1997, 248, 3 },  // high
 };
 
 // --- Explicit light sources (extension point) -------------------------------
