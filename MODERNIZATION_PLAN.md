@@ -734,3 +734,19 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
     - só mudaram baselines `depth-*` com Depth On, e os casos de espaço ficaram idênticos;
     - depois do rebase sobre o INSERT COIN, os `depth-*` foram regenerados do binário combinado; nas suítes completas do worker, 207 casos no 2.1 e 183 no 2000.
   - **Ajustes pendentes:** a força da névoa (`MD_FOG_STRENGTH`) e os pesos (`md_light_q8[]`) são uma constante cada. O usuário vai avaliar jogando.
+
+### 2026-10-09 — Luz dos tiros visível, corrigida e proporcional
+- **Teste do usuário:** a etapa 3 não aparecia ("não notei nenhuma diferença"). A diferença média medida entre antes e depois era de 1 a 6 níveis em 255. A luz dos tiros clareava o terreno só +4 níveis, mesmo no High. Workers: Claude Sonnet 5.5 (medium).
+- **Prévia:** flags de ajuste só para regressão (`--regress-light-scale`, `--regress-light-radius`, `--regress-fog-strength`, ids 435–437). Com elas foi possível renderizar níveis de luz e de névoa sem recompilar.
+- **Qualidade (`5f12511`):** o usuário viu pixelação "de JPEG", pontos avermelhados e o halo deslocado para cima e para a esquerda.
+  - Todo resample 2× lia meia célula adiante (`d*128+64` em vez de `-64`), o que deslocava a luz e o bloom ~2–3 px.
+  - As máscaras ficavam em 8 bits antes do ganho, com só 1–3 níveis por pixel. Os arredondamentos viravam blocos, e cada canal arredondava de um jeito, daí o anel oliva, as manchas vermelhas e magenta e a faixa vermelha entre os tiros.
+  - Agora todos os planos são Q8 de 16 bits, e o centro da luz fica a menos de 0,07 px do centro do tiro.
+  - Um limitador suave (joelho 150, assíntota 216) substitui o corte seco no teto.
+- **Tiros grandes (`cce14a3`):** a luz crescia com a área emissora, e os tiros grandes chegavam a 3–3,4× o Pulse-Cannon. Antes do desfoque, a parte dos tiros do jogador na máscara agora é escalada por `(S_ref/S)^0.75`, com a energia local medida no suporte do blur. Os tiros grandes ficaram em ~1,4–2,1× o tiro pequeno. Explosões, tiros inimigos e bloom não mudaram.
+- **Níveis (escolha do usuário):**
+  - Névoa no bg1: 40 → **30**.
+  - Ganho da luz: o High foi primeiro para 3328 (4×), e o usuário achou forte. Pediu 60% disso, então ficou **High 1997, Low 1198** (`5353944`). O Low continua 0,6× o High, e a opção segue Off/Low/High.
+  - Aprovado jogando ("Tá ótimo").
+- **Regressão:** só mudaram hashes de quadro Modern com luz ou Depth ligados. Classic, estado e Modern sem luz não mudaram.
+- **Processo:** o usuário prefere testar no jogo a ver prints. Só gerar capturas quando ele pedir.
