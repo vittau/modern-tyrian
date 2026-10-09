@@ -8,10 +8,36 @@ on:
     types: [published]
 
 permissions:
-  contents: write        # needed to attach assets on release events
+  contents: read
+  actions: read          # same-workflow run/artifact lookups
 
 jobs:
+  decide:
+    name: CI decision
+    runs-on: ubuntu-22.04
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      run-id: ${{ steps.decide.outputs.run-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Release tags may predate these helpers; load them from the default branch.
+          ref: ${{ github.event_name == 'release' && github.event.repository.default_branch || github.sha }}
+          persist-credentials: false
+      - uses: actions/github-script@v8
+        id: decide
+        with:
+          script: |
+            await require('./.github/ci/decide.cjs')({
+              github, context, core, workflow: 'windows.yml',
+              packages: ["opentyrian-windows-x86_64"]
+            });
+
   build:
+    needs: decide
+    if: needs.decide.outputs.build == 'true'
+    permissions:
+      contents: read
     name: Windows (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -68,8 +94,8 @@ jobs:
       - name: Smoke test
         run: ./opentyrian.exe --help
       - name: Regression suite
-        # Release builds only package: the same commit already passed the suite
-        # on its push, and the suite is the slowest step.
+        # Release fallback preserves the existing package-only build path;
+        # normal release runs reuse the packages without entering this job.
         if: github.event_name != 'release'
         # Normal pass; the full --replay-check/--interp-check sweeps live in the
         # manually triggered "Regression (full sweeps)" workflow.
@@ -82,7 +108,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: regression-actual-windows-${{ matrix.arch }}
-          path: test/regress/actual
+          path: |
+            test/regress/actual/*.txt
+            test/regress/actual/*.log
           if-no-files-found: ignore
       - name: Fetch Tyrian 2000 data (download, verify, no cache)
         # Downloaded from the author's site in EVERY run and verified (size,
@@ -140,13 +168,35 @@ jobs:
         with:
           name: opentyrian-windows-${{ matrix.arch }}
           path: opentyrian-windows-${{ matrix.arch }}.zip
-      - name: Attach to release
-        if: github.event_name == 'release'
-        shell: bash          # runner's own bash — gh isn't on the MSYS2 PATH
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="${{ github.event.release.tag_name }}"
-          asset="opentyrian-$tag-windows-${{ matrix.arch }}.zip"
-          mv "opentyrian-windows-${{ matrix.arch }}.zip" "$asset"
-          gh release upload "$tag" "$asset" --clobber
+
+  release:
+    name: Attach release packages
+    needs: [decide, build]
+    if: >-
+      always() && github.event_name == 'release' && needs.decide.result == 'success' &&
+      (needs.decide.outputs.run-id != '' || needs.build.result == 'success')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write     # only this job attaches release assets
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Download only package artifacts (reused push or fallback build)
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.decide.outputs.run-id || github.run_id }}
+          pattern: opentyrian-windows-*
+          path: release-packages
+          merge-multiple: true
+      - name: Attach original package bytes with the release tag in the name
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await require('./.github/ci/attach.cjs')({
+              github, context, core,
+              packages: ["opentyrian-windows-x86_64.zip"]
+            });
