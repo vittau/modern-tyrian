@@ -40,6 +40,9 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   - `flow=` is a virtual keyboard that walks the real menus: Full Game, Timed Battle, arcade, Super Tyrian, Destruct;
   - `rules=<fixture>`, `items-new`, `fire`, `demo-hud-check`, `gameplay-check`, `data-audit`, `boss`, `handoff`, `gamepad`, `xmas`, `user-root=`/`user-files`.
   - CRT: `crt=off|scanlines|ntsc|scanlines+ntsc` (Modern filtered-output hashes), `crt-check` (synthetic fixtures + measurements), `crt-height=N`, `crt-window=WxH`, `present-png=FRAME:FILE` (2.1 only).
+  - depth layers: `layer-check` (stamps the per-pixel layer buffer, compares the interpolated frame at alpha 1 with the live tick and logs `Layer coverage:` / `Layer check PASS`; needs `modern`), `layer-png=FRAME:FILE` (false-colour PNG of the presented layers, 2.1 only, local review). `tools/check_depth_layers.sh` also proves layers on/off leave frame and state hashes alone.
+  - depth shadows (stage 2, `Depth:` Off/On, default On, config `modern_depth`): `depth=off|on` (legacy `low`/`high` alias On) pins the setting (regress runs keep it **off**, so every old baseline stays identical), `depth-check` runs the synthetic shadow fixture (no game data). `tools/check_depth_shadows.sh` runs a scenario with depth off/on, proves state/RNG identical, off = the existing baseline, and the `Depth shadows:` coverage line (`shadowed_px`, casters, `space_frames`).
+  - held in-level screens (pause, in-game menu, in-game help; `src/modern_held.[ch]`): they present the frozen playfield through `JE_showVGA`, so they reuse the layer buffer, rank table, emission tag and light colours snapshotted from the last really presented frame, minus an overlay mask (playfield indices that differ from the snapshot: no shadow, no light, no emission there). `--regress-held-check` (id 434, needs `modern` and `--regress-menu=pause|ingame|help`) compares the held frame with the last live one outside the overlay; `tools/check_depth_held.sh` runs a menu scenario with every effect off, lighting only, Depth On, proves state/RNG identical and the `Depth held:` / `Light held:` / `Held check:` coverage lines (`shadowed_px`, `emitter_px`, `lit_px`, `overlay_px`, `overlay_changed_px=0`, `mismatch_max_dist`).
   - Launcher-only flags are parsed before `params.c`: `--regress-launcher=WxH,installed|missing,1|2[,about|message|…]`, `--launcher-png=`, `--launcher-flow=`.
 - **`params.c` option-id ranges.** Pick a new range; beware getopt prefix matching (`--regress-loadout-new` broke `--regress-loadout`).
 
@@ -56,6 +59,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   | 400–409 | display |
   | 410–419 | CRT filter |
   | 420–429 | progress |
+  | 430–439 | depth layers |
 
 - **Guards run by `make regress`:**
   - `check_no_t2000_data.sh`, `check_variant_bootstrap.sh`, `check_user_paths.sh`, `check_game_rules.sh`;

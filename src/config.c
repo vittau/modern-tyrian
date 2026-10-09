@@ -32,6 +32,7 @@
 #include "memwriter.h"
 #include "modern.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
 #include "mouse_buttons.h"
 #include "mtrand.h"
 #include "nortsong.h"
@@ -283,6 +284,7 @@ static void loadOpenTyrianConfig(void)
 	crt_filter_set_mode(CRT_FILTER_OFF);
 	modern_bloom_quality = MODERN_QUALITY_LOW;
 	modern_lighting_quality = MODERN_QUALITY_LOW;
+	modern_depth_quality = MODERN_DEPTH_ON;
 	vfx_level = VFX_LOW;
 	starfield_set_speed_percent(25);
 	memcpy(keySettings, defaultKeySettings, sizeof(keySettings));
@@ -399,6 +401,15 @@ static void loadOpenTyrianConfig(void)
 			}
 		}
 
+		// Missing and unknown depth values keep the On default.
+		const char *depth_name;
+		if (config_get_string_option(section, "modern_depth", &depth_name))
+		{
+			ModernDepth depth = MODERN_DEPTH_ON;
+			if (set_modern_depth_by_name(depth_name, &depth))
+				modern_depth_quality = depth;
+		}
+
 		const char *vfx_name;
 		if (config_get_string_option(section, "vfx", &vfx_name))
 			set_vfx_by_name(vfx_name);
@@ -472,6 +483,7 @@ static void saveOpenTyrianConfig(void)
 	config_set_int_option(section, "starfield_speed_percent", starfield_speed_percent);
 
 	config_set_string_option(section, "lighting", modern_quality_names[modern_lighting_quality]);
+	config_set_string_option(section, "modern_depth", modern_depth_names[modern_depth_quality]);
 
 	if (launcherLastVariant >= 0)
 	{

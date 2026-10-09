@@ -23,6 +23,8 @@
 #include "fonthand.h"
 #include "logging.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
+#include "modern_held.h"
 #include "modern_hud.h"
 #include "opentyr.h"
 #include "regress.h"
@@ -838,6 +840,7 @@ void modern_hud_begin_frame(void)
 // level's HUD.  Called once per level, not per frame.
 void modern_level_reset(void)
 {
+	modern_held_reset();
 	modern_hud_begin_frame();
 
 	if (modern_message_surface != NULL)
@@ -847,8 +850,10 @@ void modern_level_reset(void)
 
 void modern_init(void)
 {
-	// The bloom + dynamic-light pass lives in modern_bloom.c; it is the only
-	// registered effect pass.  It reads the bloom/lighting settings itself.
+	// The depth shadow pass (modern_depth.c) runs first so the bloom and the
+	// dynamic light of modern_bloom.c still add over the shadows.  Both read
+	// their own settings.
+	modern_register_pass(modern_depth_pass);
 	modern_register_pass(modern_bloom_pass);
 
 	modern_ready = true;
@@ -1191,8 +1196,15 @@ void modern_build_frame(SDL_Surface *src_surface)
 	frame->gameplay = gameplay;
 	frame->content_offset_x = modern_frame_offset_x;
 
+	// A held in-level screen (pause, in-game menu, help) shows the frozen
+	// playfield: re-arm the depth and light buffers from the last real frame so
+	// the passes treat it like that frame, minus the overlay.
+	modern_held_prepare(frame, modern_last_kind != MODERN_FRAME_SCREEN && modern_dialog_surface == NULL);
+
 	for (size_t i = 0; i < modern_passes_count; ++i)
 		modern_passes[i](frame);
+
+	modern_held_finish(frame);
 
 	// The cursor rectangle only describes this frame's cursor; drop it so a
 	// screen that does not draw one cannot inherit a stale rectangle.

@@ -19,6 +19,8 @@
 #include "modern_bloom.h"
 
 #include "drawlist.h"
+#include "modern_depth.h"
+#include "modern_held.h"
 #include "opentyr.h"
 
 #include <stdio.h>
@@ -134,8 +136,52 @@ void modern_bloom_lightcol_from_game(const Uint8 *game_lcol, int game_pitch, boo
 	}
 }
 
+// Snapshot of the last really presented frame's tag and light colours, reused by
+// held in-level screens (modern_held.c).
+static Uint8 mb_snap_tag[MODERN_PLAYFIELD_W * MODERN_PLAYFIELD_H];
+static Uint8 mb_snap_lcol[MODERN_PLAYFIELD_W * MODERN_PLAYFIELD_H];
+static bool mb_snap_valid = false;
+
+bool modern_bloom_held_save(void)
+{
+	mb_snap_valid = mb_tag_valid;
+	if (!mb_tag_valid)
+		return false;
+
+	memcpy(mb_snap_tag, mb_tag, sizeof mb_tag);
+	memcpy(mb_snap_lcol, mb_lcol, sizeof mb_lcol);
+	return true;
+}
+
+void modern_bloom_held_restore(const Uint8 *overlay)
+{
+	mb_tag_valid = false;
+	if (!mb_snap_valid || !modern_lighting_tags_wanted())
+		return;
+
+	memcpy(mb_tag, mb_snap_tag, sizeof mb_tag);
+	memcpy(mb_lcol, mb_snap_lcol, sizeof mb_lcol);
+	for (size_t i = 0; i < sizeof mb_tag; ++i)
+	{
+		if (overlay[i])
+		{
+			mb_tag[i] = DL_TAG_NONE;
+			mb_lcol[i] = 0;
+		}
+	}
+	mb_tag_valid = true;
+}
+
+void modern_bloom_held_forget(void)
+{
+	mb_snap_valid = false;
+}
+
 void modern_bloom_tag_pixel(int x, int y)
 {
+	// Every VFX pixel also leaves the gameplay layers (it casts no shadow).
+	modern_depth_mark_vfx(x, y);
+
 	if (!mb_tag_valid)
 		return;
 	if ((unsigned)x >= MODERN_PLAYFIELD_W || (unsigned)y >= MODERN_PLAYFIELD_H)
@@ -828,9 +874,11 @@ static void mb_build_xmap(void)
 // so a glow can only push a channel towards 255, never past it, and an already
 // bright pixel keeps its detail instead of flattening to white (the plain
 // add-then-clamp the first round used did flatten sprites and the boss top).
-static void mb_apply(ModernFrame *frame, int playfield_x, const MbParams *light)
+static unsigned long mb_apply(ModernFrame *frame, int playfield_x, const MbParams *light,
+                              const Uint8 *overlay)
 {
 	const int amb = light->ambient;
+	unsigned long lit = 0;
 
 	mb_build_xmap();
 
@@ -844,9 +892,14 @@ static void mb_apply(ModernFrame *frame, int playfield_x, const MbParams *light)
 		const int wy1 = (int)(q & 0xff);
 		const Uint8 *lrow0 = mb_bloom + (size_t)j0 * MB_LW * 3;
 		const Uint8 *lrow1 = mb_bloom + (size_t)j1 * MB_LW * 3;
+		const Uint8 *skip = overlay != NULL ? overlay + (size_t)y * MB_W : NULL;
 
 		for (int x = 0; x < MB_W; ++x)
 		{
+			// A held frame's overlay (menu window, PAUSED) is neither lit nor dimmed.
+			if (skip != NULL && skip[x])
+				continue;
+
 			const Uint32 base = canvas[x];
 			const int i0 = mb_lx0[x], i1 = mb_lx1[x];
 			const int wx0 = mb_lwx0[x], wx1 = mb_lwx1[x];
@@ -872,9 +925,13 @@ static void mb_apply(ModernFrame *frame, int playfield_x, const MbParams *light)
 			if (g > 255) g = 255;
 			if (bl > 255) bl = 255;
 
-			canvas[x] = ((Uint32)(Uint8)r << 16) | ((Uint32)(Uint8)g << 8) | (Uint32)(Uint8)bl;
+			const Uint32 out = ((Uint32)(Uint8)r << 16) | ((Uint32)(Uint8)g << 8) | (Uint32)(Uint8)bl;
+			lit += out != base;
+			canvas[x] = out;
 		}
 	}
+
+	return lit;
 }
 
 void modern_bloom_pass(ModernFrame *frame)
@@ -934,7 +991,16 @@ void modern_bloom_pass(ModernFrame *frame)
 	}
 
 	mb_combine(bloom, light);
-	mb_apply(frame, playfield_x, light);
+
+	const Uint8 *overlay = modern_held_overlay();
+	const unsigned long lit = mb_apply(frame, playfield_x, light, overlay);
+	if (overlay != NULL)
+	{
+		unsigned long emitters = 0;
+		for (size_t i = 0; i < sizeof mb_tag; ++i)
+			emitters += (mb_tag[i] & DL_TAG_CLASS_MASK) != DL_TAG_NONE;
+		modern_held_note_light(emitters, lit);
+	}
 
 	modern_lighting_reset_sources();
 }

@@ -38,6 +38,8 @@
 #include "modern_progress.h"
 #include "crt_filter.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
+#include "modern_held.h"
 #include "mtrand.h"
 #include "opentyr.h"
 #include "palette.h"
@@ -191,11 +193,17 @@ int regress_demo_hud_check = 0;
 int regress_loadout_new = 0;
 int regress_fire = 0;
 int regress_parallax_check = 0;
+int regress_layer_check = 0;
+const char *regress_layer_png = NULL;
+unsigned long regress_layer_png_frame = 0;
 int regress_smooth_effects_check = 0;
 int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
 int regress_bloom_quality = -1;
 int regress_lighting_quality = -1;
+int regress_depth_quality = -1;
+bool regress_depth_check = false;
+bool regress_held_check = false;
 int regress_menu_kind = REGRESS_MENU_NONE;
 
 int regress_stick = 0;
@@ -992,6 +1000,20 @@ void regress_capture_frame(SDL_Surface *surface)
 	regress_emit_records(write_frame, hash);
 }
 
+// --regress-layer-png=FRAME:FILE: writes the presented depth layer buffer of the
+// requested presented frame as a false-colour PNG (local review only).
+static void regress_capture_layer_png(void)
+{
+	if (regress_layer_png == NULL || regress_frame != regress_layer_png_frame)
+		return;
+
+	if (!modern_depth_save_png(regress_layer_png))
+		logError("Failed to save the layer PNG '%s' (no gameplay frame was presented at frame %lu).",
+		         regress_layer_png, regress_frame);
+	else
+		logInfo("Regression: saved layer PNG frame %lu to '%s'.", regress_frame, regress_layer_png);
+}
+
 void regress_capture_modern_frame(void)
 {
 	if (regress_out == NULL && regress_state_out == NULL && !regress_has_snapshots())
@@ -1027,12 +1049,14 @@ void regress_capture_modern_frame(void)
 	regress_check_demo_hud(NULL);
 	regress_check_smooth_effects();
 	regress_note_smoothness();
+	regress_capture_layer_png();
 	if (regress_crt_mode < 0) regress_emit_records(write_frame, hash);
 }
 
 void regress_capture_crt_frame(const ModernFrame *frame)
 {
 	if (regress_crt_mode < 0) return;
+	regress_capture_layer_png();
 	Uint64 hash = fnv_offset_basis;
 	for (int y = 0; y < frame->h; ++y)
 		hash_bytes(&hash, (const Uint8 *)frame->pixels + (size_t)y * frame->pitch, (size_t)frame->w * 4);
@@ -1264,6 +1288,22 @@ void regress_init(void)
 		drawlist_set_enabled(true);
 		drawlist_set_parallax_check(true);
 	}
+
+	// Depth layer buffer (stage 1): stamp it, and with the check also render the
+	// interpolated frame at alpha = 1 every tick to compare the two buffers.
+	// Neither touches game state; the flags only add the stamping.
+	if (regress_layer_check)
+	{
+		drawlist_set_enabled(true);
+		drawlist_set_layer_check(true);
+	}
+	if (regress_layer_check || regress_layer_png != NULL)
+		modern_depth_set_requested(true);
+	// The Depth setting is pinned Off for every existing case (the layer buffer
+	// is then not stamped and the shadow pass does nothing), so the baselines
+	// stay byte-for-byte unchanged; --regress-depth opts a run in.
+	modern_depth_quality = regress_depth_quality >= 0 ? (ModernDepth)regress_depth_quality : MODERN_DEPTH_OFF;
+	modern_held_set_check(regress_held_check);
 
 	// Dynamic fade/HUD interpolation check: exercise the interpolated
 	// presentation at a genuine mid-tick alpha and assert every interpolated
@@ -1543,6 +1583,39 @@ void regress_finish(void)
 			logError("Parallax check FAILED: the starfield/background moved beyond one tick.");
 			exit(EXIT_FAILURE);
 		}
+	}
+
+	if (regress_depth_quality >= 0)
+		modern_depth_log_stats();
+
+	if (regress_held_check)
+		modern_held_log_stats();
+
+	if (regress_layer_check)
+	{
+		const DrawlistLayerStats *st = drawlist_layer_stats();
+		logInfo("Layer coverage: bg1=%lu starfield=%lu bg2=%lu bg2blend=%lu ground=%lu sky=%lu bg3=%lu top=%lu player=%lu sidekick=%lu shots=%lu enemyshots=%lu explosion=%lu superpixel=%lu hud=%lu other=%lu",
+		        st->pixels[DL_LAYER_BG1], st->pixels[DL_LAYER_STARFIELD], st->pixels[DL_LAYER_BG2],
+		        st->blend_pixels, st->pixels[DL_LAYER_GROUND_ENEMY], st->pixels[DL_LAYER_SKY_ENEMY],
+		        st->pixels[DL_LAYER_BG3], st->pixels[DL_LAYER_TOP_ENEMY], st->pixels[DL_LAYER_PLAYER],
+		        st->pixels[DL_LAYER_SIDEKICK], st->pixels[DL_LAYER_PLAYER_SHOT],
+		        st->pixels[DL_LAYER_ENEMY_SHOT], st->pixels[DL_LAYER_EXPLOSION],
+		        st->pixels[DL_LAYER_SUPERPIXEL], st->pixels[DL_LAYER_HUD], st->pixels[DL_LAYER_OTHER]);
+		logInfo("Layer filters: lava=%lu water=%lu iced=%lu blur=%lu; rank orders=%lu.",
+		        st->filters[DL_FILTER_LAVA], st->filters[DL_FILTER_WATER], st->filters[DL_FILTER_ICED],
+		        st->filters[DL_FILTER_BLUR], st->rank_orders);
+		logInfo("Layer present: frames=%lu interpolated=%lu flipped=%lu.",
+		        modern_depth_presented_frames(), modern_depth_presented_interpolated(),
+		        modern_depth_presented_flipped());
+		if (st->ticks == 0 || st->mismatches != 0 || st->rank_bad != 0)
+		{
+			logError("Layer check FAIL: ticks=%lu interp_ticks=%lu mismatches=%lu rank_bad=%lu: %s",
+			         st->ticks, st->interp_ticks, st->mismatches, st->rank_bad,
+			         st->first[0] != '\0' ? st->first : "no level tick was checked");
+			exit(EXIT_FAILURE);
+		}
+		logInfo("Layer check PASS: ticks=%lu interp_ticks=%lu mismatches=0 rank_bad=0.",
+		        st->ticks, st->interp_ticks);
 	}
 
 	if (regress_smooth_effects_check)

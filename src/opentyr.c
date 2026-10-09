@@ -42,6 +42,7 @@
 #include "mainint.h"
 #include "modern.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
 #include "mouse.h"
 #include "mtrand.h"
 #include "network.h"
@@ -225,6 +226,16 @@ static const char *getLightingPickerItem(size_t i, char *buffer, size_t bufferSi
 	return capitalized_name(modern_quality_names[i], buffer, bufferSize);
 }
 
+static size_t getDepthPickerItemsCount(void)
+{
+	return (size_t)MODERN_DEPTH_MAX;
+}
+
+static const char *getDepthPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	return capitalized_name(modern_depth_names[i], buffer, bufferSize);
+}
+
 static size_t getVfxPickerItemsCount(void)
 {
 	return (size_t)VFX_LEVEL_MAX;
@@ -261,6 +272,7 @@ void setupMenu(void)
 		MENU_ITEM_SMOOTH_MOTION,
 		MENU_ITEM_CRT,
 		MENU_ITEM_LIGHTING,
+		MENU_ITEM_DEPTH,
 		MENU_ITEM_VFX,
 		MENU_ITEM_MUSIC_VOLUME,
 		MENU_ITEM_SOUND_VOLUME,
@@ -287,7 +299,7 @@ void setupMenu(void)
 	typedef struct
 	{
 		const char *header;
-		const MenuItem items[11];
+		const MenuItem items[12];
 	} Menu;
 
 	static const Menu menus[] = {
@@ -313,6 +325,7 @@ void setupMenu(void)
 				{ MENU_ITEM_SMOOTH_MOTION, "Smooth Motion:", "Present Modern gameplay at the display refresh.", getSmoothMotionPickerItemsCount, getSmoothMotionPickerItem, true },
 				{ MENU_ITEM_CRT, "CRT Filter:", "Change the Modern CRT filter.", getCrtPickerItemsCount, getCrtPickerItem, true },
 				{ MENU_ITEM_LIGHTING, "Lighting:", "Change the Modern bloom and lighting level.", getLightingPickerItemsCount, getLightingPickerItem, true },
+				{ MENU_ITEM_DEPTH, "Depth:", "Change the Modern depth shadows.", getDepthPickerItemsCount, getDepthPickerItem, true },
 				{ MENU_ITEM_VFX, "Effects:", "Change the Modern VFX level.", getVfxPickerItemsCount, getVfxPickerItem, true },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
 				{ -1 }
@@ -494,6 +507,10 @@ void setupMenu(void)
 
 			case MENU_ITEM_LIGHTING:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_quality_names[modern_lighting_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
+			case MENU_ITEM_DEPTH:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_depth_names[modern_depth_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_VFX:
@@ -871,6 +888,14 @@ void setupMenu(void)
 					pickerSelectedIndex = (size_t)modern_lighting_quality;
 					break;
 				}
+				case MENU_ITEM_DEPTH:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = (size_t)modern_depth_quality;
+					break;
+				}
 				case MENU_ITEM_VFX:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -1056,6 +1081,11 @@ void setupMenu(void)
 					modern_lighting_quality = (ModernQuality)pickerSelectedIndex;
 					break;
 				}
+				case MENU_ITEM_DEPTH:
+				{
+					modern_depth_quality = (ModernDepth)pickerSelectedIndex;
+					break;
+				}
 				case MENU_ITEM_VFX:
 				{
 					vfx_level = (VfxLevel)pickerSelectedIndex;
@@ -1209,6 +1239,8 @@ int main(int argc, char *argv[])
 	JE_paramCheck(argc, argv);
 	if (regress_crt_check)
 		return regress_crt_selfcheck();
+	if (regress_depth_check)
+		return regress_depth_selfcheck();
 
 	if (launcher)
 	{
@@ -1286,7 +1318,7 @@ int main(int argc, char *argv[])
 	if (presentation == PRESENTATION_MODERN)
 	{
 		logInfo("Modern geometry: aspect %s, pixel aspect %s.", modern_aspect_names[modern_aspect], modern_pixel_aspect_names[modern_pixel_aspect]);
-		logInfo("Modern lighting: bloom %s, lighting %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality]);
+		logInfo("Modern lighting: bloom %s, lighting %s, depth %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality], modern_depth_names[modern_depth_quality]);
 	}
 
 	if (!gameDataPrepare())

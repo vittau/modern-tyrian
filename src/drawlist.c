@@ -22,6 +22,7 @@
 #include "config.h"
 #include "logging.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
 #include "palette.h"
 #include "player.h"
 #include "vga256d.h"
@@ -246,6 +247,9 @@ void drawlist_init(void)
 	// The tag buffers are fixed-capacity 320x200; their stamp functions assume
 	// the game surfaces have exactly that pitch.
 	assert(game_screen->pitch == DL_TAG_W && VGAScreen2->pitch == DL_TAG_W);
+
+	// The layer buffers and the layer check's reference copies are sized the same.
+	assert(game_screen->h == DL_TAG_H && VGAScreen2->h == DL_TAG_H);
 }
 
 void drawlist_shutdown(void)
@@ -339,6 +343,418 @@ static Uint8 *dl_lcol_for_surface(SDL_Surface *surface)
 	if (surface == dl_scratch_vga2)
 		return dl_lcol_scratch_vga2;
 	return NULL;
+}
+
+// --- depth layer buffer -------------------------------------------------------
+//
+// One byte per pixel saying which layer painted the pixel last (encoding in
+// drawlist.h).  Same four surfaces, same stamping points and the same
+// clipping/transparency rules as the emission tag, but it is gated by
+// modern_depth_layers_wanted() instead of lighting.  Fixed-capacity statics.
+
+static Uint8 dl_layer_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_layer_vga2[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_layer_scratch_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_layer_scratch_vga2[DL_TAG_W * DL_TAG_H];
+
+// Order in which each layer was first drawn, for the live tick and for the
+// interpolated replay (1.. in drawing order; 0 = not drawn).
+static Uint8 dl_rank_live[DL_LAYER_COUNT];
+static Uint8 dl_rank_interp[DL_LAYER_COUNT];
+
+static bool dl_layer_active = false;
+static bool dl_layer_check = false;
+// Copy of the interpolation reference frames, kept around the layer check's own
+// alpha = 1 render (sized like the engine surfaces, pitch 320 x 200 rows).
+static Uint8 dl_layer_ref_game[DL_TAG_W * DL_TAG_H];
+static Uint8 dl_layer_ref_vga2[DL_TAG_W * DL_TAG_H];
+static DrawlistLayerStats dl_layer_stats;
+
+static Uint8 *dl_layer_buf_of(SDL_Surface *surface)
+{
+	if (surface == NULL)
+		return NULL;
+	if (surface == game_screen)
+		return dl_layer_game;
+	if (surface == VGAScreen2)
+		return dl_layer_vga2;
+	if (surface == dl_scratch_game)
+		return dl_layer_scratch_game;
+	if (surface == dl_scratch_vga2)
+		return dl_layer_scratch_vga2;
+	return NULL;
+}
+
+static Uint8 *dl_rank_of(SDL_Surface *surface)
+{
+	if (surface == game_screen || surface == VGAScreen2)
+		return dl_rank_live;
+	if (surface == dl_scratch_game || surface == dl_scratch_vga2)
+		return dl_rank_interp;
+	return NULL;
+}
+
+// Records that `layer` was drawn on `surface`'s tick, keeping the order of the
+// first draw.  Called when a primitive starts drawing the layer, whether or not
+// it ends up writing a visible pixel: the order is the order of the painting
+// sequence.
+static void dl_layer_note(SDL_Surface *surface, int layer)
+{
+	Uint8 *rank = dl_rank_of(surface);
+	if (rank == NULL || layer <= DL_LAYER_NONE || layer >= DL_LAYER_COUNT || rank[layer] != 0)
+		return;
+
+	Uint8 next = 0;
+	for (int i = 0; i < DL_LAYER_COUNT; ++i)
+		if (rank[i] > next)
+			next = rank[i];
+	rank[layer] = (Uint8)(next + 1);
+}
+
+// The layer of a background row, from the context draw_background_N() set.
+static Uint8 dl_layer_bg_value(void)
+{
+	if (dl_context_kind == DL_OBJ_BACKGROUND)
+	{
+		if (dl_context_id == 1) return DL_LAYER_BG1;
+		if (dl_context_id == 2) return DL_LAYER_BG2;
+		if (dl_context_id == 3) return DL_LAYER_BG3;
+	}
+	return DL_LAYER_OTHER;
+}
+
+// The layer of the sprite being drawn, from the context the game set.  The game
+// never clears the context after the last background row, so a sprite drawn
+// afterwards (the in-playfield text, for one) still sees DL_OBJ_BACKGROUND:
+// that is not a background pixel, so it falls through to OTHER with every other
+// context-less sprite.
+static Uint8 dl_layer_value(void)
+{
+	switch (dl_context_kind)
+	{
+	case DL_OBJ_ENEMY:
+	case DL_OBJ_ITEM:
+		// The slot range is what JE_drawEnemy() draws at each point of the frame:
+		// 0-24 sky, 25-49 and 75-99 ground, 50-74 top.
+		if (dl_context_id < 25) return DL_LAYER_SKY_ENEMY;
+		if (dl_context_id < 50) return DL_LAYER_GROUND_ENEMY;
+		if (dl_context_id < 75) return DL_LAYER_TOP_ENEMY;
+		if (dl_context_id < 100) return DL_LAYER_GROUND_ENEMY;
+		return DL_LAYER_OTHER;
+	case DL_OBJ_PLAYER:       return DL_LAYER_PLAYER;
+	case DL_OBJ_SIDEKICK:     return DL_LAYER_SIDEKICK;
+	case DL_OBJ_PLAYER_SHOT:  return DL_LAYER_PLAYER_SHOT;
+	case DL_OBJ_ENEMY_SHOT:   return DL_LAYER_ENEMY_SHOT;
+	case DL_OBJ_EXPLOSION:    return DL_LAYER_EXPLOSION;
+	case DL_OBJ_HUD:          return DL_LAYER_HUD;
+	case DL_OBJ_SUPERPIXEL:   return DL_LAYER_SUPERPIXEL;
+	case DL_OBJ_STARFIELD:    return DL_LAYER_STARFIELD;
+	default:                  return DL_LAYER_OTHER;
+	}
+}
+
+bool drawlist_layers_active(void)
+{
+	return dl_layer_active;
+}
+
+void drawlist_layer_stamp_offset(SDL_Surface *surface, size_t offset, int layer)
+{
+	if (!dl_layer_active || offset >= (size_t)DL_TAG_W * DL_TAG_H)
+		return;
+
+	Uint8 *buf = dl_layer_buf_of(surface);
+	if (buf != NULL)
+		buf[offset] = (Uint8)layer;
+}
+
+const Uint8 *drawlist_layer_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h)
+{
+	if (!dl_layer_active)
+		return NULL;
+
+	Uint8 *buf = dl_layer_buf_of(surface);
+	if (buf == NULL)
+		return NULL;
+
+	if (out_pitch != NULL) *out_pitch = DL_TAG_W;
+	if (out_w != NULL) *out_w = DL_TAG_W;
+	if (out_h != NULL) *out_h = DL_TAG_H;
+	return buf;
+}
+
+const Uint8 *drawlist_layer_ranks(SDL_Surface *surface)
+{
+	if (!dl_layer_active)
+		return NULL;
+	return dl_rank_of(surface);
+}
+
+// Stamps the covered pixels of a 1-bit sprite_table sprite with `value`,
+// walking it exactly like blit_sprite and its variants (same stream, same
+// clipping).  A font glyph that crosses the left/right edge uses the
+// coordinate-based decode of blit_font_edge() instead of the row-wrapping walk.
+static void dl_layer_sprite(Uint8 *buf, int x, int y, unsigned int table, unsigned int index, Uint8 value)
+{
+	if (index >= sprite_table[table].count || !sprite_exists(table, index))
+		return;
+
+	const Sprite * const cur = sprite(table, index);
+	const Uint8 *data = cur->data;
+	const Uint8 * const data_ul = data + cur->size;
+	const unsigned int width = cur->width;
+
+	if (table <= TINY_FONT && (x < 0 || x > DL_TAG_W - (int)width))
+	{
+		if (x >= DL_TAG_W || x <= -(int)width)
+			return;
+
+		unsigned int column = 0;
+		int row = y;
+		for (size_t i = 0; i < cur->size; ++i)
+		{
+			const Uint8 d = cur->data[i];
+			if (d == 255)
+			{
+				if (++i >= cur->size)
+					break;
+				column += cur->data[i];
+			}
+			else if (d == 254)
+				column = width;
+			else if (d == 253)
+				++column;
+			else
+			{
+				const int px = x + (int)column;
+				if (px >= 0 && px < DL_TAG_W && row >= 0 && row < DL_TAG_H)
+					buf[(size_t)row * DL_TAG_W + (size_t)px] = value;
+				++column;
+			}
+			if (column >= width)
+			{
+				column = 0;
+				++row;
+			}
+		}
+		return;
+	}
+
+	unsigned int x_offset = 0;
+	ptrdiff_t pixels = (ptrdiff_t)y * DL_TAG_W + x;
+	const ptrdiff_t ul = (ptrdiff_t)DL_TAG_W * DL_TAG_H;
+
+	for (; data < data_ul; ++data)
+	{
+		switch (*data)
+		{
+		case 255:
+			data++;
+			pixels += *data;
+			x_offset += *data;
+			break;
+
+		case 254:
+			pixels += width - x_offset;
+			x_offset = width;
+			break;
+
+		case 253:
+			pixels++;
+			x_offset++;
+			break;
+
+		default:
+			if (pixels >= ul)
+				return;
+			if (pixels >= 0)
+				buf[pixels] = value;
+
+			pixels++;
+			x_offset++;
+			break;
+		}
+
+		if (x_offset >= width)
+		{
+			pixels += DL_TAG_W - x_offset;
+			x_offset = 0;
+		}
+	}
+}
+
+// Stamps a compressed Sprite2 the way blit_sprite2* walk it; `clip` mirrors the
+// blit_sprite2_clip/filter_clip walk (see dl_tag_sprite2()).
+static void dl_layer_sprite2(Uint8 *buf, int x, int y, Sprite2_array sprite2s,
+                             unsigned int index, bool clip, Uint8 value)
+{
+	const Uint8 *data = sprite2s.data + SDL_Swap16LE(((Uint16 *)sprite2s.data)[index - 1]);
+
+	if (clip)
+	{
+		for (; *data != 0x0f; ++data)
+		{
+			if (y >= DL_TAG_H)
+				return;
+
+			int skip = *data & 0x0f;
+			int fill = (*data >> 4) & 0x0f;
+
+			x += skip;
+
+			if (fill == 0)
+			{
+				y += 1;
+				x -= 12;
+			}
+			else if (y >= 0)
+			{
+				Uint8 *row = buf + (size_t)y * DL_TAG_W;
+				do
+				{
+					++data;
+					if (x >= 0 && x < DL_TAG_W)
+						row[x] = value;
+					x += 1;
+				} while (--fill);
+			}
+			else
+			{
+				data += fill;
+				x += fill;
+			}
+		}
+		return;
+	}
+
+	ptrdiff_t pixels = (ptrdiff_t)y * DL_TAG_W + x;
+	const ptrdiff_t ul = (ptrdiff_t)DL_TAG_W * DL_TAG_H;
+
+	for (; *data != 0x0f; ++data)
+	{
+		pixels += *data & 0x0f;
+		unsigned int count = (*data & 0xf0) >> 4;
+
+		if (count == 0)
+			pixels += DL_TAG_W - 12;
+		else
+		{
+			while (count--)
+			{
+				++data;
+
+				if (pixels >= ul)
+					return;
+				if (pixels >= 0)
+					buf[pixels] = value;
+
+				++pixels;
+			}
+		}
+	}
+}
+
+// Stamps one background row like blit_background_row(_blend): only where the
+// tile pixel is non-zero, with the same off-screen skips and limits.
+static void dl_layer_bg_row(Uint8 *buf, int x, int y, Uint8 **map, Uint8 value)
+{
+	ptrdiff_t pixels = (ptrdiff_t)y * DL_TAG_W + x;
+	const ptrdiff_t ul = (ptrdiff_t)DL_TAG_W * DL_TAG_H;
+
+	for (int row = 0; row < 28; row++)
+	{
+		if (pixels + (12 * 24) < 0)
+		{
+			pixels += DL_TAG_W;
+			continue;
+		}
+
+		for (int tile = 0; tile < 12; tile++)
+		{
+			const Uint8 *data = *(map + tile);
+			if (data == NULL)
+			{
+				pixels += 24;
+				continue;
+			}
+
+			data += row * 24;
+
+			for (int px = 24; px; px--)
+			{
+				if (pixels >= ul)
+					return;
+				if (pixels >= 0 && *data != 0)
+					buf[pixels] = value;
+
+				pixels++;
+				data++;
+			}
+		}
+
+		pixels += DL_TAG_W - 12 * 24;
+	}
+}
+
+static void dl_layer_clear_full(SDL_Surface *surface)
+{
+	Uint8 *layer = dl_layer_buf_of(surface);
+	if (layer != NULL)
+		memset(layer, DL_LAYER_NONE, (size_t)DL_TAG_W * DL_TAG_H);
+}
+
+// An opaque rectangle fill owns its pixels as "nothing" (clipped like the tag).
+static void dl_layer_clear_rect(SDL_Surface *surface, int x, int y, int x2, int y2)
+{
+	Uint8 *layer = dl_layer_buf_of(surface);
+	if (layer == NULL)
+		return;
+
+	const int cx0 = MAX(0, MIN(x, x2)), cx1 = MIN(DL_TAG_W - 1, MAX(x, x2));
+	const int cy0 = MAX(0, MIN(y, y2)), cy1 = MIN(DL_TAG_H - 1, MAX(y, y2));
+	for (int ty = cy0; ty <= cy1 && cx0 <= cx1; ++ty)
+		memset(layer + (size_t)ty * DL_TAG_W + cx0, DL_LAYER_NONE, (size_t)(cx1 - cx0 + 1));
+}
+
+// The destination layer of a framebuffer-reading filter follows its source.
+// water, iced and blur take each written pixel from the source pixel at the
+// same position, so the layer is a straight copy of the rows they write.  The
+// lava filter displaces its source by a per-8-pixel "waver" (see lava_filter()):
+// the loop is reproduced so the layer takes the same displaced source pixel.
+static void dl_layer_filter(SDL_Surface *dst, SDL_Surface *src, int kind)
+{
+	Uint8 *d = dl_layer_buf_of(dst);
+	const Uint8 *s = dl_layer_buf_of(src);
+	if (d == NULL || s == NULL || d == s)
+		return;
+
+	switch (kind)
+	{
+	case DL_FILTER_WATER:
+		memcpy(d, s, (size_t)DL_TAG_W * 185);
+		break;
+
+	case DL_FILTER_ICED:
+	case DL_FILTER_BLUR:
+		memcpy(d, s, (size_t)DL_TAG_W * 184);
+		break;
+
+	case DL_FILTER_LAVA:
+	{
+		// Group m (pixels 8m .. 8m+7) of the 320x185 area uses w = 8m + 7.
+		for (int m = 0; m < DL_TAG_W * 185 / 8; ++m)
+		{
+			const int w = 8 * m + 7;
+			const int waver = abs(((w >> 9) & 0x0f) - 8) - 1;
+			for (int i = 8 * m; i < 8 * m + 8; ++i)
+				d[i] = (i + waver >= 0) ? s[i + waver] : s[i];
+		}
+		break;
+	}
+
+	default:
+		break;
+	}
 }
 
 // --- object light colour ------------------------------------------------------
@@ -570,6 +986,16 @@ static Uint8 dl_sprite_rep(unsigned int table, unsigned int index, int variant, 
 
 void drawlist_tag_begin(void)
 {
+	// The depth layer buffer is armed (and cleared) independently of the tag:
+	// it exists only when the Modern depth pass is requested.
+	dl_layer_active = modern_depth_layers_wanted();
+	if (dl_layer_active)
+	{
+		memset(dl_layer_game, DL_LAYER_NONE, sizeof dl_layer_game);
+		memset(dl_layer_vga2, DL_LAYER_NONE, sizeof dl_layer_vga2);
+		memset(dl_rank_live, 0, sizeof dl_rank_live);
+	}
+
 	// Tagging only exists for the Modern lighting pass; Classic, lighting off
 	// and the menus pay nothing.
 	dl_tag_active = modern_lighting_tags_wanted();
@@ -588,6 +1014,16 @@ void drawlist_tag_begin(void)
 
 void drawlist_tag_pixel(SDL_Surface *surface, int x, int y, int tag)
 {
+	// Only the superpixels draw pixel by pixel through here, so this is also
+	// where their depth layer is stamped.
+	if (dl_layer_active && tag == DL_TAG_SUPERPIXEL &&
+	    (unsigned)x < DL_TAG_W && (unsigned)y < DL_TAG_H)
+	{
+		Uint8 *layer = dl_layer_buf_of(surface);
+		if (layer != NULL)
+			layer[(size_t)y * DL_TAG_W + (size_t)x] = DL_LAYER_SUPERPIXEL;
+	}
+
 	if (!dl_tag_active)
 		return;
 	if ((unsigned)x >= DL_TAG_W || (unsigned)y >= DL_TAG_H)
@@ -895,6 +1331,9 @@ static bool dl_push_payload(Uint32 *out_off, Uint32 *out_len, const void *data, 
 
 void drawlist_record_fill_full(SDL_Surface *surface)
 {
+	if (dl_layer_active)
+		dl_layer_clear_full(surface);
+
 	// A whole-surface clear also clears the emission tag of that surface.
 	if (dl_tag_active)
 	{
@@ -922,6 +1361,9 @@ void drawlist_record_fill_full(SDL_Surface *surface)
 
 void drawlist_record_fill_rect(SDL_Surface *surface, int x, int y, int x2, int y2, Uint8 color)
 {
+	if (dl_layer_active)
+		dl_layer_clear_rect(surface, x, y, x2, y2);
+
 	// An opaque fill also clears the emission tag under it (HUD bars and other
 	// code-drawn rectangles must not inherit a shot's tag).
 	if (dl_tag_active)
@@ -959,6 +1401,23 @@ void drawlist_record_fill_rect(SDL_Surface *surface, int x, int y, int x2, int y
 
 void drawlist_record_rect_outline(SDL_Surface *surface, int x, int y, int x2, int y2, Uint8 color)
 {
+	// JE_rectangle() draws the four edges only when the whole box is on the
+	// surface; those pixels are code-drawn (HUD), not part of any layer.
+	if (dl_layer_active && x >= 0 && y >= 0 && x2 < DL_TAG_W && y2 < DL_TAG_H && x <= x2 && y <= y2)
+	{
+		Uint8 *layer = dl_layer_buf_of(surface);
+		if (layer != NULL)
+		{
+			memset(layer + (size_t)y * DL_TAG_W + x, DL_LAYER_NONE, (size_t)(x2 - x + 1));
+			memset(layer + (size_t)y2 * DL_TAG_W + x, DL_LAYER_NONE, (size_t)(x2 - x + 1));
+			for (int ty = y + 1; ty < y2; ++ty)
+			{
+				layer[(size_t)ty * DL_TAG_W + x] = DL_LAYER_NONE;
+				layer[(size_t)ty * DL_TAG_W + x2] = DL_LAYER_NONE;
+			}
+		}
+	}
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -977,6 +1436,19 @@ void drawlist_record_rect_outline(SDL_Surface *surface, int x, int y, int x2, in
 
 void drawlist_record_bg_row(SDL_Surface *surface, int x, int y, Uint8 **map, bool blend)
 {
+	if (dl_layer_active)
+	{
+		Uint8 *layer = dl_layer_buf_of(surface);
+		if (layer != NULL)
+		{
+			Uint8 value = dl_layer_bg_value();
+			dl_layer_note(surface, value);
+			if (blend && value == DL_LAYER_BG2)
+				value |= DL_LAYER_BLEND;
+			dl_layer_bg_row(layer, x, y, map, value);
+		}
+	}
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -1015,6 +1487,20 @@ void drawlist_record_blit_sprite(SDL_Surface *surface, int x, int y,
                                  unsigned int table, unsigned int index,
                                  int variant, Uint8 hue, Sint8 value, bool black)
 {
+	// The depth layer is stamped whether or not the list is recording, like the
+	// tag.  The dark variants only darken the pixels they cover, so (like
+	// JE_darkenBackground) they leave the ownership of those pixels alone.
+	if (dl_layer_active && variant != DL_SPRITE_DARK)
+	{
+		Uint8 *layer = dl_layer_buf_of(surface);
+		if (layer != NULL)
+		{
+			const Uint8 value = dl_layer_value();
+			dl_layer_note(surface, value);
+			dl_layer_sprite(layer, x, y, table, index, value);
+		}
+	}
+
 	// Emission tagging runs whether or not the draw list is being recorded: it
 	// is what lets the lighting pass follow each object's own pixels (and move
 	// with an interpolated replay).
@@ -1055,6 +1541,20 @@ void drawlist_record_blit_sprite2(SDL_Surface *surface, int x, int y,
                                   Sprite2_array sheet, unsigned int index,
                                   int variant, Uint8 filter)
 {
+	// See drawlist_record_blit_sprite: the layer is stamped for every blit but
+	// the darkening one.
+	if (dl_layer_active && variant != DL_SPRITE2_DARKEN)
+	{
+		Uint8 *layer = dl_layer_buf_of(surface);
+		if (layer != NULL)
+		{
+			const bool clip = (variant == DL_SPRITE2_CLIP || variant == DL_SPRITE2_FILTER_CLIP);
+			const Uint8 value = dl_layer_value();
+			dl_layer_note(surface, value);
+			dl_layer_sprite2(layer, x, y, sheet, index, clip, value);
+		}
+	}
+
 	// See drawlist_record_blit_sprite: the tag is written for every blit, so
 	// the lighting pass can restrict emission per object.
 	if (dl_tag_active)
@@ -1128,6 +1628,15 @@ void drawlist_record_filter_screen(SDL_Surface *surface, JE_shortint col, JE_sho
 
 void drawlist_record_filter(SDL_Surface *dst, SDL_Surface *src, int kind)
 {
+	// The destination layer follows the source.  The tick statistics only count
+	// the live framebuffer (the replay runs the same filters on its scratch).
+	if (dl_layer_active)
+	{
+		dl_layer_filter(dst, src, kind);
+		if (dst == game_screen && kind >= 0 && kind < 4)
+			dl_layer_stats.filters[kind]++;
+	}
+
 	if (!dl_recording)
 		return;
 	const int dst_sid = dl_surface_of(dst);
@@ -1147,6 +1656,9 @@ void drawlist_record_filter(SDL_Surface *dst, SDL_Surface *src, int kind)
 
 void drawlist_record_starfield(SDL_Surface *surface, int move_speed, const void *stars, size_t bytes)
 {
+	if (dl_layer_active)
+		dl_layer_note(surface, DL_LAYER_STARFIELD);
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -1165,6 +1677,9 @@ void drawlist_record_starfield(SDL_Surface *surface, int move_speed, const void 
 
 void drawlist_record_superpixels(SDL_Surface *surface, const void *superpixels, size_t bytes)
 {
+	if (dl_layer_active)
+		dl_layer_note(surface, DL_LAYER_SUPERPIXEL);
+
 	if (!dl_recording)
 		return;
 	const int sid = dl_surface_of(surface);
@@ -1195,12 +1710,16 @@ static void dl_replay_command(const DlCommand *c, int x, int y)
 	{
 	case DL_FILL_FULL:
 		SDL_FillSurfaceRect(surface, NULL, 0);
+		if (dl_layer_active)
+			dl_layer_clear_full(surface);
 		break;
 
 	case DL_FILL_RECT:
 	{
 		SDL_Rect rect = { x, y, c->a - c->x + 1, c->b - c->y + 1 };
 		SDL_FillSurfaceRect(surface, &rect, c->color);
+		if (dl_layer_active)
+			dl_layer_clear_rect(surface, x, y, x + (c->a - c->x), y + (c->b - c->y));
 		break;
 	}
 
@@ -1506,6 +2025,18 @@ static void dl_bg_presented(const DlCommand *p, const DlCommand *c, Uint32 alpha
 	*out_origin = origin;
 }
 
+// Clears the interpolated layer buffers and their rank table, ahead of a replay
+// onto the scratch surfaces.
+static void dl_layer_scratch_reset(void)
+{
+	if (!dl_layer_active)
+		return;
+
+	memset(dl_layer_scratch_game, DL_LAYER_NONE, sizeof dl_layer_scratch_game);
+	memset(dl_layer_scratch_vga2, DL_LAYER_NONE, sizeof dl_layer_scratch_vga2);
+	memset(dl_rank_interp, 0, sizeof dl_rank_interp);
+}
+
 bool drawlist_render_interpolated(Uint32 alpha_fx16)
 {
 	// The scratch and reference surfaces are created by drawlist_init(), which
@@ -1534,6 +2065,9 @@ bool drawlist_render_interpolated(Uint32 alpha_fx16)
 		memset(dl_lcol_scratch_game, 0, sizeof dl_lcol_scratch_game);
 		memset(dl_lcol_scratch_vga2, 0, sizeof dl_lcol_scratch_vga2);
 	}
+
+	// The interpolated layers describe exactly the commands redrawn below.
+	dl_layer_scratch_reset();
 
 	dl_match_build(prev);
 	dl_match_reset_cursors();
@@ -1593,15 +2127,26 @@ bool drawlist_render_interpolated(Uint32 alpha_fx16)
 				map = c->map;
 			}
 
+			// The row's layer comes from the context (background 1/2/3).
+			drawlist_set_context(c->obj_kind, c->obj_id, c->obj_sub);
+
 			if (c->kind == DL_BG_ROW)
 				blit_background_row(surface, x, y, map);
 			else
 				blit_background_row_blend(surface, x, y, map);
 		}
 		else if (c->kind == DL_STARFIELD)
+		{
+			if (dl_layer_active)
+				dl_layer_note(surface, DL_LAYER_STARFIELD);
 			drawlist_draw_starfield_interp(surface, c->a, cur->payload + c->payload_off, c->payload_len, alpha_fx16);
+		}
 		else if (c->kind == DL_SUPERPIXELS)
+		{
+			if (dl_layer_active)
+				dl_layer_note(surface, DL_LAYER_SUPERPIXEL);
 			drawlist_draw_superpixels_interp(surface, cur->payload + c->payload_off, c->payload_len, alpha_fx16);
+		}
 		else
 			dl_replay_command(c, x, y);
 	}
@@ -2006,6 +2551,135 @@ unsigned long drawlist_parallax_mutations(void)          { return dl_parallax_mu
 unsigned long drawlist_parallax_double_updates(void)     { return dl_parallax_double_updates; }
 unsigned long drawlist_parallax_advance_mismatches(void) { return dl_parallax_advance_mismatches; }
 
+// --- layer check (--regress-layer-check) --------------------------------------
+
+void drawlist_set_layer_check(bool check)
+{
+	dl_layer_check = check;
+}
+
+bool drawlist_layer_check_enabled(void)
+{
+	return dl_layer_check;
+}
+
+const DrawlistLayerStats *drawlist_layer_stats(void)
+{
+	return &dl_layer_stats;
+}
+
+static void dl_layer_fail(const char *what, int x, int y, unsigned live, unsigned other)
+{
+	if (dl_layer_stats.first[0] == '\0')
+		snprintf(dl_layer_stats.first, sizeof dl_layer_stats.first,
+		         "tick %lu: %s at (x=%d,y=%d) live=%u other=%u",
+		         dl_layer_stats.ticks, what, x, y, live, other);
+}
+
+// Per level tick, with the interpolated frame at alpha = 1 already rendered
+// into the scratch surfaces: the layer buffers must be byte-identical to the
+// live ones, and the rank table of the tick must be consistent.
+static void dl_layer_check_tick(bool has_previous)
+{
+	dl_layer_stats.ticks++;
+	if (has_previous)
+		dl_layer_stats.interp_ticks++;
+
+	// (a) live == interpolated, over the whole of both surfaces.
+	bool equal = true;
+	for (int pass = 0; pass < 2 && equal; ++pass)
+	{
+		const Uint8 *a = pass == 0 ? dl_layer_game : dl_layer_vga2;
+		const Uint8 *b = pass == 0 ? dl_layer_scratch_game : dl_layer_scratch_vga2;
+		if (memcmp(a, b, (size_t)DL_TAG_W * DL_TAG_H) == 0)
+			continue;
+
+		equal = false;
+		for (int i = 0; i < DL_TAG_W * DL_TAG_H; ++i)
+		{
+			if (a[i] != b[i])
+			{
+				dl_layer_fail(pass == 0 ? "game layer differs" : "vga2 layer differs",
+				              i % DL_TAG_W, i / DL_TAG_W, a[i], b[i]);
+				break;
+			}
+		}
+	}
+	if (!equal)
+		dl_layer_stats.mismatches++;
+
+	// (b) the rank table: live == interpolated, ranks 1..n each used once, and
+	// the base layer painted before anything that composites over it.
+	bool rank_ok = memcmp(dl_rank_live, dl_rank_interp, sizeof dl_rank_live) == 0;
+	int used = 0;
+	bool seen[DL_LAYER_COUNT + 1] = { false };
+	for (int i = 0; i < DL_LAYER_COUNT && rank_ok; ++i)
+	{
+		const int r = dl_rank_live[i];
+		if (r == 0)
+			continue;
+		++used;
+		if (r > DL_LAYER_COUNT || seen[r])
+			rank_ok = false;
+		else
+			seen[r] = true;
+	}
+	for (int r = 1; r <= used && rank_ok; ++r)
+		if (!seen[r])
+			rank_ok = false;
+	if (dl_rank_live[DL_LAYER_BG1] != 0)
+	{
+		static const int above_bg1[] = { DL_LAYER_STARFIELD, DL_LAYER_BG2, DL_LAYER_BG3 };
+		for (size_t i = 0; i < sizeof above_bg1 / sizeof above_bg1[0]; ++i)
+			if (dl_rank_live[above_bg1[i]] != 0 && dl_rank_live[above_bg1[i]] < dl_rank_live[DL_LAYER_BG1])
+				rank_ok = false;
+	}
+	if (!rank_ok)
+	{
+		dl_layer_stats.rank_bad++;
+		if (dl_layer_stats.first[0] == '\0')
+			snprintf(dl_layer_stats.first, sizeof dl_layer_stats.first,
+			         "tick %lu: inconsistent rank table (bg1=%u star=%u bg2=%u ground=%u sky=%u bg3=%u top=%u)",
+			         dl_layer_stats.ticks, dl_rank_live[DL_LAYER_BG1], dl_rank_live[DL_LAYER_STARFIELD],
+			         dl_rank_live[DL_LAYER_BG2], dl_rank_live[DL_LAYER_GROUND_ENEMY],
+			         dl_rank_live[DL_LAYER_SKY_ENEMY], dl_rank_live[DL_LAYER_BG3],
+			         dl_rank_live[DL_LAYER_TOP_ENEMY]);
+	}
+
+	// Distinct orderings of the five layers whose order the level data changes.
+	{
+		static const int movable[] = { DL_LAYER_BG2, DL_LAYER_GROUND_ENEMY, DL_LAYER_SKY_ENEMY,
+		                               DL_LAYER_BG3, DL_LAYER_TOP_ENEMY };
+		static Uint32 signatures[32];
+		Uint32 sig = 0;
+		for (size_t i = 0; i < sizeof movable / sizeof movable[0]; ++i)
+			for (size_t j = i + 1; j < sizeof movable / sizeof movable[0]; ++j)
+			{
+				const int a = dl_rank_live[movable[i]], b = dl_rank_live[movable[j]];
+				sig = sig * 3 + (a == 0 || b == 0 ? 0u : (a < b ? 1u : 2u));
+			}
+		bool known = false;
+		for (unsigned long i = 0; i < dl_layer_stats.rank_orders && i < 32; ++i)
+			if (signatures[i] == sig)
+				known = true;
+		if (!known && dl_layer_stats.rank_orders < 32)
+			signatures[dl_layer_stats.rank_orders++] = sig;
+	}
+
+	// (c) coverage: playfield pixels per layer of the live frame.
+	for (int y = 0; y < 184; ++y)
+	{
+		const Uint8 *row = dl_layer_game + (size_t)y * DL_TAG_W + 24;
+		for (int x = 0; x < 264; ++x)
+		{
+			const Uint8 v = row[x];
+			dl_layer_stats.pixels[v & DL_LAYER_ID_MASK]++;
+			if (v & DL_LAYER_BLEND)
+				dl_layer_stats.blend_pixels++;
+		}
+	}
+}
+
 void drawlist_frame_end(void)
 {
 	if (!dl_recording)
@@ -2059,27 +2733,55 @@ void drawlist_frame_end(void)
 	}
 
 	// Stage 3 proof: build the interpolated frame at alpha = 1 with the
-	// persistent renderer and compare it byte for byte with the real frame.
-	if (dl_interp_check && game_screen != NULL && dl_scratch_game != NULL)
+	// persistent renderer and compare it byte for byte with the real frame.  The
+	// layer check needs the same alpha = 1 frame.
+	if ((dl_interp_check || dl_layer_check) && game_screen != NULL && dl_scratch_game != NULL)
 	{
+		// An alpha = 1 render realises the tick and becomes the reference the
+		// next interpolated frame starts from (the destination-reading filters
+		// blend with it).  The layer check is not allowed to move that
+		// reference: the presentation does the same render itself, and a second
+		// one would shift what its filters see.  Keep a copy and put it back.
+		const bool keep_ref = !dl_interp_check && dl_ref_game != NULL && dl_ref_vga2 != NULL;
+		const bool saved_ref_valid = dl_ref_valid;
+		if (keep_ref)
+		{
+			memcpy(dl_layer_ref_game, dl_ref_game->pixels, sizeof dl_layer_ref_game);
+			memcpy(dl_layer_ref_vga2, dl_ref_vga2->pixels, sizeof dl_layer_ref_vga2);
+		}
+
 		bool rendered = drawlist_render_interpolated(65536);
 		if (!rendered)
 		{
 			// First tick of a level: no previous list yet.  Replay the current
 			// list from the live frame so the tick is still covered.
+			dl_layer_scratch_reset();
 			dl_copy_surface(dl_scratch_game, game_screen);
 			dl_copy_surface(dl_scratch_vga2, VGAScreen2);
 			for (Uint32 i = 0; i < dl_count; ++i)
 				dl_replay_command(&dl_commands[i], dl_commands[i].x, dl_commands[i].y);
 		}
 
-		dl_checked++;
-		if (!dl_compare_frames())
+		if (dl_interp_check)
 		{
-			if (dl_mismatched == 0)
-				memcpy(dl_first_mismatch_saved, dl_first_mismatch, sizeof dl_first_mismatch_saved);
-			dl_mismatched++;
-			logError("Interp check: mismatch #%lu at %s.", dl_mismatched, dl_first_mismatch);
+			dl_checked++;
+			if (!dl_compare_frames())
+			{
+				if (dl_mismatched == 0)
+					memcpy(dl_first_mismatch_saved, dl_first_mismatch, sizeof dl_first_mismatch_saved);
+				dl_mismatched++;
+				logError("Interp check: mismatch #%lu at %s.", dl_mismatched, dl_first_mismatch);
+			}
+		}
+
+		if (dl_layer_check && dl_layer_active)
+			dl_layer_check_tick(dl_have_prev);
+
+		if (keep_ref)
+		{
+			memcpy(dl_ref_game->pixels, dl_layer_ref_game, sizeof dl_layer_ref_game);
+			memcpy(dl_ref_vga2->pixels, dl_layer_ref_vga2, sizeof dl_layer_ref_vga2);
+			dl_ref_valid = saved_ref_valid;
 		}
 	}
 

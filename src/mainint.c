@@ -38,6 +38,7 @@
 #include "loudness.h"
 #include "menus.h"
 #include "modern.h"
+#include "modern_held.h"
 #include "modern_hud.h"
 #include "modern_progress.h"
 #include "mouse.h"
@@ -1374,6 +1375,7 @@ void JE_doInGameSetup(void)
 	// straight through JE_showVGA, so hold the Modern gameplay composition
 	// (playfield + HUD panels) while it is up.
 	modern_set_gameplay_hold(true);
+	modern_held_set(true);
 	modern_redraw_hud_for_overlay();
 
 #ifdef WITH_NETWORK
@@ -1495,6 +1497,7 @@ void JE_doInGameSetup(void)
 	//skipStarShowVGA = true;
 
 	modern_set_gameplay_hold(false);
+	modern_held_set(false);
 
 	mouseSetRelative(true);
 }
@@ -1966,6 +1969,7 @@ void JE_inGameHelp(void)
 	// Modern gameplay composition (playfield + HUD panels) while it is up; the
 	// classic sidebar never comes back on pause/help.
 	modern_set_gameplay_hold(true);
+	modern_held_set(true);
 	modern_redraw_hud_for_overlay();
 
 	while (true)
@@ -1984,6 +1988,7 @@ void JE_inGameHelp(void)
 	}
 
 	modern_set_gameplay_hold(false);
+	modern_held_set(false);
 
 	textErase = 1;
 
@@ -3350,6 +3355,7 @@ void JE_pauseGame(void)
 	// gameplay composition (playfield + HUD panels) while it is up; the classic
 	// sidebar must not come back when the game is paused.  Display-only.
 	modern_set_gameplay_hold(true);
+	modern_held_set(true);
 	modern_redraw_hud_for_overlay();
 
 	//tempScreenSeg = VGAScreenSeg; // sega000
@@ -3451,6 +3457,7 @@ void JE_pauseGame(void)
 	//skipStarShowVGA = true;
 
 	modern_set_gameplay_hold(false);
+	modern_held_set(false);
 
 	VGAScreen = temp_surface; /* side-effect of game_screen */
 

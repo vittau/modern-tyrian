@@ -560,11 +560,51 @@ void initialize_starfield(void)
 	}
 }
 
+// Draws one star, and its dimmer neighbours when it is bright enough, into the
+// empty (zero) pixels of `surface`.  Every pixel written is also stamped
+// DL_LAYER_STARFIELD in the depth layer buffer (a no-op unless layers are on).
+static void draw_star(SDL_Surface *surface, Uint16 position, Uint8 color)
+{
+	Uint8 *p = (Uint8 *)surface->pixels;
+
+	if (p[position] == 0)
+	{
+		p[position] = color;
+		drawlist_layer_stamp_offset(surface, position, DL_LAYER_STARFIELD);
+	}
+
+	// If star is bright enough, draw surrounding pixels
+	if (color - 4 >= STARFIELD_HUE)
+	{
+		if (p[position + 1] == 0)
+		{
+			p[position + 1] = color - 4;
+			drawlist_layer_stamp_offset(surface, (size_t)position + 1, DL_LAYER_STARFIELD);
+		}
+
+		if (position > 0 && p[position - 1] == 0)
+		{
+			p[position - 1] = color - 4;
+			drawlist_layer_stamp_offset(surface, (size_t)position - 1, DL_LAYER_STARFIELD);
+		}
+
+		if (p[position + surface->pitch] == 0)
+		{
+			p[position + surface->pitch] = color - 4;
+			drawlist_layer_stamp_offset(surface, (size_t)position + (size_t)surface->pitch, DL_LAYER_STARFIELD);
+		}
+
+		if (position >= surface->pitch && p[position - surface->pitch] == 0)
+		{
+			p[position - surface->pitch] = color - 4;
+			drawlist_layer_stamp_offset(surface, (size_t)position - (size_t)surface->pitch, DL_LAYER_STARFIELD);
+		}
+	}
+}
+
 void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 {
 	drawlist_record_starfield(surface, move_speed, starfield_stars, sizeof starfield_stars);
-
-	Uint8* p = (Uint8*)surface->pixels;
 
 	for (int i = MAX_STARS-1; i >= 0; --i)
 	{
@@ -579,28 +619,7 @@ void update_and_draw_starfield(SDL_Surface* surface, int move_speed)
 		star->position += (accum >> 8) * surface->pitch;
 
 		if (star->position < 177 * surface->pitch)
-		{
-			if (p[star->position] == 0)
-			{
-				p[star->position] = star->color;
-			}
-
-			// If star is bright enough, draw surrounding pixels
-			if (star->color - 4 >= STARFIELD_HUE)
-			{
-				if (p[star->position + 1] == 0)
-					p[star->position + 1] = star->color - 4;
-
-				if (star->position > 0 && p[star->position - 1] == 0)
-					p[star->position - 1] = star->color - 4;
-
-				if (p[star->position + surface->pitch] == 0)
-					p[star->position + surface->pitch] = star->color - 4;
-
-				if (star->position >= surface->pitch && p[star->position - surface->pitch] == 0)
-					p[star->position - surface->pitch] = star->color - 4;
-			}
-		}
+			draw_star(surface, star->position, star->color);
 	}
 }
 
@@ -672,8 +691,6 @@ void drawlist_draw_starfield_interp(SDL_Surface *surface, int move_speed, const 
 	StarfieldStar stars[MAX_STARS];
 	memcpy(stars, pre, sizeof starfield_stars);
 
-	Uint8 *p = (Uint8 *)surface->pixels;
-
 	for (int i = MAX_STARS - 1; i >= 0; --i)
 	{
 		const StarfieldStar *star = &stars[i];
@@ -695,24 +712,6 @@ void drawlist_draw_starfield_interp(SDL_Surface *surface, int move_speed, const 
 			pos = (Uint16)(prev_pos + rows * surface->pitch);
 
 		if (pos < 177 * surface->pitch)
-		{
-			if (p[pos] == 0)
-				p[pos] = star->color;
-
-			if (star->color - 4 >= STARFIELD_HUE)
-			{
-				if (p[pos + 1] == 0)
-					p[pos + 1] = star->color - 4;
-
-				if (pos > 0 && p[pos - 1] == 0)
-					p[pos - 1] = star->color - 4;
-
-				if (p[pos + surface->pitch] == 0)
-					p[pos + surface->pitch] = star->color - 4;
-
-				if (pos >= surface->pitch && p[pos - surface->pitch] == 0)
-					p[pos - surface->pitch] = star->color - 4;
-			}
-		}
+			draw_star(surface, pos, star->color);
 	}
 }
