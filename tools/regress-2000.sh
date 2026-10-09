@@ -353,6 +353,50 @@ depth_case "depth-smooth-e4-level12-high-d$MODERN_DETAIL" - high \
 	"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
 	--regress-level=4:12 $M --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 
+# Held in-level screens (pause, in-game menu, in-game help) keep the depth shadows and the
+# bloom/lighting of the frozen playfield.  --regress-menu opens the screen on the run's
+# last frame; tools/check_depth_held.sh runs it with every effect off, lighting alone,
+# Depth Low and Depth High: the state/RNG streams must match, the held frame must change
+# with the lighting and again with the shadows, the Low frames must equal this case's own
+# committed baseline test/regress-2000/LABEL.txt (hashes only), and REQUIRE must hold on the
+# "Depth held:", "Light held:" and "Held check:" lines (the overlay stayed untouched).
+# LABEL REQUIRE args...
+held_case() {
+	local label=$1 require=$2
+	shift 2
+	[[ "$label" =~ $CASE_FILTER ]] || return
+	if [ -n "$UPDATE_CASES" ]; then
+		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
+	fi
+	cases=$((cases + 1))
+	if ! HELD_UPDATE=$UPDATE "$ROOT/tools/check_depth_held.sh" "$BIN" 2000 "$DATA_DIR" "$ACTUAL_DIR/held" \
+		"$label" "$BASELINE_DIR/$label.txt" "$require" -- "$@"; then
+		failures=$((failures + 1))
+	fi
+}
+
+HM="--regress-script=1:3 --regress-seed=32402394 $M"
+held_case "held-pause-wide-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 compared_px>40000 mismatch_max_dist<12" \
+	$HM --regress-frames=350 --regress-menu=pause --regress-aspect=16:9
+held_case "held-ingame-wide-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 compared_px>10000 mismatch_max_dist<20" \
+	$HM --regress-frames=1050 --regress-menu=ingame --regress-aspect=16:9
+held_case "held-help-wide-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px=0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
+	$HM --regress-frames=350 --regress-menu=help --regress-aspect=16:9
+# Modern 4:3 (no side panels): the playfield sits at x = 0.
+held_case "held-pause-4x3-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
+	$HM --regress-frames=350 --regress-menu=pause
+# Episode 5 (Tyrian 2000 only): a starfield level (no shadow, light kept) and a structured one.
+held_case "held-pause-e5-space-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px=0 space_frames=1 emitter_px>0 lit_px>10000 overlay_px>0 overlay_changed_px=0 mismatch_px=0" \
+	--regress-script=5:3 --regress-seed=32402394 $M --regress-frames=400 --regress-menu=pause --regress-aspect=16:9
+held_case "held-pause-e5-level5-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<20" \
+	--regress-script=5:5 --regress-seed=32402394 $M --regress-frames=400 --regress-menu=pause --regress-aspect=16:9
+
 # Tyrian 2000 gameplay rules (src/game_rules.c), as logic/RNG hashes over enough
 # frames to reach the events.  Which rule each level exercises:
 #   5:5  spawn X -200 (random position) and launch types of the second enemy bank

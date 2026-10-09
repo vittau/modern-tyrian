@@ -39,6 +39,7 @@
 #include "crt_filter.h"
 #include "modern_bloom.h"
 #include "modern_depth.h"
+#include "modern_held.h"
 #include "mtrand.h"
 #include "opentyr.h"
 #include "palette.h"
@@ -202,6 +203,7 @@ int regress_bloom_quality = -1;
 int regress_lighting_quality = -1;
 int regress_depth_quality = -1;
 bool regress_depth_check = false;
+bool regress_held_check = false;
 int regress_menu_kind = REGRESS_MENU_NONE;
 
 int regress_stick = 0;
@@ -1301,6 +1303,7 @@ void regress_init(void)
 	// is then not stamped and the shadow pass does nothing), so the baselines
 	// stay byte-for-byte unchanged; --regress-depth opts a run in.
 	modern_depth_quality = regress_depth_quality >= 0 ? (ModernQuality)regress_depth_quality : MODERN_QUALITY_OFF;
+	modern_held_set_check(regress_held_check);
 
 	// Dynamic fade/HUD interpolation check: exercise the interpolated
 	// presentation at a genuine mid-tick alpha and assert every interpolated
@@ -1584,6 +1587,9 @@ void regress_finish(void)
 
 	if (regress_depth_quality >= 0)
 		modern_depth_log_stats();
+
+	if (regress_held_check)
+		modern_held_log_stats();
 
 	if (regress_layer_check)
 	{

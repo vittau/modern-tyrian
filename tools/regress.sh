@@ -362,6 +362,7 @@ case_cost() {
 		run_interp_case|run_smoothness_case|run_parallax_case) factor=$((factor * 2)) ;;
 		run_layer_case) factor=$((factor * 4)) ;;  # two runs, one of them with the interpolated check
 		run_depth_case) factor=$((factor * 3)) ;;  # three runs: depth off, low and high
+		run_held_case) factor=$((factor * 4)) ;;   # four runs: effects off, lighting, depth low and high
 	esac
 	# Audio hashes whole sound/music streams, not framebuffer records.
 	if [ "$label" = audio ]; then
@@ -1234,6 +1235,35 @@ run_depth_case() {
 	fi
 }
 
+# run_held_case LABEL REQUIRE "$@" -- depth shadows and bloom/lighting on held in-level
+# frames (the pause screen, the in-game menu, the in-game help).
+# tools/check_depth_held.sh runs the scenario (which opens the screen on its last
+# frame through --regress-menu) with every effect off, lighting alone, Depth Low and
+# Depth High: the state/RNG streams must be identical, the held frame must change
+# with the lighting and again with the shadows, the Low frames must equal this case's
+# own committed baseline test/regress/LABEL.txt (written by --update), and the log
+# must carry the REQUIRE assertions on the "Depth held:", "Light held:" and
+# "Held check:" lines, so the case proves the held frame really got shadows and light
+# and that the overlay got none.
+run_held_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_held_case "$@"
+		pairs=$((pairs + 1))
+		return
+	fi
+	local label=$1 require=$2
+	shift 2
+
+	local result rc
+	result=$(HELD_UPDATE=$UPDATE "$ROOT/tools/check_depth_held.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/held" \
+		"$label" "$BASELINE_DIR/$label.txt" "$require" -- "$@")
+	rc=$?
+	printf '%s\n' "$result"
+	if [ "$rc" -ne 0 ]; then
+		failures=$((failures + 1))
+	fi
+}
+
 # run_smooth_effects_case LABEL "$@" -- per level tick, present the palette fade
 # and HUD bars interpolated at a genuine mid-tick alpha and require every value
 # to stay between the two ticks (the run exits non-zero otherwise).  Check-only:
@@ -1318,6 +1348,45 @@ if [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -
 		"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
 		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 	pairs=$((pairs + 1))
+
+	# --- held in-level screens: shadows and light kept on the frozen playfield ---
+	#
+	# --regress-menu opens the pause screen / in-game menu / in-game help on the
+	# run's last frame.  The scenario is the pinned E1:L3 script (real gameplay).
+	# Each case names what the held frame must have: shadowed pixels, emitters and
+	# lit pixels, an overlay that stayed untouched, and a held frame that matches
+	# the last live frame to within the fringe of what sits under the overlay.
+	H4="--regress-script=1:3 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern"
+	run_held_case "held-pause-wide-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 compared_px>40000 mismatch_max_dist<12" \
+		$H4 --regress-frames=350 --regress-menu=pause --regress-aspect=16:9
+	run_held_case "held-ingame-wide-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 compared_px>10000 mismatch_max_dist<20" \
+		$H4 --regress-frames=1050 --regress-menu=ingame --regress-aspect=16:9
+	run_held_case "held-help-wide-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px=0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
+		$H4 --regress-frames=350 --regress-menu=help --regress-aspect=16:9
+	# Modern 4:3 (no side panels): the playfield sits at x = 0.
+	run_held_case "held-pause-4x3-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
+		$H4 --regress-frames=350 --regress-menu=pause
+	run_held_case "held-ingame-21x9-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<20" \
+		$H4 --regress-frames=350 --regress-menu=ingame --regress-aspect=21:9
+	# A starfield level: no shadow on a held frame either, but the held light stays.
+	run_held_case "held-pause-space-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px=0 space_frames=1 lit_px>5000 overlay_px>0 overlay_changed_px=0 mismatch_px=0" \
+		--regress-script=1:5 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern \
+		--regress-frames=300 --regress-menu=pause --regress-aspect=16:9
+	# Lava level with a big explosion under the PAUSED text.
+	run_held_case "held-ingame-lava-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<40" \
+		--regress-script=4:12 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern \
+		--regress-frames=2400 --regress-menu=ingame --regress-aspect=16:9
+	# Smooth motion: the last live frame came from the interpolated renderer.
+	run_held_case "held-pause-smooth-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
+		$H4 --regress-frames=350 --regress-menu=pause --regress-aspect=16:9 --regress-interp-alpha=0.5
 fi
 
 if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ] && [ "$PARALLAX_CHECK" -eq 0 ]; then

@@ -158,6 +158,9 @@
     <ClCompile Include="..\src\modern_depth.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\modern_held.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\modern_hud.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -403,6 +406,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern_depth.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\modern_held.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern_hud.h">

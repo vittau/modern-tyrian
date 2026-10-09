@@ -22,6 +22,7 @@
 #include "logging.h"
 #include "modern.h"
 #include "modern_bloom.h"
+#include "modern_held.h"
 #include "opentyr.h"
 
 #include <string.h>
@@ -37,6 +38,12 @@ static Uint8 md_rank[DL_LAYER_COUNT];
 static bool md_valid = false;
 static bool md_fresh = false;      // a frame was copied since the pass last ran
 static bool md_requested = false;  // regress / debug request, independent of the setting
+
+// Snapshot of the last really presented frame's buffers, reused by held in-level
+// screens (modern_held.c).
+static Uint8 md_snap_layer[MODERN_PLAYFIELD_W * MODERN_PLAYFIELD_H];
+static Uint8 md_snap_rank[DL_LAYER_COUNT];
+static bool md_snap_valid = false;
 
 static unsigned long md_frames = 0;
 static unsigned long md_frames_interpolated = 0;
@@ -97,6 +104,38 @@ void modern_depth_from_game(SDL_Surface *game, bool flip)
 		md_frames_interpolated++;
 	if (flip)
 		md_frames_flipped++;
+}
+
+bool modern_depth_held_save(void)
+{
+	md_snap_valid = md_valid;
+	if (!md_valid)
+		return false;
+
+	memcpy(md_snap_layer, md_layer, sizeof md_layer);
+	memcpy(md_snap_rank, md_rank, sizeof md_rank);
+	return true;
+}
+
+void modern_depth_held_restore(const Uint8 *overlay)
+{
+	md_fresh = false;
+	if (!md_snap_valid || !modern_depth_layers_wanted())
+		return;
+
+	memcpy(md_layer, md_snap_layer, sizeof md_layer);
+	memcpy(md_rank, md_snap_rank, sizeof md_rank);
+	for (size_t i = 0; i < sizeof md_layer; ++i)
+		if (overlay[i])
+			md_layer[i] = DL_LAYER_OTHER;
+
+	md_valid = true;
+	md_fresh = true;
+}
+
+void modern_depth_held_forget(void)
+{
+	md_snap_valid = false;
 }
 
 void modern_depth_mark_vfx(int x, int y)
@@ -402,21 +441,36 @@ void modern_depth_pass(ModernFrame *frame)
 	if (playfield_x < 0 || playfield_x + MD_W > frame->w || MD_H > frame->h)
 		return;
 
-	md_stat_frames++;
+	// A held in-level screen reuses the last real frame's buffers (modern_held.c):
+	// its counters stay apart from the live ones.
+	const bool held = modern_held_overlay() != NULL;
+
+	if (!held)
+		md_stat_frames++;
 
 	// Never cast a shadow onto the void: the starfield levels (the same test
 	// vfx_ambient.c uses for its space style).
 	if (starActive)
 	{
-		md_stat_space++;
+		if (held)
+			modern_held_note_shadow(0, true);
+		else
+			md_stat_space++;
 		return;
 	}
 
 	ModernDepthShadowStats stats;
 	memset(&stats, 0, sizeof stats);
 	const Uint64 t0 = SDL_GetPerformanceCounter();
-	md_stat_shadowed += modern_depth_shadow_apply(frame->pixels + playfield_x, frame->w,
-	                                              md_layer, md_rank, modern_depth_quality, &stats);
+	const unsigned long shadowed = modern_depth_shadow_apply(frame->pixels + playfield_x, frame->w,
+	                                                         md_layer, md_rank, modern_depth_quality, &stats);
+	if (held)
+	{
+		modern_held_note_shadow(shadowed, false);
+		return;
+	}
+
+	md_stat_shadowed += shadowed;
 	md_stat_ticks += SDL_GetPerformanceCounter() - t0;
 	md_stat_timed++;
 	for (int i = 0; i < DL_LAYER_COUNT; ++i)

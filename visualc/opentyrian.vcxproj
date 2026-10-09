@@ -165,6 +165,7 @@
     <ClCompile Include="..\src\regress_depth.c" />
     <ClCompile Include="..\src\modern_bloom.c" />
     <ClCompile Include="..\src\modern_depth.c" />
+    <ClCompile Include="..\src\modern_held.c" />
     <ClCompile Include="..\src\modern_hud.c" />
     <ClCompile Include="..\src\modern_progress.c" />
     <ClCompile Include="..\src\mouse.c" />
@@ -250,6 +251,7 @@
     <ClInclude Include="..\src\crt_filter.h" />
     <ClInclude Include="..\src\modern_bloom.h" />
     <ClInclude Include="..\src\modern_depth.h" />
+    <ClInclude Include="..\src\modern_held.h" />
     <ClInclude Include="..\src\modern_hud.h" />
     <ClInclude Include="..\src\modern_progress.h" />
     <ClInclude Include="..\src\mouse.h" />

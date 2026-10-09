@@ -106,6 +106,22 @@ void modern_depth_pass(ModernFrame *frame);
 // Logs the "Depth shadows:" coverage line.
 void modern_depth_log_stats(void);
 
+// --- held in-level screens (modern_held.c) --------------------------------------
+
+// Snapshots the presented layer buffer and rank table (the frame that is about to
+// be shown).  Returns false, leaving no snapshot, when layers are not wanted or
+// the frame has no buffer.
+bool modern_depth_held_save(void);
+
+// Re-arms the layer buffer from the snapshot for a held frame, with every pixel
+// of `overlay` (MODERN_PLAYFIELD_W x MODERN_PLAYFIELD_H, nonzero = overlay)
+// turned into DL_LAYER_OTHER: it neither casts nor receives.  No-op, leaving the
+// frame without shadows, when there is no snapshot or layers are not wanted.
+void modern_depth_held_restore(const Uint8 *overlay);
+
+// Drops the snapshot.
+void modern_depth_held_forget(void);
+
 // --- regress / debug ------------------------------------------------------------
 
 // Counts the presented frames the buffer was copied for: total, from the

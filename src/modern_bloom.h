@@ -91,6 +91,15 @@ void modern_bloom_tag_from_game(const Uint8 *game_tag, int game_pitch, bool flip
 // pixel's own colour").  Called by interp.c right after modern_bloom_tag_from_game().
 void modern_bloom_lightcol_from_game(const Uint8 *game_lcol, int game_pitch, bool flip);
 
+// Held in-level screens (modern_held.c): snapshot of the presented frame's tag
+// and light colours, and the re-arming of a held frame from it.  The pixels of
+// `overlay` (MODERN_PLAYFIELD_W x MODERN_PLAYFIELD_H, nonzero = overlay) lose
+// their tag, so nothing under the menu window or the PAUSED text emits.
+// Save returns false, leaving no snapshot, when the frame has no tag.
+bool modern_bloom_held_save(void);
+void modern_bloom_held_restore(const Uint8 *overlay);
+void modern_bloom_held_forget(void);
+
 // Marks one playfield pixel as VFX emission.  Called by the VFX renderer.
 void modern_bloom_tag_pixel(int x, int y);
 

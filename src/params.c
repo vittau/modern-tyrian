@@ -131,6 +131,7 @@ const Options *JE_paramOptions(void)
 		{ 431, 0,   "regress-layer-png", true },
 		{ 432, 0,   "regress-depth",     true },
 		{ 433, 0,   "regress-depth-check", false },
+		{ 434, 0,   "regress-held-check", false },
 		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
@@ -312,6 +313,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
 			logInfo("  --regress-depth=LEVEL        Pin the Modern Depth setting (soft shadows) in regress modes (default off)");
 			logInfo("  --regress-depth-check        Run the synthetic depth-shadow fixture and exit");
+			logInfo("  --regress-held-check         With --regress-menu: compare the held frame with the last live frame outside the overlay");
 			logInfo("  --light-tag-stats            Count emitted playfield pixels per tag class and exit");
 			logInfo("  --light-threshold=N          Debug: force both bloom/light thresholds to N");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -754,6 +756,10 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_depth_check = true;
 			break;
 
+		case 434: // --regress-held-check
+			regress_held_check = true;
+			break;
+
 		case 431: // --regress-layer-png=FRAME:FILE
 		{
 			char *end;
@@ -971,6 +977,12 @@ void JE_paramCheck(int argc, char *argv[])
 	if (regress_parallax_check && regress_demo == 0 && regress_scenario_episode == 0)
 	{
 		logError("%s: --regress-parallax-check requires --regress-demo or --regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_held_check && (!regress_modern || regress_menu_kind == REGRESS_MENU_NONE))
+	{
+		logError("%s: --regress-held-check requires --regress-modern and --regress-menu", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 

@@ -26,6 +26,7 @@
 #include "modern.h"
 #include "modern_bloom.h"
 #include "modern_depth.h"
+#include "modern_held.h"
 #include "network.h"
 #include "opentyr.h"
 #include "palette.h"
@@ -232,6 +233,11 @@ static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alph
 	// Draw the interpolated VFX into the presented playfield (palette indices),
 	// before the Modern conversion so the effects feed the lighting pass.
 	vfx_render_playfield(VGAScreenSeg, alpha_fx16);
+
+	// Remember this frame's layers, tag and playfield: a held in-level screen
+	// (pause, in-game menu, help) shows the same picture with the same shadows
+	// and light under its overlay.
+	modern_held_capture(VGAScreenSeg);
 
 	// Let the compositor redraw the dynamic HUD bars at the same alpha.
 	modern_set_bar_interp(bar_interp, alpha_fx16);
