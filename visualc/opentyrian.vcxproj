@@ -162,6 +162,7 @@
     <ClCompile Include="..\src\ntsc.c" />
     <ClCompile Include="..\src\crt_filter.c" />
     <ClCompile Include="..\src\regress_crt.c" />
+    <ClCompile Include="..\src\regress_depth.c" />
     <ClCompile Include="..\src\modern_bloom.c" />
     <ClCompile Include="..\src\modern_depth.c" />
     <ClCompile Include="..\src\modern_hud.c" />

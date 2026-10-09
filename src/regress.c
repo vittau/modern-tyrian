@@ -200,6 +200,8 @@ int regress_realtime = 0;
 double regress_bench_seconds = 20.0;
 int regress_bloom_quality = -1;
 int regress_lighting_quality = -1;
+int regress_depth_quality = -1;
+bool regress_depth_check = false;
 int regress_menu_kind = REGRESS_MENU_NONE;
 
 int regress_stick = 0;
@@ -1295,6 +1297,10 @@ void regress_init(void)
 	}
 	if (regress_layer_check || regress_layer_png != NULL)
 		modern_depth_set_requested(true);
+	// The Depth setting is pinned Off for every existing case (the layer buffer
+	// is then not stamped and the shadow pass does nothing), so the baselines
+	// stay byte-for-byte unchanged; --regress-depth opts a run in.
+	modern_depth_quality = regress_depth_quality >= 0 ? (ModernQuality)regress_depth_quality : MODERN_QUALITY_OFF;
 
 	// Dynamic fade/HUD interpolation check: exercise the interpolated
 	// presentation at a genuine mid-tick alpha and assert every interpolated
@@ -1575,6 +1581,9 @@ void regress_finish(void)
 			exit(EXIT_FAILURE);
 		}
 	}
+
+	if (regress_depth_quality >= 0)
+		modern_depth_log_stats();
 
 	if (regress_layer_check)
 	{

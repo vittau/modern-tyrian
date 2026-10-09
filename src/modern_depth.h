@@ -20,6 +20,8 @@
 #define MODERN_DEPTH_H
 
 #include "drawlist.h"
+#include "modern.h"
+#include "modern_bloom.h"
 
 #include <SDL3/SDL.h>
 
@@ -40,8 +42,13 @@
 // false every stamp path in drawlist.c returns immediately, like the tag.
 bool modern_depth_layers_wanted(void);
 
-// Requests the layer buffer.  Stage 1 only has the regress/debug flags
-// (--regress-layer-check, --regress-layer-png); stage 2 adds the `Depth:` setting.
+// The `Depth:` setting (Setup -> Graphics, config key modern_depth).  Any level
+// above Off opens the layer-buffer gate and enables the shadow pass.  Default
+// Low; regress runs pin it Off unless --regress-depth asks otherwise.
+extern ModernQuality modern_depth_quality;
+
+// Requests the layer buffer independently of the setting (the regress / debug
+// flags --regress-layer-check and --regress-layer-png).
 void modern_depth_set_requested(bool requested);
 
 // Clears the presented layer buffer for the frame about to be presented and
@@ -54,9 +61,10 @@ void modern_depth_begin(void);
 // the presented surface (the live frame or the interpolated scratch).
 void modern_depth_from_game(SDL_Surface *game, bool flip);
 
-// Marks one playfield pixel as drawn by the VFX renderer (and the ambient
-// particles).  Called wherever modern_bloom_tag_pixel() is: those pixels are
-// not part of any gameplay layer and must cast no shadow.
+// Flags one playfield pixel as drawn by the VFX renderer (and the ambient
+// particles).  Called wherever modern_bloom_tag_pixel() is.  The pixel KEEPS the
+// layer it was painted over and gains DL_LAYER_VFX_FLAG: it never casts a shadow
+// (ambient dust must not punch holes in them) but still receives as its layer.
 void modern_depth_mark_vfx(int x, int y);
 
 // Read-only access for the stage-2 pass.  Both return NULL unless a frame was
@@ -70,6 +78,33 @@ const Uint8 *modern_depth_layer_buffer(void);
 // DL_LAYER_COUNT bytes: 1.. = the order in which each layer was first drawn this
 // tick (lower = painted earlier = lower), 0 = not drawn this tick.
 const Uint8 *modern_depth_rank_table(void);
+
+// --- soft cast shadows ------------------------------------------------------------
+
+// Counters of one modern_depth_shadow_apply() call: caster pixels that landed a
+// shadow, per caster layer, and how many of them were blended bg2 pixels.
+typedef struct
+{
+	unsigned long casters[DL_LAYER_COUNT];
+	unsigned long blend_casters;
+} ModernDepthShadowStats;
+
+// The shadow core, free of globals except its scratch planes.  `canvas` points at
+// the playfield origin of an XRGB8888 canvas with `canvas_pitch_px` pixels per
+// row; `layers` is the MODERN_PLAYFIELD_W x MODERN_PLAYFIELD_H layer buffer and
+// `rank` the DL_LAYER_COUNT first-drawn table.  Darkens the canvas in place and
+// returns the number of pixels darkened.  Quality Off is the identity.  Used by
+// the pass and by the synthetic fixture (--regress-depth-check).
+unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
+                                        const Uint8 *layers, const Uint8 *rank,
+                                        ModernQuality quality, ModernDepthShadowStats *stats);
+
+// The registered Modern pass (before the bloom/lighting pass).  Gameplay frames
+// only, and only when the layer buffer of this very frame is valid.
+void modern_depth_pass(ModernFrame *frame);
+
+// Logs the "Depth shadows:" coverage line.
+void modern_depth_log_stats(void);
 
 // --- regress / debug ------------------------------------------------------------
 

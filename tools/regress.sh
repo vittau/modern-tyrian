@@ -345,7 +345,7 @@ trap 'exit 143' TERM
 case_cost() {
 	local kind=$1 label=$2 baseline=$2 frames=1200 factor=1 arg
 	case "$kind" in
-		run_replay_case|run_interp_case|run_gameplay_case|run_smoothness_case|run_parallax_case|run_layer_case) baseline=$3 ;;
+		run_replay_case|run_interp_case|run_gameplay_case|run_smoothness_case|run_parallax_case|run_layer_case|run_depth_case) baseline=$3 ;;
 		run_parallax_level) frames=$3 ;;
 	esac
 	if [ -f "$BASELINE_DIR/$baseline.txt" ]; then
@@ -361,6 +361,7 @@ case_cost() {
 	case "$kind" in
 		run_interp_case|run_smoothness_case|run_parallax_case) factor=$((factor * 2)) ;;
 		run_layer_case) factor=$((factor * 4)) ;;  # two runs, one of them with the interpolated check
+		run_depth_case) factor=$((factor * 3)) ;;  # three runs: depth off, low and high
 	esac
 	# Audio hashes whole sound/music streams, not framebuffer records.
 	if [ "$label" = audio ]; then
@@ -1206,6 +1207,33 @@ run_layer_case() {
 	fi
 }
 
+# run_depth_case LABEL OFF_BASELINE_LABEL LEVEL REQUIRE "$@" -- depth shadows, stage 2.
+# tools/check_depth_shadows.sh runs the scenario with Depth off, low and high: the
+# state/RNG streams must be identical (the shadows are display-only), the Off frames
+# must equal OFF_BASELINE_LABEL when one is given ("-" for none), the LEVEL frames
+# must equal this case's own committed baseline test/regress/LABEL.txt (written by
+# --update), and the log must carry the REQUIRE coverage assertions on the
+# "Depth shadows:" line, so the case proves the paths it names really ran.
+run_depth_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_depth_case "$@"
+		return
+	fi
+	local label=$1 off_label=$2 level=$3 require=$4
+	shift 4
+	local off_baseline=-
+	[ "$off_label" = - ] || off_baseline="$BASELINE_DIR/$off_label.txt"
+
+	local result rc
+	result=$(DEPTH_UPDATE=$UPDATE "$ROOT/tools/check_depth_shadows.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/depth" \
+		"$label" "$off_baseline" "$BASELINE_DIR/$label.txt" "$level" "$require" -- "$@")
+	rc=$?
+	printf '%s\n' "$result"
+	if [ "$rc" -ne 0 ]; then
+		failures=$((failures + 1))
+	fi
+}
+
 # run_smooth_effects_case LABEL "$@" -- per level tick, present the palette fade
 # and HUD bars interpolated at a genuine mid-tick alpha and require every value
 # to stay between the two ticks (the run exits non-zero otherwise).  Check-only:
@@ -1236,6 +1264,61 @@ run_smooth_effects_case() {
 
 	echo "PASS $label: $(grep -oE 'Smooth effects check: .*' "$log" | tail -n 1)"
 }
+
+# Depth shadows own committed baselines (their Low/High frame hashes), so unlike the
+# check-only cases below they also run under --update.
+if [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ] && [ "$PARALLAX_CHECK" -eq 0 ]; then
+	M4="--regress-detail=$MODERN_DETAIL --regress-modern"
+	# --- depth shadows (modern depth, stage 2) ----------------------------------
+	#
+	# Each case runs Depth off, low and high.  The three state/RNG streams must
+	# match, Off must reproduce the existing baseline of the same scenario, and the
+	# Low or High frames are pinned by the case's own baseline.  The REQUIRE list
+	# names the casters and paths that must really have run ("identical" = the
+	# case must not shadow at all).
+	run_depth_case "depth-wide-demo1-low-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" low \
+		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 sidekick>0 bg3>0 top>0 blend>0 space_frames=0" \
+		--regress-demo=1 $M4 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-wide-demo5-high-d$MODERN_DETAIL" - high \
+		"frames>0 shadowed_px>0 bg2>0 blend=0 ground>0 sky>0 player>0 sidekick>0 bg3>0 space_frames=0" \
+		--regress-demo=5 $M4 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-e1-level16-bg3-low-d$MODERN_DETAIL" - low \
+		"frames>0 shadowed_px>0 bg3>0 top>0 sky>0 player>0 space_frames=0" \
+		--regress-level=1:16 $M4 --regress-frames=1200 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-e1-level16-2p-high-d$MODERN_DETAIL" - high \
+		"frames>0 shadowed_px>0 player>0 sidekick>0 bg3>0 space_frames=0" \
+		--regress-level=1:16 $M4 --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-scenario-water-high-d$MODERN_DETAIL" - high \
+		"frames>0 shadowed_px>0 sky>0 player>0 blend>0 space_frames=0" \
+		--regress-level=4:9 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-scenario-flip-low-d$MODERN_DETAIL" - low \
+		"frames>0 shadowed_px>0 bg2>0 sky>0 top>0 player>0 flipped>0 space_frames=0" \
+		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-demo4-space-low-d$MODERN_DETAIL" - low \
+		"identical frames>0 shadowed_px=0 space_frames>0 bg3=0 top=0 sky=0 player=0" \
+		--regress-demo=4 $M4 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_depth_case "depth-e1-level1-space-high-d$MODERN_DETAIL" - high \
+		"identical frames>0 shadowed_px=0 space_frames>0" \
+		--regress-level=1:1 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	# Modern 4:3: no side panels, the playfield sits at the canvas's own offset.
+	run_depth_case "depth-demo1-4x3-low-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" low \
+		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
+		--regress-demo=1 $M4
+	pairs=$((pairs + 1))
+	# 16:9 with smooth motion: the presented frames are the interpolated ones.
+	run_depth_case "depth-smooth-wide-flip-high-d$MODERN_DETAIL" - high \
+		"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
+		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
+	pairs=$((pairs + 1))
+fi
 
 if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ] && [ "$PARALLAX_CHECK" -eq 0 ]; then
 	run_replay_case "replay-demo1-d2"   "demo1-d2"   --regress-demo=1 --regress-detail=2

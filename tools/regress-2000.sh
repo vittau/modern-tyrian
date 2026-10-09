@@ -297,6 +297,62 @@ layer_case "layer-e1-level16-2p-d$MODERN_DETAIL" - "player>0 sidekick>0 lava>0" 
 layer_case "layer-smooth-e4-level12-d$MODERN_DETAIL" - "interpolated>0 flipped>0 lava>0 shots>0 frames>0" \
 	--regress-level=4:12 $M --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 
+# Depth shadows (modern depth, stage 2).  tools/check_depth_shadows.sh runs each
+# scenario with Depth off, low and high: the three state/RNG streams must match
+# (the shadows are display-only), Off must reproduce the existing baseline of the
+# same scenario when one is named, the LEVEL frames must equal this case's own
+# committed baseline test/regress-2000/LABEL.txt (hashes only), and the REQUIRE list
+# must hold on the "Depth shadows:" line ("identical" = the case must not shadow at
+# all: the space levels).
+# LABEL OFF_BASELINE_LABEL LEVEL REQUIRE args...
+depth_case() {
+	local label=$1 off_label=$2 level=$3 require=$4 off_baseline=-
+	shift 4
+	[[ "$label" =~ $CASE_FILTER ]] || return
+	if [ -n "$UPDATE_CASES" ]; then
+		case " $UPDATE_CASES " in *" $label "*) ;; *) return ;; esac
+	fi
+	cases=$((cases + 1))
+	[ "$off_label" = - ] || off_baseline="$BASELINE_DIR/$off_label.txt"
+	if ! DEPTH_UPDATE=$UPDATE "$ROOT/tools/check_depth_shadows.sh" "$BIN" 2000 "$DATA_DIR" "$ACTUAL_DIR/depth" \
+		"$label" "$off_baseline" "$BASELINE_DIR/$label.txt" "$level" "$require" -- "$@"; then
+		failures=$((failures + 1))
+	fi
+}
+
+depth_case "depth-demo1-16x9-low-d$MODERN_DETAIL" "modern-demo1-16x9-d$MODERN_DETAIL" low \
+	"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 sidekick>0 bg3>0 top>0 blend>0 space_frames=0" \
+	--regress-demo=1 $M --regress-aspect=16:9 --regress-demo-hud-check
+# Modern 4:3: no side panels.
+depth_case "depth-demo1-4x3-high-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" high \
+	"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
+	--regress-demo=1 $M --regress-demo-hud-check
+depth_case "depth-demo5-high-d$MODERN_DETAIL" - high \
+	"frames>0 shadowed_px>0 bg2>0 blend=0 ground>0 sky>0 player>0 sidekick>0 bg3>0 space_frames=0" \
+	--regress-demo=5 $M --regress-aspect=16:9
+depth_case "depth-e5-level1-low-d$MODERN_DETAIL" "modern-e5-level1-d$MODERN_DETAIL" low \
+	"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
+	--regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
+depth_case "depth-demo4-space-low-d$MODERN_DETAIL" - low \
+	"identical frames>0 shadowed_px=0 space_frames>0 bg3=0 top=0 sky=0 player=0" \
+	--regress-demo=4 $M --regress-aspect=16:9
+depth_case "depth-e5-level8-space-high-d$MODERN_DETAIL" - high \
+	"identical frames>0 shadowed_px=0 space_frames>0" \
+	--regress-level=5:8 $M --regress-items-new --regress-fire --regress-frames=700 --regress-aspect=16:9
+depth_case "depth-e4-level9-water-high-d$MODERN_DETAIL" - high \
+	"frames>0 shadowed_px>0 sky>0 player>0 blend>0 space_frames=0" \
+	--regress-level=4:9 $M --regress-frames=1200 --regress-fire --regress-aspect=16:9
+depth_case "depth-e4-level12-lava-flip-low-d$MODERN_DETAIL" - low \
+	"frames>0 shadowed_px>0 bg2>0 sky>0 top>0 player>0 flipped>0 space_frames=0" \
+	--regress-level=4:12 $M --regress-frames=3600 --regress-aspect=16:9
+depth_case "depth-e1-level16-2p-high-d$MODERN_DETAIL" - high \
+	"frames>0 shadowed_px>0 player>0 sidekick>0 bg3>0 space_frames=0" \
+	--regress-level=1:16 $M --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
+# Smooth motion: the presented frames are the interpolated ones (alpha = 0.5).
+depth_case "depth-smooth-e4-level12-high-d$MODERN_DETAIL" - high \
+	"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
+	--regress-level=4:12 $M --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
+
 # Tyrian 2000 gameplay rules (src/game_rules.c), as logic/RNG hashes over enough
 # frames to reach the events.  Which rule each level exercises:
 #   5:5  spawn X -200 (random position) and launch types of the second enemy bank

@@ -149,6 +149,9 @@
     <ClCompile Include="..\src\regress_crt.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\regress_depth.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\modern_bloom.c">
       <Filter>Source Files</Filter>
     </ClCompile>

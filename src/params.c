@@ -129,6 +129,8 @@ const Options *JE_paramOptions(void)
 		{ 296, 0,   "regress-parallax-check", false },
 		{ 430, 0,   "regress-layer-check", false },
 		{ 431, 0,   "regress-layer-png", true },
+		{ 432, 0,   "regress-depth",     true },
+		{ 433, 0,   "regress-depth-check", false },
 		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
@@ -308,6 +310,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
 			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
+			logInfo("  --regress-depth=LEVEL        Pin the Modern Depth setting (soft shadows) in regress modes (default off)");
+			logInfo("  --regress-depth-check        Run the synthetic depth-shadow fixture and exit");
 			logInfo("  --light-tag-stats            Count emitted playfield pixels per tag class and exit");
 			logInfo("  --light-threshold=N          Debug: force both bloom/light thresholds to N");
 			logInfo("  --regress-audio              Render the audio baselines to FILE and exit");
@@ -732,6 +736,22 @@ void JE_paramCheck(int argc, char *argv[])
 
 		case 430: // --regress-layer-check
 			regress_layer_check = 1;
+			break;
+
+		case 432: // --regress-depth=off|low|high
+		{
+			ModernQuality quality = MODERN_QUALITY_OFF;
+			if (!set_modern_quality_by_name(option.arg, &quality))
+			{
+				logError("%s: regress depth must be 'off', 'low' or 'high'", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			regress_depth_quality = (int)quality;
+			break;
+		}
+
+		case 433: // --regress-depth-check
+			regress_depth_check = true;
 			break;
 
 		case 431: // --regress-layer-png=FRAME:FILE

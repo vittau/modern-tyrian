@@ -110,7 +110,11 @@ static inline Uint8 dl_tag_pack(int cls, unsigned int bright_pixels)
 //
 // Encoding of one byte:
 //   bits 0-4  layer id, one of DL_LAYER_* (0 .. DL_LAYER_COUNT - 1, max 31)
-//   bits 5-6  reserved, always 0
+//   bit 5     DL_LAYER_VFX_FLAG: a VFX / ambient-particle pixel.  It only tints the
+//             pixel and keeps the layer id of whatever was under it, so a VFX
+//             pixel never casts a shadow but still receives as its underlying
+//             layer.  Only ever set on the presented copy (modern_depth.c).
+//   bit 6     reserved, always 0
 //   bit 7     DL_LAYER_BLEND: the pixel was written by the BLENDED bg2 row
 //             (blit_background_row_blend), i.e. it is a translucent mix of bg2
 //             over whatever was below, not an opaque bg2 pixel.  Only ever set
@@ -135,13 +139,13 @@ enum
 	DL_LAYER_ENEMY_SHOT,
 	DL_LAYER_EXPLOSION,
 	DL_LAYER_SUPERPIXEL,
-	DL_LAYER_VFX,          // only ever set on the presented copy (modern_depth.c)
 	DL_LAYER_HUD,
 	DL_LAYER_OTHER,        // a sprite drawn with no object context
 	DL_LAYER_COUNT
 };
 
 #define DL_LAYER_ID_MASK 0x1f
+#define DL_LAYER_VFX_FLAG 0x20
 #define DL_LAYER_BLEND   0x80
 
 // True while the layer buffer is being stamped this tick (Modern presentation and

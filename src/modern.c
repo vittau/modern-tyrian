@@ -23,6 +23,7 @@
 #include "fonthand.h"
 #include "logging.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
 #include "modern_hud.h"
 #include "opentyr.h"
 #include "regress.h"
@@ -847,8 +848,10 @@ void modern_level_reset(void)
 
 void modern_init(void)
 {
-	// The bloom + dynamic-light pass lives in modern_bloom.c; it is the only
-	// registered effect pass.  It reads the bloom/lighting settings itself.
+	// The depth shadow pass (modern_depth.c) runs first so the bloom and the
+	// dynamic light of modern_bloom.c still add over the shadows.  Both read
+	// their own settings.
+	modern_register_pass(modern_depth_pass);
 	modern_register_pass(modern_bloom_pass);
 
 	modern_ready = true;

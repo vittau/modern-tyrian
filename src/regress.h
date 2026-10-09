@@ -75,6 +75,9 @@ extern int regress_smooth_effects_check;  // non-zero = assert fade/HUD interpol
 extern int regress_realtime;          // non-zero = real window + real clock, for the pacing benchmark
 extern double regress_bench_seconds;  // benchmark duration (default 20)
 extern int regress_bloom_quality;     // ModernQuality pinned in regress mode; -1 = off
+extern int regress_depth_quality;     // ModernQuality of the Depth setting pinned in regress mode; -1 = off
+extern bool regress_depth_check;      // run the synthetic depth-shadow fixture and exit
+int regress_depth_selfcheck(void);
 extern int regress_lighting_quality;  // ModernQuality pinned in regress mode; -1 = off
 
 // --regress-stick=X,Y: install a synthetic analog stick (raw axis values) so a
