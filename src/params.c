@@ -331,8 +331,8 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-stick-log=FILE     Log the per-tick ship x/y and x/y velocity of a");
 			logInfo("                               --regress-stick run to FILE");
 			logInfo("  --regress-reverse-y          Regress only: force the reverse-controls smoothie on");
-			logInfo("  --regress-front-weapon=N      Regress only: front weapon id (0-42) for --regress-script");
-			logInfo("  --regress-front-power=N       Regress only: front weapon power (1-11) for --regress-script");
+			logInfo("  --regress-front-weapon=N      Regress only: front weapon id (0-42) for --regress-script/--regress-level");
+			logInfo("  --regress-front-power=N       Regress only: front weapon power (1-11) for --regress-script/--regress-level");
 			logInfo("  --regress-rules=NAME          Code-owned gameplay fixture: events, spawn, sidekicks, twiddle, punch");
 			exit(EXIT_SUCCESS);
 			break;

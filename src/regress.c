@@ -1232,6 +1232,7 @@ void regress_begin_scenario(void)
 		}
 	}
 
+	regress_apply_loadout();  // --regress-front-weapon/-power (no-op without them)
 	player[0].last_items = player[0].items;
 }
 

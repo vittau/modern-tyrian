@@ -558,6 +558,7 @@ static Uint16 mb_bloom[MB_LPIX * 3];
 static Uint16 mb_bloom_scratch[MB_LPIX * 3];
 static Uint16 mb_light[MB_QPIX * 3];
 static Uint16 mb_light_scratch[MB_QPIX * 3];
+static Uint16 mb_light_shot[MB_QPIX * 3];  // player-shot share of the mask, normalised before it joins mb_light
 static Uint16 mb_light_half[MB_LPIX * 3];  // quarter light upsampled to half
 static Uint16 mb_light_glow[MB_LPIX * 3];  // the light's share of the glow (depth stage 3 split path)
 
@@ -676,6 +677,94 @@ static void mb_add_explicit_sources(void)
 	}
 }
 
+// --- Local energy normalisation of the light mask ---------------------------
+//
+// The light is a blur of the emission mask, so its energy grows with the number of
+// emitting pixels: a big shot sprite (or a stacked volley) used to get several times
+// the light of a small one, and the 4x gain made that visible.  Before the blur each
+// mask cell is scaled by (S_ref / S)^0.5 where S is the mask energy in a box of
+// (2R+1)^2 cells around it and S_ref is the energy of a lone Pulse-Cannon shot, plus
+// headroom: anything at or below S_ref is untouched, and a local energy of k times
+// S_ref leaves k^0.5 times the light (sub-linear in the emitter's size, spread
+// included, since the whole neighbourhood is scaled and not just the peak).  The
+// scale is one factor per cell for R, G and B, so the hue is preserved.  Integer
+// only (isqrt), so the output is identical on every platform.
+static int mb_nrm_ref = 32768;
+static int mb_nrm_r = 6;
+static Uint32 mb_nrm_sum[MB_QPIX];
+static Uint32 mb_nrm_tmp[MB_QPIX];
+
+static Uint32 mb_isqrt(Uint32 n)
+{
+	Uint32 r = 0, bit = 1u << 30;
+	while (bit > n)
+		bit >>= 2;
+	while (bit != 0)
+	{
+		if (n >= r + bit)
+		{
+			n -= r + bit;
+			r = (r >> 1) + bit;
+		}
+		else
+			r >>= 1;
+		bit >>= 2;
+	}
+	return r;
+}
+
+static void mb_light_normalise(Uint16 *plane)
+{
+	const int R = mb_nrm_r;
+	if (mb_nrm_ref <= 0)
+		return;
+
+	for (int y = 0; y < MB_QH; ++y)
+	{
+		for (int x = 0; x < MB_QW; ++x)
+		{
+			Uint32 sum = 0;
+			for (int dx = -R; dx <= R; ++dx)
+			{
+				const int xx = x + dx;
+				if (xx < 0 || xx >= MB_QW)
+					continue;
+				const Uint16 *c = plane + ((size_t)y * MB_QW + xx) * 3;
+				sum += MAX(c[0], MAX(c[1], c[2]));
+			}
+			mb_nrm_tmp[y * MB_QW + x] = sum;
+		}
+	}
+	for (int y = 0; y < MB_QH; ++y)
+	{
+		for (int x = 0; x < MB_QW; ++x)
+		{
+			Uint32 sum = 0;
+			for (int dy = -R; dy <= R; ++dy)
+			{
+				const int yy = y + dy;
+				if (yy >= 0 && yy < MB_QH)
+					sum += mb_nrm_tmp[yy * MB_QW + x];
+			}
+			mb_nrm_sum[y * MB_QW + x] = sum;
+		}
+	}
+	for (int i = 0; i < MB_QPIX; ++i)
+	{
+		const Uint32 S = mb_nrm_sum[i];
+		if (S <= (Uint32)mb_nrm_ref)
+			continue;
+		// f = (S_ref / S)^0.75 in Q8: x^0.5 * x^0.25 with x in Q16.
+		const Uint32 x16 = (Uint32)(((Uint64)mb_nrm_ref << 16) / S);
+		const Uint32 h = mb_isqrt(x16);                 // Q8: x^0.5
+		const Uint32 f = (h * mb_isqrt(h << 8)) >> 8;   // Q8: x^0.75, < 256
+		Uint16 *c = plane + (size_t)i * 3;
+		c[0] = (Uint16)((c[0] * f) >> 8);
+		c[1] = (Uint16)((c[1] * f) >> 8);
+		c[2] = (Uint16)((c[2] * f) >> 8);
+	}
+}
+
 // Emitted colour of one playfield pixel: the object's representative colour
 // (or, when the object buffer holds 0 --- VFX/superpixels and anything not
 // stamped by a sprite blit, the saturated shade of the pixel's own hue family),
@@ -744,10 +833,12 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 		for (int qy = 0; qy < MB_QH; ++qy)
 		{
 			Uint16 *d = mb_light + (size_t)qy * MB_QW * 3;
+			Uint16 *dp = mb_light_shot + (size_t)qy * MB_QW * 3;
 
 			for (int qx = 0; qx < MB_QW; ++qx)
 			{
-				Uint32 sr = 0, sg = 0, sb = 0;
+				Uint32 sr = 0, sg = 0, sb = 0;  // every other class
+				Uint32 pr = 0, pg = 0, pb = 0;  // player shots, normalised below
 
 				for (int k = 0; k < 4; ++k)
 				{
@@ -762,17 +853,34 @@ static void mb_build_masks(const ModernFrame *frame, bool do_bloom, bool do_ligh
 						const Uint8 cls = tag[j] & DL_TAG_CLASS_MASK;
 						const Uint32 v = mb_emit_rgb(mb_rep[cls], row[j], lcl[j], mb_light_w[row[j]],
 						                             mb_tag_oscale(tag[j]));
-						sr += (v >> 16) & 0xff;
-						sg += (v >> 8) & 0xff;
-						sb += v & 0xff;
+						if (cls == DL_TAG_PLAYER_SHOT)
+						{
+							pr += (v >> 16) & 0xff;
+							pg += (v >> 8) & 0xff;
+							pb += v & 0xff;
+						}
+						else
+						{
+							sr += (v >> 16) & 0xff;
+							sg += (v >> 8) & 0xff;
+							sb += v & 0xff;
+						}
 					}
 				}
 
 				d[qx * 3 + 0] = (Uint16)(sr << 4);  // mean of the 16 pixels, Q8
 				d[qx * 3 + 1] = (Uint16)(sg << 4);
 				d[qx * 3 + 2] = (Uint16)(sb << 4);
+				dp[qx * 3 + 0] = (Uint16)(pr << 4);
+				dp[qx * 3 + 1] = (Uint16)(pg << 4);
+				dp[qx * 3 + 2] = (Uint16)(pb << 4);
 			}
 		}
+
+		// Player shots get the local energy normalisation, then join the rest.
+		mb_light_normalise(mb_light_shot);
+		for (int i = 0; i < MB_QPIX * 3; ++i)
+			mb_light[i] = (Uint16)MIN(65535, (int)mb_light[i] + mb_light_shot[i]);
 	}
 }
 
@@ -1067,6 +1175,7 @@ static unsigned long mb_apply_layered(ModernFrame *frame, int playfield_x, const
 	*lit_total = lit;
 	return reduced;
 }
+
 
 void modern_bloom_pass(ModernFrame *frame)
 {
