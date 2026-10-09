@@ -13,6 +13,11 @@ Convenções:
 
 ## 2026-10-09
 
+### Release v0.7.0
+- **Release v0.7.0** ("Modern Tyrian v0.7.0: depth fog and visible shot light"), a pedido do usuário, no commit `edd39d1`. Traz a névoa no bg1, a luz por camada, a luz dos tiros corrigida e calibrada, o brilho proporcional ao tamanho do tiro e a correção do INSERT COIN.
+- **Primeira release com reaproveitamento real dos pacotes:** nos três workflows, o job de decisão achou o push verde do mesmo SHA, o build foi pulado e "Attach release packages" anexou os quatro pacotes (Linux x86_64/arm64, Windows x86_64, macOS universal).
+- **Atenção para a próxima release:** um push só de documentação termina verde sem gerar pacotes. Se a release for marcada num SHA desses, o `decide.cjs` encontra um push verde sem artefatos e falha ("no complete unexpired package set"). O `edd39d1` não caiu nisso porque também mexeu em `tools/check_no_t2000_data.sh`, então a CI compilou. Marque a release num SHA que tenha build completo, ou faça o `decide.cjs` ignorar os runs sem pacotes.
+
 ### Documentação: planos viram `MODERNIZATION.md` e `CHANGELOG.md`
 - A pedido do usuário, os dois arquivos de plano da raiz (geral e da trilha Tyrian 2000) foram removidos. O estado atual das duas variantes passou para `docs/MODERNIZATION.md`, e o histórico para este arquivo.
 

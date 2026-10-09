@@ -246,7 +246,7 @@ Comandos e opções completos: [`AGENTS.md`](../AGENTS.md). Resumo do sistema:
 ### 6.2 CI e releases
 - `.github/workflows/{linux,macos,windows}.yml` rodam em push/PR de qualquer branch: build, `make regress`, `tools/fetch_t2000_data.sh` (camanis.net, tamanho + SHA-256 exatos, em `$RUNNER_TEMP`, **sem cache do Actions** porque o cache de um repositório público é legível por PRs de fork) e `make regress-2000`. Na falha sobem só `*.txt`/`*.log`. Runners: Linux x86_64/arm64, macOS, Windows x86_64 (MSYS2; **sem Windows arm64**, que roda o pacote x86_64 pela emulação).
 - **Job de decisão** (`.github/ci/decide.cjs`): pula pushes só de Markdown, `docs/` ou `.worker-reports/` e pushes cujo SHA já passou no mesmo workflow em outro branch; `workflow_dispatch` roda sempre.
-- **Release:** reaproveita os pacotes do push verde do mesmo SHA e só anexa os bytes originais (recompila só se não houver push verde; falha alto se expirados). Pacotes: Linux x86_64/arm64, Windows x86_64, macOS universal; levam só dados 2.1. Versões publicadas até agora: v0.1.0 … v0.6.0 (a última: depth shadows).
+- **Release:** reaproveita os pacotes do push verde do mesmo SHA e só anexa os bytes originais (recompila só se não houver push verde; falha alto se expirados). Pacotes: Linux x86_64/arm64, Windows x86_64, macOS universal; levam só dados 2.1. Versões publicadas até agora: v0.1.0 … v0.7.0 (a última: depth fog and visible shot light). Um SHA cujo push foi só de documentação termina verde **sem** pacotes, e a release falha nele: marque a release num SHA com build completo.
 - Windows/MSYS2: sem scripts de shell via `CreateProcess`, usar `cygpath` para caminhos e `python` instalado.
 - Empacotamento: `make_macos.sh` (frameworks SDL3/SDL3_net fixados por SHA-256, app universal), `make_linux.sh` (SDL3 estático do código-fonte, fixado e verificado).
 
@@ -296,4 +296,4 @@ Comandos e opções completos: [`AGENTS.md`](../AGENTS.md). Resumo do sistema:
 - Projeto Visual Studio (`visualc/`): lista todos os fontes, mas a compilação nativa não é testada pela CI (que usa MSYS2).
 - Os baselines Classic dependem de libm; valem enquanto os hashes bateram nos cinco runners.
 - O fork do 2000 não tem arena multiplayer; a rede do 2000 nunca foi testada.
-- A release que reaproveita pacotes só foi exercitada de verdade a partir da v0.6.0.
+- A release que reaproveita pacotes foi exercitada de verdade na v0.7.0 (build pulado, os quatro pacotes anexados). O `decide.cjs` ainda conta como "push verde" um run só de documentação, que não tem pacotes; vale corrigir para ignorar esses runs.
