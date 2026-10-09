@@ -19,6 +19,7 @@
 #include "modern_bloom.h"
 
 #include "drawlist.h"
+#include "modern_depth.h"
 #include "opentyr.h"
 
 #include <stdio.h>
@@ -136,6 +137,9 @@ void modern_bloom_lightcol_from_game(const Uint8 *game_lcol, int game_pitch, boo
 
 void modern_bloom_tag_pixel(int x, int y)
 {
+	// Every VFX pixel also leaves the gameplay layers (it casts no shadow).
+	modern_depth_mark_vfx(x, y);
+
 	if (!mb_tag_valid)
 		return;
 	if ((unsigned)x >= MODERN_PLAYFIELD_W || (unsigned)y >= MODERN_PLAYFIELD_H)

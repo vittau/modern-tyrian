@@ -127,6 +127,8 @@ const Options *JE_paramOptions(void)
 		{ 291, 0,   "light-threshold",   true },
 		{ 292, 0,   "regress-script",    true },
 		{ 296, 0,   "regress-parallax-check", false },
+		{ 430, 0,   "regress-layer-check", false },
+		{ 431, 0,   "regress-layer-png", true },
 		{ 297, 0,   "starfield-speed",   true },
 		{ 298, 0,   "regress-seed",      true },
 		{ 299, 0,   "regress-menu",      true },
@@ -279,6 +281,11 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-fire               A --regress-level scenario fires and sweeps the ship");
 			logInfo("  --regress-parallax-check     Per level tick, assert the interpolated presentation leaves");
 			logInfo("                               the starfield/background scroll untouched (per-tick motion)");
+			logInfo("  --regress-layer-check        Per level tick, stamp the depth layer buffer and assert the");
+			logInfo("                               interpolated one (alpha = 1) equals the live tick's");
+			logInfo("                               (needs --regress-modern)");
+			logInfo("  --regress-layer-png=FRAME:FILE  Write the presented depth layers of that frame as a");
+			logInfo("                               false-colour PNG (needs --regress-modern; Tyrian 2.1 only)");
 			logInfo("  --regress-smooth-effects-check  Per level tick, assert the interpolated palette fade and");
 			logInfo("                               HUD bars stay between the two ticks (needs --regress-modern)");
 			logInfo("  --regress-menu=NAME          Open an in-level menu on the last presented frame:");
@@ -723,6 +730,20 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_parallax_check = 1;
 			break;
 
+		case 430: // --regress-layer-check
+			regress_layer_check = 1;
+			break;
+
+		case 431: // --regress-layer-png=FRAME:FILE
+		{
+			char *end;
+			regress_layer_png_frame = strtoul(option.arg, &end, 10);
+			if (end == option.arg || *end != ':' || end[1] == '\0')
+				logFatal("Layer PNG must be FRAME:FILE.");
+			regress_layer_png = end + 1;
+			break;
+		}
+
 		case 297: // --starfield-speed=PERCENT
 		{
 			const int percent = atoi(option.arg);
@@ -931,6 +952,20 @@ void JE_paramCheck(int argc, char *argv[])
 	{
 		logError("%s: --regress-parallax-check requires --regress-demo or --regress-level", argv[0]);
 		exit(EXIT_FAILURE);
+	}
+
+	if (regress_layer_check && (!regress_modern || (regress_demo == 0 && regress_scenario_episode == 0)))
+	{
+		logError("%s: --regress-layer-check requires --regress-modern and --regress-demo/--regress-level", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	if (regress_layer_png != NULL)
+	{
+		if (!regress_modern || (regress_demo == 0 && regress_scenario_episode == 0))
+			logFatal("--regress-layer-png requires --regress-modern and --regress-demo/--regress-level.");
+		if (gameVariantCurrent()->id != VARIANT_TYRIAN21)
+			logFatal("Layer PNG capture is restricted to Tyrian 2.1.");
 	}
 
 	if (regress_smooth_effects_check && (!regress_modern || (regress_demo == 0 && regress_scenario_episode == 0)))

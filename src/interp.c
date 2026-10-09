@@ -25,6 +25,7 @@
 #include "nortsong.h"
 #include "modern.h"
 #include "modern_bloom.h"
+#include "modern_depth.h"
 #include "network.h"
 #include "opentyr.h"
 #include "palette.h"
@@ -222,6 +223,11 @@ static void interp_blit_playfield(SDL_Surface *game, int px, int py, Uint32 alph
 	const Uint8 *game_lcol = drawlist_lightcol_for_surface(game, &game_lcol_pitch, NULL, NULL);
 	modern_bloom_lightcol_from_game(game_lcol, game_lcol != NULL ? game_lcol_pitch : 0,
 	                                starShowVGASpecialCode == 1);
+
+	// Copy the depth layer buffer of the same window (same flip mapping).  The
+	// VFX drawn below mark their own pixels in it.
+	modern_depth_begin();
+	modern_depth_from_game(game, starShowVGASpecialCode == 1);
 
 	// Draw the interpolated VFX into the presented playfield (palette indices),
 	// before the Modern conversion so the effects feed the lighting pass.

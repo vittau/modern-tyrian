@@ -152,6 +152,9 @@
     <ClCompile Include="..\src\modern_bloom.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\modern_depth.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\modern_hud.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -394,6 +397,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern_bloom.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\modern_depth.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\modern_hud.h">

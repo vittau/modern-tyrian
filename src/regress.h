@@ -68,6 +68,9 @@ extern int regress_smooth_alphas;     // sub-frame alphas used by the smoothness
 extern int regress_demo_hud_check;   // non-zero = assert a played demo follows the active mode's HUD
 extern int regress_gameplay_check;    // non-zero = assert every in-level frame drops the classic sidebar
 extern int regress_parallax_check;    // non-zero = assert the presentation never advances starfield/background
+extern int regress_layer_check;       // non-zero = per tick, check the depth layer buffer (needs --regress-modern)
+extern const char *regress_layer_png; // non-NULL = write the presented layer buffer as a false-colour PNG
+extern unsigned long regress_layer_png_frame;  // presented frame for regress_layer_png
 extern int regress_smooth_effects_check;  // non-zero = assert fade/HUD interpolation stays between ticks
 extern int regress_realtime;          // non-zero = real window + real clock, for the pacing benchmark
 extern double regress_bench_seconds;  // benchmark duration (default 20)

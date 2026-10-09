@@ -101,6 +101,70 @@ static inline Uint8 dl_tag_pack(int cls, unsigned int bright_pixels)
 	return (Uint8)((cls & DL_TAG_CLASS_MASK) | (step << DL_TAG_FOOT_SHIFT));
 }
 
+// --- depth layer buffer -------------------------------------------------------
+//
+// Beside the emission tag, every gameplay surface has a second parallel buffer:
+// one byte per pixel saying which layer painted that pixel LAST.  It is the
+// foundation of the Modern depth pass (soft cast shadows between layers) and
+// changes no presented pixel.
+//
+// Encoding of one byte:
+//   bits 0-4  layer id, one of DL_LAYER_* (0 .. DL_LAYER_COUNT - 1, max 31)
+//   bits 5-6  reserved, always 0
+//   bit 7     DL_LAYER_BLEND: the pixel was written by the BLENDED bg2 row
+//             (blit_background_row_blend), i.e. it is a translucent mix of bg2
+//             over whatever was below, not an opaque bg2 pixel.  Only ever set
+//             together with DL_LAYER_BG2.
+//
+// The layer of an enemy comes from its slot range, because the slot range is
+// what decides where in the frame it is drawn: 0-24 sky, 25-49 and 75-99 ground,
+// 50-74 top.  A pickup keeps the layer of the slot it lives in.
+enum
+{
+	DL_LAYER_NONE = 0,     // cleared by a fill, or never painted this tick
+	DL_LAYER_BG1,
+	DL_LAYER_STARFIELD,
+	DL_LAYER_BG2,
+	DL_LAYER_GROUND_ENEMY,
+	DL_LAYER_SKY_ENEMY,
+	DL_LAYER_BG3,
+	DL_LAYER_TOP_ENEMY,
+	DL_LAYER_PLAYER,
+	DL_LAYER_SIDEKICK,
+	DL_LAYER_PLAYER_SHOT,
+	DL_LAYER_ENEMY_SHOT,
+	DL_LAYER_EXPLOSION,
+	DL_LAYER_SUPERPIXEL,
+	DL_LAYER_VFX,          // only ever set on the presented copy (modern_depth.c)
+	DL_LAYER_HUD,
+	DL_LAYER_OTHER,        // a sprite drawn with no object context
+	DL_LAYER_COUNT
+};
+
+#define DL_LAYER_ID_MASK 0x1f
+#define DL_LAYER_BLEND   0x80
+
+// True while the layer buffer is being stamped this tick (Modern presentation and
+// depth requested; see modern_depth_layers_wanted()).
+bool drawlist_layers_active(void);
+
+// Stamps one pixel of a surface by its byte offset (the starfield addresses its
+// pixels that way, including the row-wrapping neighbours).  No-op unless layers
+// are active and `surface` is a tracked gameplay surface.
+void drawlist_layer_stamp_offset(SDL_Surface *surface, size_t offset, int layer);
+
+// Returns the layer buffer matching `surface` (320x200, pitch 320), or NULL when
+// layers are off / the surface is not tracked.
+const Uint8 *drawlist_layer_for_surface(SDL_Surface *surface, int *out_pitch, int *out_w, int *out_h);
+
+// Returns the DL_LAYER_COUNT-byte table of the order in which each layer was
+// FIRST drawn on `surface`'s tick (1.. in drawing order; 0 = not drawn), or NULL
+// when layers are off.  The order changes per level (background2over,
+// background3over, skyEnemyOverAll, topEnemyOver), so a later pass uses it to
+// decide which layer is "below" which.  The live surfaces and the interpolated
+// scratch have a table each.
+const Uint8 *drawlist_layer_ranks(SDL_Surface *surface);
+
 // Which framebuffer-reading filter to replay.  The filters are pure w.r.t.
 // gameplay state; only their source/destination surfaces matter.
 enum
@@ -257,6 +321,29 @@ void drawlist_draw_superpixels_interp(SDL_Surface *surface, const void *pre, siz
 // Pure pixel-apply halves of the two global-surface operations.
 void drawlist_apply_darken(SDL_Surface *surface, JE_word neat);
 void drawlist_apply_filter_screen(SDL_Surface *surface, JE_shortint col, JE_shortint int_);
+
+// --- layer check (--regress-layer-check) --------------------------------------
+//
+// Per level tick: the interpolated frame rendered at alpha = 1 must carry
+// exactly the layer buffer (and rank table) the live tick stamped, and the rank
+// table must be a consistent permutation.  The totals also tell which layers and
+// filters were really exercised.
+typedef struct
+{
+	unsigned long ticks;          // level ticks checked
+	unsigned long interp_ticks;   // of those, ticks compared against the interpolated renderer
+	unsigned long mismatches;     // layer buffer differed between live and interpolated
+	unsigned long rank_bad;       // rank table inconsistent, or live != interpolated
+	unsigned long pixels[DL_LAYER_COUNT];  // playfield pixels per layer, summed over ticks
+	unsigned long blend_pixels;   // of the BG2 pixels, those written by the blended row
+	unsigned long filters[4];     // ticks that ran lava/water/iced/blur (DL_FILTER_*)
+	unsigned long rank_orders;    // distinct rank orderings seen
+	char first[128];              // first failure, "" when none
+} DrawlistLayerStats;
+
+void drawlist_set_layer_check(bool check);
+bool drawlist_layer_check_enabled(void);
+const DrawlistLayerStats *drawlist_layer_stats(void);
 
 // --- replay-check -------------------------------------------------------------
 

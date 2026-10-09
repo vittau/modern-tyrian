@@ -40,6 +40,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   - `flow=` is a virtual keyboard that walks the real menus: Full Game, Timed Battle, arcade, Super Tyrian, Destruct;
   - `rules=<fixture>`, `items-new`, `fire`, `demo-hud-check`, `gameplay-check`, `data-audit`, `boss`, `handoff`, `gamepad`, `xmas`, `user-root=`/`user-files`.
   - CRT: `crt=off|scanlines|ntsc|scanlines+ntsc` (Modern filtered-output hashes), `crt-check` (synthetic fixtures + measurements), `crt-height=N`, `crt-window=WxH`, `present-png=FRAME:FILE` (2.1 only).
+  - depth layers: `layer-check` (stamps the per-pixel layer buffer, compares the interpolated frame at alpha 1 with the live tick and logs `Layer coverage:` / `Layer check PASS`; needs `modern`), `layer-png=FRAME:FILE` (false-colour PNG of the presented layers, 2.1 only, local review). `tools/check_depth_layers.sh` also proves layers on/off leave frame and state hashes alone.
   - Launcher-only flags are parsed before `params.c`: `--regress-launcher=WxH,installed|missing,1|2[,about|message|…]`, `--launcher-png=`, `--launcher-flow=`.
 - **`params.c` option-id ranges.** Pick a new range; beware getopt prefix matching (`--regress-loadout-new` broke `--regress-loadout`).
 
@@ -56,6 +57,7 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
   | 400–409 | display |
   | 410–419 | CRT filter |
   | 420–429 | progress |
+  | 430–439 | depth layers |
 
 - **Guards run by `make regress`:**
   - `check_no_t2000_data.sh`, `check_variant_bootstrap.sh`, `check_user_paths.sh`, `check_game_rules.sh`;

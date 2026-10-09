@@ -345,7 +345,7 @@ trap 'exit 143' TERM
 case_cost() {
 	local kind=$1 label=$2 baseline=$2 frames=1200 factor=1 arg
 	case "$kind" in
-		run_replay_case|run_interp_case|run_gameplay_case|run_smoothness_case|run_parallax_case) baseline=$3 ;;
+		run_replay_case|run_interp_case|run_gameplay_case|run_smoothness_case|run_parallax_case|run_layer_case) baseline=$3 ;;
 		run_parallax_level) frames=$3 ;;
 	esac
 	if [ -f "$BASELINE_DIR/$baseline.txt" ]; then
@@ -360,6 +360,7 @@ case_cost() {
 	done
 	case "$kind" in
 		run_interp_case|run_smoothness_case|run_parallax_case) factor=$((factor * 2)) ;;
+		run_layer_case) factor=$((factor * 4)) ;;  # two runs, one of them with the interpolated check
 	esac
 	# Audio hashes whole sound/music streams, not framebuffer records.
 	if [ "$label" = audio ]; then
@@ -1178,6 +1179,33 @@ run_parallax_level() {
 	echo "PASS $label: $(grep -oE 'Parallax check: .*' "$log" | tail -n 1)"
 }
 
+# run_layer_case LABEL BASELINE_LABEL REQUIRE "$@" -- depth layer buffer, stage 1.
+# tools/check_depth_layers.sh runs the scenario with the layer buffer stamped and
+# checked every tick (--regress-layer-check) and without it: the frame and state
+# hash streams must be identical (the layers change no pixel, no state, no RNG),
+# match BASELINE_LABEL when one is given ("-" for none), and the log must carry
+# "Layer check PASS" plus every REQUIRE coverage assertion, so the case proves
+# that the paths it names really ran.
+run_layer_case() {
+	if [ "${CASE_WORKER:-0}" -eq 0 ]; then
+		queue_case run_layer_case "$@"
+		return
+	fi
+	local label=$1 baseline_label=$2 require=$3
+	shift 3
+	local baseline=-
+	[ "$baseline_label" = - ] || baseline="$BASELINE_DIR/$baseline_label.txt"
+
+	local result rc
+	result=$("$ROOT/tools/check_depth_layers.sh" "$BIN" 2.1 "$DATA_DIR" "$ACTUAL_DIR/layers" \
+		"$label" "$baseline" "$require" -- "$@")
+	rc=$?
+	printf '%s\n' "$result"
+	if [ "$rc" -ne 0 ]; then
+		failures=$((failures + 1))
+	fi
+}
+
 # run_smooth_effects_case LABEL "$@" -- per level tick, present the palette fade
 # and HUD bars interpolated at a genuine mid-tick alpha and require every value
 # to stay between the two ticks (the run exits non-zero otherwise).  Check-only:
@@ -1259,6 +1287,56 @@ if [ "$UPDATE" -eq 0 ] && [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ]
 	run_parallax_level "parallax-scenario-asteroid" 1200 "1:1"
 	pairs=$((pairs + 1))
 	run_parallax_level "parallax-scenario-asteroid2" 1200 "1:2"
+	pairs=$((pairs + 1))
+
+	# --- depth layer buffer (modern depth, stage 1) -----------------------------
+	#
+	# Each case stamps the per-pixel layer buffer, checks every tick that the
+	# interpolated frame at alpha = 1 carries the same buffer and a consistent
+	# first-drawn rank table, and proves layers on/off leave the frame and state
+	# hashes alone.  The REQUIRE list names the paths that must really have run.
+	M4="--regress-detail=$MODERN_DETAIL --regress-modern"
+	run_layer_case "layer-wide-demo1-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" \
+		"bg1>0 bg2blend>0 bg3>0 ground>0 sky>0 top>0 player>0 sidekick>0 shots>0 enemyshots>0 explosion>0 orders>1 frames>0" \
+		--regress-demo=1 $M4 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	# SuperWild (blended bg2 plus the darkening passes).
+	run_layer_case "layer-demo1-d6" "modern-demo1-d6" "bg2blend>0 bg3>0" \
+		--regress-demo=1 --regress-detail=6 --regress-modern
+	pairs=$((pairs + 1))
+	# Opaque bg2 (no blend) with a bg3.
+	run_layer_case "layer-demo5-d$MODERN_DETAIL" "modern-demo5-d$MODERN_DETAIL" "bg2>0 bg2blend=0 bg3>0 orders>1" \
+		--regress-demo=5 $M4
+	pairs=$((pairs + 1))
+	# Starfield and superpixels.
+	run_layer_case "layer-demo4-d$MODERN_DETAIL" "modern-demo4-d$MODERN_DETAIL" "starfield>0 superpixel>0 shots>0" \
+		--regress-demo=4 $M4
+	pairs=$((pairs + 1))
+	# The smoothie scenarios (each filter copies its layer from VGAScreen2), the
+	# vertical flip and the player spotlight.
+	run_layer_case "layer-scenario-water-d$MODERN_DETAIL" "modern-scenario-water-d$MODERN_DETAIL" "water>0 bg2blend>0" \
+		--regress-level=4:9 $M4 --regress-frames=1200
+	pairs=$((pairs + 1))
+	run_layer_case "layer-scenario-flip-d$MODERN_DETAIL" "modern-scenario-flip-d$MODERN_DETAIL" "lava>0 flipped>0" \
+		--regress-level=4:12 $M4 --regress-frames=3600
+	pairs=$((pairs + 1))
+	run_layer_case "layer-scenario-iced-d$MODERN_DETAIL" "modern-scenario-iced-d$MODERN_DETAIL" "iced>0" \
+		--regress-level=4:8 $M4 --regress-frames=1200
+	pairs=$((pairs + 1))
+	run_layer_case "layer-scenario-blur-d$MODERN_DETAIL" "modern-scenario-blur-d$MODERN_DETAIL" "blur>0" \
+		--regress-level=4:19 $M4 --regress-frames=1200
+	pairs=$((pairs + 1))
+	run_layer_case "layer-wide-spotlight-2p-d$MODERN_DETAIL" - "player>0 sidekick>0 lava>0" \
+		--regress-level=1:16 $M4 --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	run_layer_case "layer-wide-asteroid-fire-d$MODERN_DETAIL" - "starfield>0 shots>0 player>0" \
+		--regress-level=1:1 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	# Smooth motion: the presented frames come from the interpolated renderer
+	# (alpha = 0.5), so the presented layer buffer is the interpolated one, with
+	# the flip, the lava filter and shots in it.
+	run_layer_case "layer-smooth-wide-flip-d$MODERN_DETAIL" - "interpolated>0 flipped>0 lava>0 shots>0 frames>0" \
+		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 	pairs=$((pairs + 1))
 
 	# --- dynamic fade/HUD interpolation (Fase 2, stage 4) -----------------------

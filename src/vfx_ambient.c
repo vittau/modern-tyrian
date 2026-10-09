@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "backgrnd.h"
+#include "modern_depth.h"
 #include "vfx.h"
 
 #include <stddef.h>
@@ -305,6 +306,7 @@ static void ambient_blend_at(Uint8 *base, int pitch, int x, int y, int hue, int 
 
 	Uint8 *s = base + (size_t)y * (size_t)pitch + (size_t)x;
 	*s = (Uint8)((((*s & 0x0f) + (value & 0x0f)) / 2) | ((hue & 15) << 4));
+	modern_depth_mark_vfx(x, y);
 }
 
 // The most conservative mark: brighten the existing hue by one or two steps.
@@ -320,6 +322,7 @@ static void ambient_lighten_at(Uint8 *base, int pitch, int x, int y, int amount)
 	if (v > 15)
 		v = 15;
 	*s = (Uint8)((*s & 0xf0) | v);
+	modern_depth_mark_vfx(x, y);
 }
 
 // An opaque palette pixel; used only for the rare bright core of an ember.
@@ -330,6 +333,7 @@ static void ambient_put_at(Uint8 *base, int pitch, int x, int y, int hue, int va
 
 	Uint8 *s = base + (size_t)y * (size_t)pitch + (size_t)x;
 	*s = (Uint8)(((hue & 15) << 4) | (value & 15));
+	modern_depth_mark_vfx(x, y);
 }
 
 // Interpolated integer position (same 16.16 alpha as vfx.c/interp.c).

@@ -255,6 +255,48 @@ done
 run_case frames "xmas-e1-level1-d$MODERN_DETAIL" --regress-xmas --regress-level=1:1 --regress-detail="$MODERN_DETAIL" --regress-frames=200
 run_case frames "xmas-e5-level1-d$MODERN_DETAIL" --regress-xmas --regress-level=5:1 --regress-detail="$MODERN_DETAIL" --regress-frames=200
 
+# Depth layer buffer (modern depth, stage 1).  tools/check_depth_layers.sh runs
+# each scenario with the per-pixel layer buffer stamped and checked every tick
+# (the interpolated frame at alpha = 1 must carry the live tick's buffer and a
+# consistent first-drawn rank table) and again without it: frame and state
+# hashes must be identical, equal to the committed baseline when one exists, and
+# the REQUIRE list must hold in the logged coverage, so the paths named here
+# really ran.  Nothing new is committed: only counts and hashes leave the run.
+# LABEL BASELINE_LABEL REQUIRE args...
+layer_case() {
+	local label=$1 baseline_label=$2 require=$3 baseline=-
+	shift 3
+	[[ "$label" =~ $CASE_FILTER ]] || return
+	[ "$UPDATE" -eq 1 ] && return  # these cases own no baseline
+	cases=$((cases + 1))
+	[ "$baseline_label" = - ] || baseline="$BASELINE_DIR/$baseline_label.txt"
+	if ! "$ROOT/tools/check_depth_layers.sh" "$BIN" 2000 "$DATA_DIR" "$ACTUAL_DIR/layers" \
+		"$label" "$baseline" "$require" -- "$@"; then
+		failures=$((failures + 1))
+	fi
+}
+
+layer_case "layer-demo1-16x9-d$MODERN_DETAIL" "modern-demo1-16x9-d$MODERN_DETAIL" \
+	"bg1>0 bg2blend>0 bg3>0 ground>0 sky>0 top>0 player>0 sidekick>0 shots>0 enemyshots>0 explosion>0 orders>1 frames>0" \
+	--regress-demo=1 $M --regress-aspect=16:9 --regress-demo-hud-check
+layer_case "layer-demo5-d$MODERN_DETAIL" - "bg2>0 bg2blend=0 bg3>0 orders>1" --regress-demo=5 $M --regress-aspect=16:9
+layer_case "layer-demo4-d$MODERN_DETAIL" - "starfield>0 superpixel>0 shots>0" --regress-demo=4 $M --regress-aspect=16:9
+layer_case "layer-e5-level1-d$MODERN_DETAIL" "modern-e5-level1-d$MODERN_DETAIL" "bg2blend>0 bg3>0 player>0" \
+	--regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
+layer_case "layer-e5-level8-items-d$MODERN_DETAIL" - "starfield>0 bg2>0 shots>0 sidekick>0" \
+	--regress-level=5:8 $M --regress-items-new --regress-fire --regress-frames=700 --regress-aspect=16:9
+layer_case "layer-e4-level9-water-d$MODERN_DETAIL" - "water>0 bg2blend>0 shots>0" \
+	--regress-level=4:9 $M --regress-frames=1200 --regress-fire --regress-aspect=16:9
+layer_case "layer-e4-level12-lava-flip-d$MODERN_DETAIL" - "lava>0 flipped>0" \
+	--regress-level=4:12 $M --regress-frames=3600 --regress-aspect=16:9
+layer_case "layer-e4-level8-iced-d$MODERN_DETAIL" - "iced>0" --regress-level=4:8 $M --regress-frames=1200 --regress-aspect=16:9
+layer_case "layer-e4-level19-blur-d$MODERN_DETAIL" - "blur>0" --regress-level=4:19 $M --regress-frames=1200 --regress-aspect=16:9
+layer_case "layer-e1-level16-2p-d$MODERN_DETAIL" - "player>0 sidekick>0 lava>0" \
+	--regress-level=1:16 $M --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
+# Smooth motion: the presented frames are the interpolated ones (alpha = 0.5).
+layer_case "layer-smooth-e4-level12-d$MODERN_DETAIL" - "interpolated>0 flipped>0 lava>0 shots>0 frames>0" \
+	--regress-level=4:12 $M --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
+
 # Tyrian 2000 gameplay rules (src/game_rules.c), as logic/RNG hashes over enough
 # frames to reach the events.  Which rule each level exercises:
 #   5:5  spawn X -200 (random position) and launch types of the second enemy bank
