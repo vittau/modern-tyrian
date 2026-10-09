@@ -12,6 +12,8 @@ mkdir -p "$SANDBOX/home" "$SANDBOX/xdg" "$SANDBOX/appdata" "$SANDBOX/cwd" "$SAND
 # Isolate executable/portable data discovery as well as the platform user root.
 BIN="$SANDBOX/bin/$(basename "$SOURCE_BIN")"
 cp "$SOURCE_BIN" "$BIN"
+# MSYS2 cp can append .exe when SOURCE_BIN omitted the executable suffix.
+if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
 
 run_isolated() (
 	cd "$SANDBOX/cwd"
@@ -96,7 +98,8 @@ grep -Fq 'validation: missing-file; file: tyrian.hdt.' "$OUT/v2000-missing-file.
 expect_failure v2000-no-fallback 'A required Tyrian 2000 data file could not be opened.' \
 	--data="$OUT/nofallback-2000" "${v2000_args[@]}"
 
-if [ -n "$(find "$SANDBOX" -type f ! -path "$BIN" -print | grep -v '/cwd/data/tyrian1.lvl$')" ]; then
+# The copied binary directory is an authored fixture, including MSYS2 .exe names.
+if [ -n "$(find "$SANDBOX" -path "$SANDBOX/bin" -prune -o -type f -print | grep -v '/cwd/data/tyrian1.lvl$')" ]; then
 	echo 'FAIL variant-bootstrap: a user file was created'
 	find "$SANDBOX" -type f -print
 	exit 1

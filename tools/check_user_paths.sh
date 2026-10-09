@@ -25,6 +25,8 @@ mkdir -p "$SANDBOX/home/.config" "$SANDBOX/xdg" "$SANDBOX/appdata" "$SANDBOX/cwd
 # Also isolate portable detection: never probe a config beside the real binary.
 BIN="$SANDBOX/bin/$(basename "$SOURCE_BIN")"
 cp "$SOURCE_BIN" "$BIN"
+# MSYS2 cp can append .exe when SOURCE_BIN omitted the executable suffix.
+if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
 
 run_isolated() (
 	cd "$SANDBOX/cwd"
