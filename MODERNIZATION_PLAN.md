@@ -211,7 +211,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
 - [x] HUD Modern, layout (pedido do usuário, 2026-09-28): inverter os lados, com escudo, armadura e gerador/força no painel **direito**, como no original, e armas e sidekicks à esquerda. As barras desses três ficam **verticais** e um pouco mais compridas. Vale para 1P, 2P e arcade e para 16:10/16:9/21:9. Vai depois do merge de `hud-fade`, porque os dois mexem em `src/modern_hud.c`.
 
 ### Fase 3 — Opcional e cara
-- [ ] **Camadas e profundidade (pedido do usuário, 2026-10-08).** Separar as camadas de fundo (bg1, bg2, bg3, inimigos) para dar profundidade ao Modern, preservando a matemática dos blends.
+- [x] **Camadas e profundidade, etapas 1–2 (pedido do usuário, 2026-10-08; merge em 2026-10-09).** Separar as camadas de fundo (bg1, bg2, bg3, inimigos) para dar profundidade ao Modern, preservando a matemática dos blends.
   - **Como o quadro é montado hoje (`JE_main`, `tyrian2.c`):** tudo é pintado em ordem num único quadro de 8 bits: bg1 → estrelas → bg2 (por cima, misturado ou com filtro) → inimigos de chão (slots 25–49 e 75–99) → bg2 nos níveis com `background2over == 1` → bg3 quando `background3over == 2` → inimigos do céu (0–24) → bg3 → inimigos do topo (50–74) → tiros, nave, explosões. O `draw_background_2_blend`, o `JE_darkenBackground` e os filtros de lava, água, blur e iced blur leem o próprio framebuffer, e a ordem muda por nível.
   - **Decisão técnica (coordenador):** em vez de um buffer de cor por camada, um **buffer de camada por pixel**, paralelo ao quadro e carimbado pelas mesmas primitivas que já carimbam o tag de emissão (`drawlist.c`). Buffers de cor separados obrigariam a refazer a composição dos blends e dos filtros fora do motor, que é justamente o risco "preservando a matemática dos blends". O buffer de camada deixa o quadro de 8 bits intocado e diz, para cada pixel, qual camada o pintou por último e em que ordem. Isso basta para sombras, névoa e luz por camada.
   - **Etapa 1 — buffer de camada (só infraestrutura, nenhum pixel muda):**
@@ -221,7 +221,8 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
     - na apresentação, a janela 264×184 é copiada para o compositor com o mesmo mapeamento de flip do tag, e os pixels de VFX ficam marcados como "sem sombra";
     - prova: Classic e todos os baselines atuais idênticos, estado e RNG idênticos, a camada interpolada em alpha = 1 igual à do tick, e uma ferramenta de depuração que exporta a camada em PNG para revisão local.
   - **Etapa 2 — sombras projetadas (o primeiro efeito visível):** cada camada projeta uma sombra suave sobre as camadas pintadas antes dela, deslocada para baixo e para a direita (luz fixa do alto à esquerda), com o deslocamento proporcional à altura: bg2 sobre bg1, inimigos de chão, inimigos do céu e a nave sobre o terreno, bg3 (nuvens e estruturas altas) sobre tudo abaixo. Pass novo no canvas Modern, antes da luz e do bloom, na grade lógica. Opção `Depth:` em Setup → Graphics (Off/Low/High, padrão Low), só no Modern.
-  - **Etapa 3 (depois que o usuário vir as sombras):** névoa atmosférica no bg1 e luz dos tiros por camada (o terreno recebe a luz cheia; nuvens do bg3 quase nenhuma).
+  - **Resultado:** ver o journal de 2026-10-09. A opção final é `Depth: Off/On` (decisão do usuário), não Off/Low/High.
+  - [ ] **Etapa 3 (depois que o usuário vir as sombras):** névoa atmosférica no bg1 e luz dos tiros por camada (o terreno recebe a luz cheia; nuvens do bg3 quase nenhuma).
 - [ ] (movido para a Fase 2, "Taxa de quadros independente da lógica")
 
 ## 7. Decisões
@@ -663,3 +664,20 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
 
 ### 2026-10-07 — Release v0.5.0
 - **Release v0.5.0** ("Modern Tyrian v0.5.0: PROGRESS bar") no commit `8d0e15f`, publicada em 2026-10-07. Traz a barra PROGRESS do HUD Modern sobre a v0.4.1. A CI passou nos três sistemas, tanto no push quanto na release, e anexou quatro pacotes: Linux x86_64/arm64, Windows x86_64 e macOS universal (sem Windows arm64 desde a v0.4.0).
+
+### 2026-10-09 — Profundidade no Modern: buffer de camadas e sombras projetadas
+- **O que entrou (branch `vittau/depth-layers`, merge no `master`):** o Modern ganhou sombras projetadas entre as camadas, com a luz fixa vindo do alto à esquerda. É a Fase 3 "Camadas e profundidade", etapas 1 e 2. Workers: Claude Sonnet 5.5 (high) nas três primeiras tarefas e Codex GPT-6.1 Sol (medium) na última, a pedido do usuário.
+- **Decisão técnica:** em vez de um buffer de cor por camada, um **buffer de camada por pixel**, carimbado pelas mesmas primitivas que já carimbam o tag de emissão. O quadro de 8 bits fica intocado, então os blends do bg2 e os filtros de lava, água e blur não precisaram ser refeitos. Cada pixel guarda a camada que o pintou por último, e cada tick guarda a ordem em que as camadas foram desenhadas, que muda por nível.
+- **Etapa 1 (`7847f6d`):** o buffer de camada em `game_screen`, `VGAScreen2` e nas cópias do replay interpolado. A lava reproduz o próprio deslocamento na camada, a janela 264×184 é copiada para `modern_depth.c` com o flip, e os pixels de VFX ganham uma marca. Nenhum pixel nem baseline mudou.
+- **Etapa 2 (`e994e9a`) e ajuste (`ccccf5b`):** cada camada projeta sobre as camadas desenhadas antes dela e mais baixas: bg2 (4,6), inimigos do céu (8,12), nave e sidekicks (9,14), bg3 (10,15) e inimigos do topo (12,18); os inimigos de chão ficam em (2,2). O bg2 translúcido projeta com 31% do peso. Tiros, explosões, estrelas, superpixels e texto não projetam nem recebem. Fases de espaço (`starActive`) não têm sombra. O cálculo é a silhueta deslocada inteira, com desfoque separável em ponto fixo e escurecimento de 78/256, e custa ~0,3 ms por quadro apresentado.
+- **Teste do usuário:**
+  - **Halo:** havia um halo claro entre a terra flutuante e a sombra, pior na HOLES (físico E1:L11, terra no bg3). A causa era a silhueta só ser marcada onde caía num receptor válido; o desfoque então clareava a faixa colada na borda. Corrigido em `ccccf5b`.
+  - **Opção:** o usuário achou o High bom e pediu só um toggle, então a opção virou `Depth: Off/On`, padrão On, com o desfoque do High e a força reequilibrada para o mesmo escurecimento total. O config antigo (`low`/`high`) lê On.
+  - **Pausa (`4dcf353`):** na pausa, no menu do ESC e na ajuda o efeito sumia, e o bloom e a luz também. Agora essas telas reaproveitam a camada, o tag e a luz do último quadro real (`modern_held.c`), e os pixels que o overlay mudou não recebem nada.
+- **Fases × camadas:** o índice de `--regress-level` é físico, não a ordem de jogo. A TYRIAN é o físico 1:9 (1:15 no Hard), com a terra no bg1 e a água no bg2 translúcido; o 1:1 é ASTEROID1.
+- **Regressão:** a regressão pina `Depth` em Off, então nenhum baseline antigo mudou fora das telas de Graphics, por causa da linha nova no menu. Entraram 20 casos `depth-*` no 2.1 e 16 no 2000 (Off × On, estado/RNG idênticos), a fixture `--regress-depth-check` e os checks `--regress-layer-check` e `--regress-held-check`. A CI passou nos três sistemas.
+- **Pendências:**
+  - Com Lighting ligado, o "INSERT COIN" dos demos é iluminado como um tiro, porque herda o contexto `DL_OBJ_PLAYER_SHOT`. Já acontecia antes; a correção fica para quando mexermos na iluminação.
+  - A etapa 3 (névoa no bg1 e luz por camada) fica para depois.
+- **Processo:** o usuário achou as suítes longas. A partir daqui o coordenador não roda mais as suítes completas localmente: revisa, faz push do branch e usa a CI como portão. Entra uma tarefa de `make regress-quick` (menos de 1 min), com filtro por área e a suíte 2000 em paralelo.
+
