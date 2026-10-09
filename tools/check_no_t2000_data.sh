@@ -90,6 +90,6 @@ self_test
 if check_tree "$ROOT" "$MANIFEST" "$SHARED"; then
 	echo "PASS no-t2000-data: no Tyrian 2000 file in the tree ($(grep -vc '^#' "$MANIFEST") manifest entries, shared 2.1 files exempt)"
 else
-	echo "ERROR: Tyrian 2000 data must never be committed (see MODERNIZATION_PLAN_2000.md, section 9)"
+	echo "ERROR: Tyrian 2000 data must never be committed (see docs/MODERNIZATION.md, section 2)"
 	exit 1
 fi

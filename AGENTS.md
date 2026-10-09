@@ -5,7 +5,7 @@ A modernized OpenTyrian (C99, SDL3) that plays two games from one binary:
 - **Tyrian 2.1**, the freeware release. Its data ships in `./data`.
 - **Tyrian 2000**, ported from the KScl/opentyrian2000 fork at `aad5aca` (GPL-2.0). Its data is **never** in this repo; the user installs it.
 
-Plans and journals are in Portuguese, in `MODERNIZATION_PLAN.md` (the general modernization) and `MODERNIZATION_PLAN_2000.md` (the Tyrian 2000 track: architecture §5, test matrix §7, rules §9–10, user decisions §12, diary §13). Research lives in `docs/t2000/`:
+The project documentation is in Portuguese: `docs/MODERNIZATION.md` is the current state of both games (architecture §3, rules §2, test matrix §6.1, decisions in force §7, pending items §8) and `docs/CHANGELOG.md` is the dated history, newest first. Research lives in `docs/t2000/`:
 
 - `fork-diff.md`: the fork ledger;
 - `data-formats.md`: file formats, counts and the save layout;
@@ -28,9 +28,9 @@ Plans and journals are in Portuguese, in `MODERNIZATION_PLAN.md` (the general mo
 
 ```sh
 make                         # release;  `make debug` = -O0 -Werror, asserts on (run `make clean` between them)
-make regress                 # full 2.1: 203 cases + guards; CI gate
+make regress                 # full 2.1: 207 cases + guards; CI gate
 make regress-quick           # critical 2.1 subset + cheap guards + optional installed 2000 data
-make regress-2000 TYRIAN2000_DATA=<dir>   # full 2000: 180 cases, parallel; data required
+make regress-2000 TYRIAN2000_DATA=<dir>   # full 2000: 183 cases, parallel; data required
 REGRESS_ONLY='^depth-' make regress-quick  # regex over case labels (both suites)
 TYRIAN2000_DATA=<dir> tools/regress-2000.sh -j 6 --case='^depth-' # --case overrides REGRESS_ONLY; both suites support -j / REGRESS_JOBS
 tools/regress.sh --update                 # regenerate 2.1 baselines (intentional output changes only)
@@ -124,5 +124,5 @@ tools/regress-2000.sh --update-case=<label>   # regenerate one 2000 baseline; --
 
 ## Open items
 
-- **DOS checks:** the fork's approximations (events 58/59/68, trail 198, Timed Battle routing and bonuses, Super Tyrian state 8, the Pretzel Pete sprite size) are listed in the Phase 4 diary. They need the DOS original.
+- **DOS checks:** the fork's approximations (events 58/59/68, trail 198, Timed Battle routing and bonuses, Super Tyrian state 8, the Pretzel Pete sprite size) are listed in `docs/MODERNIZATION.md` §8 (history in the 2026-09-29/30 Phase 4 entry of `docs/CHANGELOG.md`). They need the DOS original.
 - **Manual only:** a physical Steam Deck, the native Windows file picker and download, and a physical ultrawide/HiDPI Cocoa.
