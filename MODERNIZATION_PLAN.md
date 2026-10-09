@@ -222,7 +222,7 @@ O modo de teste (`--regress-demo=N --regress-detail=M --regress-out=FILE`) ignor
     - prova: Classic e todos os baselines atuais idênticos, estado e RNG idênticos, a camada interpolada em alpha = 1 igual à do tick, e uma ferramenta de depuração que exporta a camada em PNG para revisão local.
   - **Etapa 2 — sombras projetadas (o primeiro efeito visível):** cada camada projeta uma sombra suave sobre as camadas pintadas antes dela, deslocada para baixo e para a direita (luz fixa do alto à esquerda), com o deslocamento proporcional à altura: bg2 sobre bg1, inimigos de chão, inimigos do céu e a nave sobre o terreno, bg3 (nuvens e estruturas altas) sobre tudo abaixo. Pass novo no canvas Modern, antes da luz e do bloom, na grade lógica. Opção `Depth:` em Setup → Graphics (Off/Low/High, padrão Low), só no Modern.
   - **Resultado:** ver o journal de 2026-10-09. A opção final é `Depth: Off/On` (decisão do usuário), não Off/Low/High.
-  - [ ] **Etapa 3 (depois que o usuário vir as sombras):** névoa atmosférica no bg1 e luz dos tiros por camada (o terreno recebe a luz cheia; nuvens do bg3 quase nenhuma).
+  - [x] **Etapa 3 (2026-10-09):** névoa atmosférica no bg1 e luz dos tiros por camada (o terreno recebe a luz cheia; nuvens do bg3 quase nenhuma). Ver o journal "Profundidade, etapa 3".
 - [ ] (movido para a Fase 2, "Taxa de quadros independente da lógica")
 
 ## 7. Decisões
@@ -700,3 +700,37 @@ Formato: uma entrada por sessão ou marco, em ordem cronológica (mais recente n
   - merges por fast-forward quando o branch já contém o `master`;
   - o coordenador roda só o quick localmente e usa a CI como portão completo;
   - um trabalho pausado é retomado com `codex resume <sessão>` mais `worker-start --task … --terminal …`, depois de um reinício do Orca.
+
+### 2026-10-09 — Profundidade, etapa 3, e o INSERT COIN apagado
+- **Workers:** dois Claude Sonnet 5.5 (medium), a pedido do usuário, cada um na sua worktree do Orca a partir do `master`, numa só Run.
+- **INSERT COIN (`e41c056`):**
+  - **Bug:** com Lighting ligado, o texto dos demos brilhava como um tiro. Ele era desenhado sem contexto próprio e herdava o do último objeto, quase sempre `DL_OBJ_PLAYER_SHOT`: ganhava tag de emissão, cor de luz e a camada de tiro.
+  - **Correção:** o texto passa a usar `DL_OBJ_HUD`, e o contexto anterior é restaurado depois (`drawlist_get_context`, novo). A janela de mensagens (`JE_drawTextWindow`) e os rastros da nave no fim da fase receberam o mesmo tratamento.
+  - **Revisão:** a primeira versão zerava o contexto depois do texto, e alguns baselines foram justificados só por "consistência". Voltou para o worker, que trocou o zero por restauração e atribuiu cada baseline a uma das três correções por A/B.
+  - **Cenários também mudam:** os cenários de regressão rodam com `playDemo`, então também mostram o INSERT COIN, e por isso os casos de fase mudaram junto.
+  - **Prova:** `--regress-demo-hud-check` ganhou uma sonda em `modern-light-demo1-d4`. Os pixels emissores acrescentados pelo texto eram 3.933.643 e agora são 0.
+  - **Baselines:** mudaram 11 do 2.1 e 12 do 2000, só hashes de quadro Modern.
+- **Etapa 3 (`41660ff`), só com `Depth: On` (Off fica idêntico bit a bit):**
+  - **Névoa:** os pixels do bg1 misturam 40/256 em direção a uma cor de névoa calculada por quadro (a média do bg1 ainda sem névoa, meio dessaturada e ~35% mais clara). A linha translúcida do bg2 recebe metade, e as fases de espaço ficam sem névoa.
+  - **Sem ruído animado:** os quadros interpolados não têm um scroll único do bg1 em que ancorar o ruído, e um ruído mal ancorado "nadaria" sobre o terreno.
+  - **Ordem dos passes:** névoa → sombras → luz, para a sombra manter a força sobre o terreno enevoado.
+  - **Luz por camada:** bloom e luz ficam em planos separados, e a luz é pesada pela camada que a recebe (Q8):
+
+    | Camada | Peso |
+    |---|---|
+    | terreno e inimigos de chão | 256 |
+    | inimigos do céu e do topo | 160 |
+    | nave e sidekicks | 144 |
+    | bg3 | 24 |
+    | tiros, explosões e VFX | 256 |
+
+    O bloom não é pesado. Nas fases de espaço não há luz por camada.
+  - **Telas seguradas:** pausa, menu e ajuda reaproveitam os dois efeitos do snapshot.
+  - **Custo:** ~0,16 ms por quadro apresentado, além da etapa 2.
+  - **Regressão:**
+    - linhas novas `Depth fog:` e `Depth light:`, e as linhas de held ganharam campos;
+    - a fixture `--regress-depth-check` agora cobre a cor da névoa, a regra só-bg1 e a tabela de pesos;
+    - casos novos `depth-light-*`: 4 no 2.1 e 3 no 2000;
+    - só mudaram baselines `depth-*` com Depth On, e os casos de espaço ficaram idênticos;
+    - depois do rebase sobre o INSERT COIN, os `depth-*` foram regenerados do binário combinado; nas suítes completas do worker, 207 casos no 2.1 e 183 no 2000.
+  - **Ajustes pendentes:** a força da névoa (`MD_FOG_STRENGTH`) e os pesos (`md_light_q8[]`) são uma constante cada. O usuário vai avaliar jogando.
