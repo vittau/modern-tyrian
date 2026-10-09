@@ -298,7 +298,7 @@ layer_case "layer-smooth-e4-level12-d$MODERN_DETAIL" - "interpolated>0 flipped>0
 	--regress-level=4:12 $M --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 
 # Depth shadows (modern depth, stage 2).  tools/check_depth_shadows.sh runs each
-# scenario with Depth off, low and high: the three state/RNG streams must match
+# scenario with Depth off and on: the two state/RNG streams must match
 # (the shadows are display-only), Off must reproduce the existing baseline of the
 # same scenario when one is named, the LEVEL frames must equal this case's own
 # committed baseline test/regress-2000/LABEL.txt (hashes only), and the REQUIRE list
@@ -320,44 +320,44 @@ depth_case() {
 	fi
 }
 
-depth_case "depth-demo1-16x9-low-d$MODERN_DETAIL" "modern-demo1-16x9-d$MODERN_DETAIL" low \
+depth_case "depth-demo1-16x9-on-d$MODERN_DETAIL" "modern-demo1-16x9-d$MODERN_DETAIL" on \
 	"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 sidekick>0 bg3>0 top>0 blend>0 space_frames=0" \
 	--regress-demo=1 $M --regress-aspect=16:9 --regress-demo-hud-check
 # Modern 4:3: no side panels.
-depth_case "depth-demo1-4x3-high-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" high \
+depth_case "depth-demo1-4x3-on-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" on \
 	"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
 	--regress-demo=1 $M --regress-demo-hud-check
-depth_case "depth-demo5-high-d$MODERN_DETAIL" - high \
+depth_case "depth-demo5-on-d$MODERN_DETAIL" - on \
 	"frames>0 shadowed_px>0 bg2>0 blend=0 ground>0 sky>0 player>0 sidekick>0 bg3>0 space_frames=0" \
 	--regress-demo=5 $M --regress-aspect=16:9
-depth_case "depth-e5-level1-low-d$MODERN_DETAIL" "modern-e5-level1-d$MODERN_DETAIL" low \
+depth_case "depth-e5-level1-on-d$MODERN_DETAIL" "modern-e5-level1-d$MODERN_DETAIL" on \
 	"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
 	--regress-level=5:1 $M --regress-frames=900 --regress-aspect=16:9
-depth_case "depth-demo4-space-low-d$MODERN_DETAIL" - low \
+depth_case "depth-demo4-space-on-d$MODERN_DETAIL" - on \
 	"identical frames>0 shadowed_px=0 space_frames>0 bg3=0 top=0 sky=0 player=0" \
 	--regress-demo=4 $M --regress-aspect=16:9
-depth_case "depth-e5-level8-space-high-d$MODERN_DETAIL" - high \
+depth_case "depth-e5-level8-space-on-d$MODERN_DETAIL" - on \
 	"identical frames>0 shadowed_px=0 space_frames>0" \
 	--regress-level=5:8 $M --regress-items-new --regress-fire --regress-frames=700 --regress-aspect=16:9
-depth_case "depth-e4-level9-water-high-d$MODERN_DETAIL" - high \
+depth_case "depth-e4-level9-water-on-d$MODERN_DETAIL" - on \
 	"frames>0 shadowed_px>0 sky>0 player>0 blend>0 space_frames=0" \
 	--regress-level=4:9 $M --regress-frames=1200 --regress-fire --regress-aspect=16:9
-depth_case "depth-e4-level12-lava-flip-low-d$MODERN_DETAIL" - low \
+depth_case "depth-e4-level12-lava-flip-on-d$MODERN_DETAIL" - on \
 	"frames>0 shadowed_px>0 bg2>0 sky>0 top>0 player>0 flipped>0 space_frames=0" \
 	--regress-level=4:12 $M --regress-frames=3600 --regress-aspect=16:9
-depth_case "depth-e1-level16-2p-high-d$MODERN_DETAIL" - high \
+depth_case "depth-e1-level16-2p-on-d$MODERN_DETAIL" - on \
 	"frames>0 shadowed_px>0 player>0 sidekick>0 bg3>0 space_frames=0" \
 	--regress-level=1:16 $M --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
 # Smooth motion: the presented frames are the interpolated ones (alpha = 0.5).
-depth_case "depth-smooth-e4-level12-high-d$MODERN_DETAIL" - high \
+depth_case "depth-smooth-e4-level12-on-d$MODERN_DETAIL" - on \
 	"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
 	--regress-level=4:12 $M --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
 
 # Held in-level screens (pause, in-game menu, in-game help) keep the depth shadows and the
 # bloom/lighting of the frozen playfield.  --regress-menu opens the screen on the run's
 # last frame; tools/check_depth_held.sh runs it with every effect off, lighting alone,
-# Depth Low and Depth High: the state/RNG streams must match, the held frame must change
-# with the lighting and again with the shadows, the Low frames must equal this case's own
+# Depth On: the state/RNG streams must match, the held frame must change
+# with the lighting and again with the shadows, the On frames must equal this case's own
 # committed baseline test/regress-2000/LABEL.txt (hashes only), and REQUIRE must hold on the
 # "Depth held:", "Light held:" and "Held check:" lines (the overlay stayed untouched).
 # LABEL REQUIRE args...
@@ -376,24 +376,24 @@ held_case() {
 }
 
 HM="--regress-script=1:3 --regress-seed=32402394 $M"
-held_case "held-pause-wide-d$MODERN_DETAIL" \
+held_case "depth-held-pause-wide-d$MODERN_DETAIL" \
 	"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 compared_px>40000 mismatch_max_dist<12" \
 	$HM --regress-frames=350 --regress-menu=pause --regress-aspect=16:9
-held_case "held-ingame-wide-d$MODERN_DETAIL" \
+held_case "depth-held-ingame-wide-d$MODERN_DETAIL" \
 	"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 compared_px>10000 mismatch_max_dist<20" \
 	$HM --regress-frames=1050 --regress-menu=ingame --regress-aspect=16:9
-held_case "held-help-wide-d$MODERN_DETAIL" \
-	"frames=1 shadowed_px=0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
+held_case "depth-held-help-wide-d$MODERN_DETAIL" \
+	"frames=1 shadowed_px>0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
 	$HM --regress-frames=350 --regress-menu=help --regress-aspect=16:9
 # Modern 4:3 (no side panels): the playfield sits at x = 0.
-held_case "held-pause-4x3-d$MODERN_DETAIL" \
+held_case "depth-held-pause-4x3-d$MODERN_DETAIL" \
 	"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
 	$HM --regress-frames=350 --regress-menu=pause
 # Episode 5 (Tyrian 2000 only): a starfield level (no shadow, light kept) and a structured one.
-held_case "held-pause-e5-space-d$MODERN_DETAIL" \
+held_case "depth-held-pause-e5-space-d$MODERN_DETAIL" \
 	"frames=1 shadowed_px=0 space_frames=1 emitter_px>0 lit_px>10000 overlay_px>0 overlay_changed_px=0 mismatch_px=0" \
 	--regress-script=5:3 --regress-seed=32402394 $M --regress-frames=400 --regress-menu=pause --regress-aspect=16:9
-held_case "held-pause-e5-level5-d$MODERN_DETAIL" \
+held_case "depth-held-pause-e5-level5-d$MODERN_DETAIL" \
 	"frames=1 shadowed_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<20" \
 	--regress-script=5:5 --regress-seed=32402394 $M --regress-frames=400 --regress-menu=pause --regress-aspect=16:9
 

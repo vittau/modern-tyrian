@@ -1302,7 +1302,7 @@ void regress_init(void)
 	// The Depth setting is pinned Off for every existing case (the layer buffer
 	// is then not stamped and the shadow pass does nothing), so the baselines
 	// stay byte-for-byte unchanged; --regress-depth opts a run in.
-	modern_depth_quality = regress_depth_quality >= 0 ? (ModernQuality)regress_depth_quality : MODERN_QUALITY_OFF;
+	modern_depth_quality = regress_depth_quality >= 0 ? (ModernDepth)regress_depth_quality : MODERN_DEPTH_OFF;
 	modern_held_set_check(regress_held_check);
 
 	// Dynamic fade/HUD interpolation check: exercise the interpolated

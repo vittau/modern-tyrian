@@ -29,7 +29,17 @@
 
 // Depth setting (Setup -> Graphics -> Depth:).  Modern only; Off keeps the layer
 // buffer from being stamped at all (modern_depth_layers_wanted()).
-ModernQuality modern_depth_quality = MODERN_QUALITY_LOW;
+ModernDepth modern_depth_quality = MODERN_DEPTH_ON;
+const char *const modern_depth_names[MODERN_DEPTH_MAX] = { "off", "on" };
+
+bool set_modern_depth_by_name(const char *name, ModernDepth *depth)
+{
+	if (strcmp(name, "off") == 0) *depth = MODERN_DEPTH_OFF;
+	else if (strcmp(name, "on") == 0 || strcmp(name, "low") == 0 || strcmp(name, "high") == 0)
+		*depth = MODERN_DEPTH_ON;
+	else return false;
+	return true;
+}
 
 // Presented layer buffer (playfield window) and rank table.  Fixed-capacity
 // statics: no per-frame allocation.
@@ -52,7 +62,7 @@ static unsigned long md_frames_flipped = 0;
 bool modern_depth_layers_wanted(void)
 {
 	return presentation == PRESENTATION_MODERN &&
-	       (md_requested || modern_depth_quality != MODERN_QUALITY_OFF);
+	       (md_requested || modern_depth_quality != MODERN_DEPTH_OFF);
 }
 
 void modern_depth_set_requested(bool requested)
@@ -189,13 +199,13 @@ static const MdLayerRule md_rules[DL_LAYER_COUNT] =
 	[DL_LAYER_NONE]         = { 0, 0,  0,   0, false },
 	[DL_LAYER_BG1]          = { 0, 0,  0,   0, true  },
 	[DL_LAYER_STARFIELD]    = { 0, 0,  0,   0, false },
-	[DL_LAYER_BG2]          = { 2, 3,  4, 255, true  },
+	[DL_LAYER_BG2]          = { 4, 6,  4, 255, true  },
 	[DL_LAYER_GROUND_ENEMY] = { 2, 2,  4, 255, true  },
-	[DL_LAYER_SKY_ENEMY]    = { 6, 9, 12, 255, true  },
-	[DL_LAYER_BG3]          = { 8, 12, 16, 255, true },
-	[DL_LAYER_TOP_ENEMY]    = { 9, 13, 20, 255, true },
-	[DL_LAYER_PLAYER]       = { 7, 10, 14, 255, true },
-	[DL_LAYER_SIDEKICK]     = { 7, 10, 14, 255, true },
+	[DL_LAYER_SKY_ENEMY]    = { 8, 12, 12, 255, true  },
+	[DL_LAYER_BG3]          = { 10, 15, 16, 255, true },
+	[DL_LAYER_TOP_ENEMY]    = { 12, 18, 20, 255, true },
+	[DL_LAYER_PLAYER]       = { 9, 14, 14, 255, true },
+	[DL_LAYER_SIDEKICK]     = { 9, 14, 14, 255, true },
 	[DL_LAYER_PLAYER_SHOT]  = { 0, 0,  0,   0, false },
 	[DL_LAYER_ENEMY_SHOT]   = { 0, 0,  0,   0, false },
 	[DL_LAYER_EXPLOSION]    = { 0, 0,  0,   0, false },
@@ -211,11 +221,10 @@ typedef struct
 	int passes;    // box-blur passes per axis
 } MdShadowParams;
 
-static const MdShadowParams md_params[MODERN_QUALITY_MAX] =
+static const MdShadowParams md_params[MODERN_DEPTH_MAX] =
 {
-	[MODERN_QUALITY_OFF]  = { 0,   0, 0 },
-	[MODERN_QUALITY_LOW]  = { 72,  1, 2 },
-	[MODERN_QUALITY_HIGH] = { 108, 2, 2 },
+	[MODERN_DEPTH_OFF]  = { 0,   0, 0 },
+	[MODERN_DEPTH_ON] = { 78, 2, 2 },
 };
 
 #define MD_W MODERN_PLAYFIELD_W
@@ -229,6 +238,9 @@ static const MdShadowParams md_params[MODERN_QUALITY_MAX] =
 // clears the rows it touched before it returns.
 static Uint32 md_cov[2][MD_W * MD_H];
 static Uint32 md_hgt[2][MD_W * MD_H];
+// Coverage-weighted drawing rank, blurred exactly like coverage and height.
+// Rank protection remains at apply time after the full silhouette is softened.
+static Uint32 md_order[2][MD_W * MD_H];
 
 static unsigned long md_stat_frames = 0;
 static unsigned long md_stat_shadowed = 0;
@@ -297,27 +309,21 @@ static void md_clear_rows(int y0, int y1)
 	memset(md_cov[1] + offset, 0, bytes);
 	memset(md_hgt[0] + offset, 0, bytes);
 	memset(md_hgt[1] + offset, 0, bytes);
+	memset(md_order[0] + offset, 0, bytes);
+	memset(md_order[1] + offset, 0, bytes);
 }
 
 unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
                                         const Uint8 *layers, const Uint8 *rank,
-                                        ModernQuality quality, ModernDepthShadowStats *stats)
+                                        ModernDepth quality, ModernDepthShadowStats *stats)
 {
-	if (quality <= MODERN_QUALITY_OFF || quality >= MODERN_QUALITY_MAX ||
+	if (quality <= MODERN_DEPTH_OFF || quality >= MODERN_DEPTH_MAX ||
 	    canvas == NULL || layers == NULL || rank == NULL)
 		return 0;
 	const MdShadowParams *params = &md_params[quality];
 
-	// ok[caster][receiver]: the receiver is below the caster in drawing order and
-	// in height.  Built once per frame from the rank table.
-	bool ok[DL_LAYER_COUNT][DL_LAYER_COUNT];
-	for (int c = 0; c < DL_LAYER_COUNT; ++c)
-		for (int r = 0; r < DL_LAYER_COUNT; ++r)
-			ok[c][r] = md_rules[c].weight != 0 && md_rules[r].receives &&
-			           rank[r] != 0 && rank[c] > rank[r] &&
-			           md_rules[c].height > md_rules[r].height;
-
-	// Splat: every caster pixel marks the receiver pixel at its shadow offset.
+	// Splat the full displaced silhouette, even over the caster or a non-receiver.
+	// Receiver clipping belongs AFTER the blur; zeros under a caster cause a halo.
 	// The highest caster wins a pixel (a bg3 shadow beats a ground one).
 	int ymin = MD_H, ymax = -1;
 	unsigned long casters[DL_LAYER_COUNT] = { 0 };
@@ -333,15 +339,13 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
 				continue;
 			const int id = v & DL_LAYER_ID_MASK;
 			const MdLayerRule *rule = &md_rules[id];
-			if (rule->weight == 0)
+			if (rule->weight == 0 || rank[id] == 0)
 				continue;
 
 			const int tx = x + rule->dx, ty = y + rule->dy;
 			if (tx >= MD_W || ty >= MD_H)
 				continue;
 			const size_t t = (size_t)ty * MD_W + (size_t)tx;
-			if (!ok[id][layers[t] & DL_LAYER_ID_MASK])
-				continue;
 
 			unsigned weight = rule->weight;
 			if (v & DL_LAYER_BLEND)
@@ -356,6 +360,7 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
 			{
 				cov0[t] = weight;
 				hgt0[t] = weight * rule->height;
+				md_order[0][t] = weight * rank[id];
 				if (ty < ymin) ymin = ty;
 				if (ty > ymax) ymax = ty;
 			}
@@ -380,9 +385,11 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
 	{
 		md_blur_h(md_cov[a], md_cov[a ^ 1], y0, y1, params->radius);
 		md_blur_h(md_hgt[a], md_hgt[a ^ 1], y0, y1, params->radius);
+		md_blur_h(md_order[a], md_order[a ^ 1], y0, y1, params->radius);
 		a ^= 1;
 		md_blur_v(md_cov[a], md_cov[a ^ 1], y0, y1, params->radius);
 		md_blur_v(md_hgt[a], md_hgt[a ^ 1], y0, y1, params->radius);
+		md_blur_v(md_order[a], md_order[a ^ 1], y0, y1, params->radius);
 		a ^= 1;
 	}
 
@@ -407,8 +414,10 @@ unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
 			const Uint32 c = cov[x];
 			if (c == 0)
 				continue;
-			const MdLayerRule *rule = &md_rules[row[x] & DL_LAYER_ID_MASK];
-			if (!rule->receives || hgt[x] <= c * rule->height)
+			const int receiver = row[x] & DL_LAYER_ID_MASK;
+			const MdLayerRule *rule = &md_rules[receiver];
+			if (!rule->receives || rank[receiver] == 0 ||
+			    md_order[a][y * MD_W + x] <= c * rank[receiver] || hgt[x] <= c * rule->height)
 				continue;
 
 			const Uint32 dark = c * (Uint32)params->strength / divisor;
@@ -434,7 +443,7 @@ void modern_depth_pass(ModernFrame *frame)
 	const bool fresh = md_fresh && md_valid;
 	md_fresh = false;
 
-	if (!frame->gameplay || !fresh || modern_depth_quality == MODERN_QUALITY_OFF)
+	if (!frame->gameplay || !fresh || modern_depth_quality == MODERN_DEPTH_OFF)
 		return;
 
 	const int playfield_x = frame->content_offset_x;

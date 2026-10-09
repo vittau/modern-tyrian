@@ -228,12 +228,12 @@ static const char *getLightingPickerItem(size_t i, char *buffer, size_t bufferSi
 
 static size_t getDepthPickerItemsCount(void)
 {
-	return (size_t)MODERN_QUALITY_MAX;
+	return (size_t)MODERN_DEPTH_MAX;
 }
 
 static const char *getDepthPickerItem(size_t i, char *buffer, size_t bufferSize)
 {
-	return capitalized_name(modern_quality_names[i], buffer, bufferSize);
+	return capitalized_name(modern_depth_names[i], buffer, bufferSize);
 }
 
 static size_t getVfxPickerItemsCount(void)
@@ -510,7 +510,7 @@ void setupMenu(void)
 				break;
 
 			case MENU_ITEM_DEPTH:
-				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_quality_names[modern_depth_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, capitalized_name(modern_depth_names[modern_depth_quality], buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_VFX:
@@ -1083,7 +1083,7 @@ void setupMenu(void)
 				}
 				case MENU_ITEM_DEPTH:
 				{
-					modern_depth_quality = (ModernQuality)pickerSelectedIndex;
+					modern_depth_quality = (ModernDepth)pickerSelectedIndex;
 					break;
 				}
 				case MENU_ITEM_VFX:
@@ -1318,7 +1318,7 @@ int main(int argc, char *argv[])
 	if (presentation == PRESENTATION_MODERN)
 	{
 		logInfo("Modern geometry: aspect %s, pixel aspect %s.", modern_aspect_names[modern_aspect], modern_pixel_aspect_names[modern_pixel_aspect]);
-		logInfo("Modern lighting: bloom %s, lighting %s, depth %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality], modern_quality_names[modern_depth_quality]);
+		logInfo("Modern lighting: bloom %s, lighting %s, depth %s.", modern_quality_names[modern_bloom_quality], modern_quality_names[modern_lighting_quality], modern_depth_names[modern_depth_quality]);
 	}
 
 	if (!gameDataPrepare())

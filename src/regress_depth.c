@@ -65,7 +65,7 @@ static Uint32 df_px(int x, int y)
 	return df_canvas[y * DF_PITCH + DF_X0 + x];
 }
 
-static unsigned df_run(ModernQuality quality, ModernDepthShadowStats *stats)
+static unsigned df_run(ModernDepth quality, ModernDepthShadowStats *stats)
 {
 	return (unsigned)modern_depth_shadow_apply(df_canvas + DF_X0, DF_PITCH, df_layers, df_rank, quality, stats);
 }
@@ -112,7 +112,7 @@ int regress_depth_selfcheck(void)
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG3);
 	memset(&stats, 0, sizeof stats);
-	DF_REQUIRE(df_run(MODERN_QUALITY_OFF, &stats) == 0 && df_changed() == 0 && df_margin_clean());
+	DF_REQUIRE(df_run(MODERN_DEPTH_OFF, &stats) == 0 && df_changed() == 0 && df_margin_clean());
 	DF_REQUIRE(stats.casters[DL_LAYER_BG3] == 0);
 	puts("Depth fixture PASS: Off is the identity");
 
@@ -121,7 +121,7 @@ int regress_depth_selfcheck(void)
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG2);
 	memset(&stats, 0, sizeof stats);
-	DF_REQUIRE(df_run(MODERN_QUALITY_LOW, &stats) > 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, &stats) > 0);
 	DF_REQUIRE(stats.casters[DL_LAYER_BG2] > 0);
 	DF_REQUIRE(df_px(122, 70) < DF_GREY);        // right of the block, inside the shadow
 	DF_REQUIRE(df_px(110, 83) < DF_GREY);        // below the block, inside the shadow
@@ -132,11 +132,39 @@ int regress_depth_selfcheck(void)
 	DF_REQUIRE(df_margin_clean());
 	puts("Depth fixture PASS: above + higher darkens; caster, light side and distance do not");
 
+	// No halo: the receiver touching the caster is darkest. Walk away along
+	// both exposed edges and along the light direction (2,3); darkness may only
+	// decrease. This fails with pre-blur receiver clipping, including wide blur.
+	for (int layer = DL_LAYER_BG2; layer <= DL_LAYER_BG3; layer += DL_LAYER_BG3 - DL_LAYER_BG2)
+	{
+		df_reset(DL_LAYER_BG1);
+		df_block(100, 60, 120, 80, layer);
+		df_run(MODERN_DEPTH_ON, NULL);
+		for (int y = 60; y <= 80; ++y)
+			for (int x = 100; x <= 120; ++x)
+				DF_REQUIRE(df_px(x, y) == DF_GREY);
+		for (int ray = 0; ray < 3; ++ray)
+		{
+			Uint32 previous = 0;
+			for (int d = 0; d < 20; ++d)
+			{
+				const int x = ray == 0 ? 121 + d : ray == 1 ? 110 : 121 + 2*d;
+				const int y = ray == 0 ? 75 : ray == 1 ? 81 + d : 81 + 3*d;
+				const Uint32 p = df_px(x, y);
+				DF_REQUIRE(p >= previous);
+				if (d == 0) DF_REQUIRE(p < DF_GREY);
+				previous = p;
+			}
+			DF_REQUIRE(previous == DF_GREY);
+		}
+	}
+	puts("Depth fixture PASS: no halo, adjacent receivers darkest, three rays fade monotonically; all caster pixels unchanged");
+
 	// Softness: a row crossing the shadow edge falls off in several distinct steps
 	// (no hard pixel edge), and the channels stay in step (a grey stays grey).
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG3);
-	DF_REQUIRE(df_run(MODERN_QUALITY_LOW, NULL) > 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) > 0);
 	{
 		int levels = 0;
 		Uint32 last = DF_GREY;
@@ -144,7 +172,7 @@ int regress_depth_selfcheck(void)
 		{
 			const Uint32 p = df_px(x, 72);
 			DF_REQUIRE(((p >> 16) & 0xff) == ((p >> 8) & 0xff) && ((p >> 8) & 0xff) == (p & 0xff));
-			DF_REQUIRE(p >= last || x < 125);  // brightens monotonically past the shadow body
+			DF_REQUIRE(p >= last || x == 121);  // brightens monotonically past the shadow body
 			if (p != last)
 				levels++;
 			last = p;
@@ -157,15 +185,15 @@ int regress_depth_selfcheck(void)
 	// a lower layer never shadows a higher one.
 	df_reset(DL_LAYER_SKY_ENEMY);
 	df_block(100, 60, 120, 80, DL_LAYER_SKY_ENEMY);
-	DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) == 0 && df_changed() == 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) == 0 && df_changed() == 0);
 	df_reset(DL_LAYER_BG2);
 	df_block(100, 60, 120, 80, DL_LAYER_GROUND_ENEMY);
-	DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) == 0 && df_changed() == 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) == 0 && df_changed() == 0);
 	// A bg2 block on a sky-enemy background: the sky layer shadows the block (it is
 	// higher), but the block shadows nothing of the layer above it.
 	df_reset(DL_LAYER_SKY_ENEMY);
 	df_block(100, 60, 120, 80, DL_LAYER_BG2);
-	DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) > 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) > 0);
 	for (int y = 0; y < DF_H; ++y)
 		for (int x = 0; x < DF_W; ++x)
 			if (df_layers[y * DF_W + x] == DL_LAYER_SKY_ENEMY)
@@ -178,11 +206,11 @@ int regress_depth_selfcheck(void)
 	df_block(100, 60, 120, 80, DL_LAYER_BG2);
 	df_rank[DL_LAYER_BG2] = 1;
 	df_rank[DL_LAYER_BG1] = 2;
-	DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) == 0 && df_changed() == 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) == 0 && df_changed() == 0);
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG2);
 	df_rank[DL_LAYER_BG1] = 0;  // never drawn this tick
-	DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) == 0 && df_changed() == 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) == 0 && df_changed() == 0);
 	puts("Depth fixture PASS: the rank table decides what is below");
 
 	// Non-casters never cast and non-receivers never receive.
@@ -195,7 +223,7 @@ int regress_depth_selfcheck(void)
 	{
 		df_reset(DL_LAYER_BG1);
 		df_block(100, 60, 120, 80, non_casters[i]);
-		DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) == 0 && df_changed() == 0);
+		DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) == 0 && df_changed() == 0);
 	}
 	static const int non_receivers[] =
 	{
@@ -207,7 +235,7 @@ int regress_depth_selfcheck(void)
 		df_reset(non_receivers[i]);
 		df_block(100, 60, 120, 80, DL_LAYER_TOP_ENEMY);
 		df_rank[non_receivers[i]] = 1;
-		df_run(MODERN_QUALITY_HIGH, NULL);
+		df_run(MODERN_DEPTH_ON, NULL);
 		// Only the area outside the caster holds the non-receiver; none of it darkens.
 		for (int y = 0; y < DF_H; ++y)
 			for (int x = 0; x < DF_W; ++x)
@@ -219,12 +247,12 @@ int regress_depth_selfcheck(void)
 	// VFX: a flagged pixel never casts, and keeps its underlying layer as a receiver.
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG2 | DL_LAYER_VFX_FLAG);
-	DF_REQUIRE(df_run(MODERN_QUALITY_HIGH, NULL) == 0 && df_changed() == 0);
+	DF_REQUIRE(df_run(MODERN_DEPTH_ON, NULL) == 0 && df_changed() == 0);
 	{
 		static Uint32 plain[DF_PITCH * DF_ROWS];
 		df_reset(DL_LAYER_BG1);
 		df_block(100, 60, 120, 80, DL_LAYER_BG2);
-		df_run(MODERN_QUALITY_LOW, NULL);
+		df_run(MODERN_DEPTH_ON, NULL);
 		memcpy(plain, df_canvas, sizeof plain);
 
 		// Same scene with scattered VFX over the receiving ground (and one over the
@@ -235,7 +263,7 @@ int regress_depth_selfcheck(void)
 			for (int x = 100; x < 130; x += 3)
 				if (df_layers[y * DF_W + x] == DL_LAYER_BG1)
 					df_layers[y * DF_W + x] |= DL_LAYER_VFX_FLAG;
-		df_run(MODERN_QUALITY_LOW, NULL);
+		df_run(MODERN_DEPTH_ON, NULL);
 		int differing = 0;
 		for (int y = 0; y < DF_H; ++y)
 			for (int x = 0; x < DF_W; ++x)
@@ -248,13 +276,13 @@ int regress_depth_selfcheck(void)
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG2);
 	memset(&stats, 0, sizeof stats);
-	df_run(MODERN_QUALITY_LOW, &stats);
+	df_run(MODERN_DEPTH_ON, &stats);
 	const Uint32 opaque = df_px(122, 70);
 	DF_REQUIRE(stats.blend_casters == 0);
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_BG2 | DL_LAYER_BLEND);
 	memset(&stats, 0, sizeof stats);
-	df_run(MODERN_QUALITY_LOW, &stats);
+	df_run(MODERN_DEPTH_ON, &stats);
 	DF_REQUIRE(stats.blend_casters > 0);
 	DF_REQUIRE((df_px(122, 70) & 0xff) > (opaque & 0xff) && df_px(122, 70) < DF_GREY);
 	puts("Depth fixture PASS: blended bg2 casts weakly");
@@ -263,7 +291,7 @@ int regress_depth_selfcheck(void)
 	df_reset(DL_LAYER_BG1);
 	df_block(100, 60, 120, 80, DL_LAYER_GROUND_ENEMY);
 	df_block(123, 60, 126, 80, DL_LAYER_PLAYER);
-	df_run(MODERN_QUALITY_HIGH, NULL);
+	df_run(MODERN_DEPTH_ON, NULL);
 	for (int y = 60; y <= 80; ++y)
 		for (int x = 123; x <= 126; ++x)
 			DF_REQUIRE(df_px(x, y) == DF_GREY);
@@ -271,42 +299,37 @@ int regress_depth_selfcheck(void)
 
 	// Nothing leaks outside the playfield: casters packed against the right and
 	// bottom edges, at every quality.
-	for (int q = MODERN_QUALITY_LOW; q <= MODERN_QUALITY_HIGH; ++q)
+	for (int q = MODERN_DEPTH_ON; q <= MODERN_DEPTH_ON; ++q)
 	{
 		df_reset(DL_LAYER_BG1);
 		df_block(DF_W - 30, 0, DF_W - 1, DF_H - 1, DL_LAYER_TOP_ENEMY);
 		df_block(0, DF_H - 30, DF_W - 1, DF_H - 1, DL_LAYER_BG3);
-		df_run((ModernQuality)q, NULL);
+		df_run((ModernDepth)q, NULL);
 		DF_REQUIRE(df_margin_clean());
 	}
 	puts("Depth fixture PASS: no darkening outside the playfield");
 
-	// High is stronger than Low; the pass is deterministic.
-	long low_sum = 0, high_sum = 0;
-	for (int q = MODERN_QUALITY_LOW; q <= MODERN_QUALITY_HIGH; ++q)
-	{
-		df_reset(DL_LAYER_BG1);
-		df_block(100, 60, 140, 100, DL_LAYER_TOP_ENEMY);
-		df_run((ModernQuality)q, NULL);
-		long sum = 0;
-		for (int y = 0; y < DF_H; ++y)
-			for (int x = 0; x < DF_W; ++x)
-				sum += (long)(DF_GREY & 0xff) - (long)(df_px(x, y) & 0xff);
-		if (q == MODERN_QUALITY_LOW) low_sum = sum; else high_sum = sum;
-	}
-	DF_REQUIRE(low_sum > 0 && high_sum > low_sum);
+	// On is deterministic and has measurable full-silhouette darkening.
+	long on_sum = 0;
+	df_reset(DL_LAYER_BG1);
+	df_block(100, 60, 140, 100, DL_LAYER_TOP_ENEMY);
+	df_run(MODERN_DEPTH_ON, NULL);
+	for (int y = 0; y < DF_H; ++y)
+		for (int x = 0; x < DF_W; ++x)
+			on_sum += (long)(DF_GREY & 0xff) - (long)(df_px(x, y) & 0xff);
+	DF_REQUIRE(on_sum > 0);
 	{
 		static Uint32 first[DF_PITCH * DF_ROWS];
 		df_reset(DL_LAYER_BG1);
 		df_block(100, 60, 140, 100, DL_LAYER_TOP_ENEMY);
-		df_run(MODERN_QUALITY_HIGH, NULL);
+		df_run(MODERN_DEPTH_ON, NULL);
 		memcpy(first, df_canvas, sizeof first);
 		df_reset(DL_LAYER_BG1);
 		df_block(100, 60, 140, 100, DL_LAYER_TOP_ENEMY);
-		df_run(MODERN_QUALITY_HIGH, NULL);
+		df_run(MODERN_DEPTH_ON, NULL);
 		DF_REQUIRE(memcmp(first, df_canvas, sizeof first) == 0);
 	}
-	printf("Depth fixture PASS: High darker than Low (%ld vs %ld), deterministic\n", high_sum, low_sum);
+	printf("Depth fixture PASS: On darkness %ld, deterministic\n", on_sum);
 
 	puts("Depth fixture PASS: all rules");
 	return 0;

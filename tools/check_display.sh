@@ -244,18 +244,17 @@ rm "$WORK/config-root/opentyrian.cfg"
 grep -F "item 'crt_filter' 'off'" "$WORK/config-root/opentyrian.cfg" >/dev/null
 echo 'PASS display: CRT shared config roundtrip (4 modes), unknown and missing default off'
 
-# The Depth setting (modern_depth): off/low/high round-trip, an unknown value and a
-# missing key mean Low, and the synthetic shadow fixture passes.
-for mode in off low high unknown; do
+# Depth off/on round-trip; legacy low/high, unknown and missing values mean On.
+for mode in off on low high unknown; do
 	printf "section 'video'\n\titem 'modern_depth' '%s'\n" "$mode" > "$WORK/config-root/opentyrian.cfg"
 	"$BIN" --variant=2.1 --regress-user-root="$WORK/config-root" --regress-user-files > "$WORK/config.log" 2>&1
-	[ "$mode" != unknown ] || mode=low
+	[ "$mode" = off ] || mode=on
 	grep -F "item 'modern_depth' '$mode'" "$WORK/config-root/opentyrian.cfg" >/dev/null
 done
 rm "$WORK/config-root/opentyrian.cfg"
 "$BIN" --variant=2.1 --regress-user-root="$WORK/config-root" --regress-user-files > "$WORK/config.log" 2>&1
-grep -F "item 'modern_depth' 'low'" "$WORK/config-root/opentyrian.cfg" >/dev/null
+grep -F "item 'modern_depth' 'on'" "$WORK/config-root/opentyrian.cfg" >/dev/null
 "$BIN" --regress-depth-check > "$WORK/depth-fixture.log" 2>&1
 grep -F 'Depth fixture PASS: all rules' "$WORK/depth-fixture.log" >/dev/null
 if grep -F 'Depth fixture FAIL' "$WORK/depth-fixture.log" >/dev/null; then exit 1; fi
-echo 'PASS display: Depth config roundtrip (off, low, high), unknown and missing default low; shadow fixture'
+echo 'PASS display: Depth config roundtrip (off/on), legacy low/high, unknown and missing default on; shadow fixture'

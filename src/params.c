@@ -30,6 +30,7 @@
 #include "logging.h"
 #include "loudness.h"
 #include "modern.h"
+#include "modern_depth.h"
 #include "crt_filter.h"
 #include "modern_bloom.h"
 #include "network.h"
@@ -311,7 +312,7 @@ void JE_paramCheck(int argc, char *argv[])
 			logInfo("  --regress-modern             Hash the Modern canvas in regress modes");
 			logInfo("  --regress-bloom=LEVEL        Pin Modern bloom in regress modes (default off)");
 			logInfo("  --regress-lighting=LEVEL     Pin Modern bloom + lighting in regress modes (default off)");
-			logInfo("  --regress-depth=LEVEL        Pin the Modern Depth setting (soft shadows) in regress modes (default off)");
+			logInfo("  --regress-depth=off|on        Pin the Modern Depth setting (soft shadows) in regress modes (default off)");
 			logInfo("  --regress-depth-check        Run the synthetic depth-shadow fixture and exit");
 			logInfo("  --regress-held-check         With --regress-menu: compare the held frame with the last live frame outside the overlay");
 			logInfo("  --light-tag-stats            Count emitted playfield pixels per tag class and exit");
@@ -740,12 +741,12 @@ void JE_paramCheck(int argc, char *argv[])
 			regress_layer_check = 1;
 			break;
 
-		case 432: // --regress-depth=off|low|high
+		case 432: // --regress-depth=off|on (low/high aliases)
 		{
-			ModernQuality quality = MODERN_QUALITY_OFF;
-			if (!set_modern_quality_by_name(option.arg, &quality))
+			ModernDepth quality = MODERN_DEPTH_OFF;
+			if (!set_modern_depth_by_name(option.arg, &quality))
 			{
-				logError("%s: regress depth must be 'off', 'low' or 'high'", argv[0]);
+				logError("%s: regress depth must be 'off' or 'on' (legacy 'low'/'high' accepted)", argv[0]);
 				exit(EXIT_FAILURE);
 			}
 			regress_depth_quality = (int)quality;

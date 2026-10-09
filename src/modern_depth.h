@@ -44,8 +44,12 @@ bool modern_depth_layers_wanted(void);
 
 // The `Depth:` setting (Setup -> Graphics, config key modern_depth).  Any level
 // above Off opens the layer-buffer gate and enables the shadow pass.  Default
-// Low; regress runs pin it Off unless --regress-depth asks otherwise.
-extern ModernQuality modern_depth_quality;
+// On; regress runs pin it Off unless --regress-depth asks otherwise.
+typedef enum { MODERN_DEPTH_OFF, MODERN_DEPTH_ON, MODERN_DEPTH_MAX } ModernDepth;
+extern ModernDepth modern_depth_quality;
+extern const char *const modern_depth_names[MODERN_DEPTH_MAX];
+// Legacy low/high names both select On; invalid names leave the value unchanged.
+bool set_modern_depth_by_name(const char *name, ModernDepth *depth);
 
 // Requests the layer buffer independently of the setting (the regress / debug
 // flags --regress-layer-check and --regress-layer-png).
@@ -97,7 +101,7 @@ typedef struct
 // the pass and by the synthetic fixture (--regress-depth-check).
 unsigned long modern_depth_shadow_apply(Uint32 *canvas, int canvas_pitch_px,
                                         const Uint8 *layers, const Uint8 *rank,
-                                        ModernQuality quality, ModernDepthShadowStats *stats);
+                                        ModernDepth quality, ModernDepthShadowStats *stats);
 
 // The registered Modern pass (before the bloom/lighting pass).  Gameplay frames
 // only, and only when the layer buffer of this very frame is valid.

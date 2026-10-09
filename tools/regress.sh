@@ -33,6 +33,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 UPDATE=0
+CASE_FILTER=".*"
 UPDATE_MANIFEST=0
 REPLAY_CHECK=0
 INTERP_CHECK=0
@@ -50,6 +51,7 @@ JOBS=${REGRESS_JOBS:-$(default_jobs)}
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--update) UPDATE=1 ;;
+		--case=*) CASE_FILTER=${1#*=} ;;
 		--update-manifest) UPDATE_MANIFEST=1 ;;
 		--replay-check) REPLAY_CHECK=1 ;;
 		--interp-check) INTERP_CHECK=1 ;;
@@ -65,7 +67,7 @@ while [ "$#" -gt 0 ]; do
 		--jobs=*) JOBS=${1#*=} ;;
 		-j[0-9]*) JOBS=${1#-j} ;;
 		-h|--help)
-			echo "Usage: tools/regress.sh [-j N|--jobs N] [--update|--update-manifest|--replay-check|--interp-check|--smoothness-check|--parallax-check]"
+			echo "Usage: tools/regress.sh [-j N|--jobs N] [--case=REGEX] [--update|--update-manifest|--replay-check|--interp-check|--smoothness-check|--parallax-check]"
 			echo "Jobs default to REGRESS_JOBS or the number of CPUs."
 			exit 0 ;;
 		*) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
@@ -361,8 +363,8 @@ case_cost() {
 	case "$kind" in
 		run_interp_case|run_smoothness_case|run_parallax_case) factor=$((factor * 2)) ;;
 		run_layer_case) factor=$((factor * 4)) ;;  # two runs, one of them with the interpolated check
-		run_depth_case) factor=$((factor * 3)) ;;  # three runs: depth off, low and high
-		run_held_case) factor=$((factor * 4)) ;;   # four runs: effects off, lighting, depth low and high
+		run_depth_case) factor=$((factor * 2)) ;;  # two runs: depth off and on
+		run_held_case) factor=$((factor * 3)) ;;   # two runs: effects off, lighting, depth on
 	esac
 	# Audio hashes whole sound/music streams, not framebuffer records.
 	if [ "$label" = audio ]; then
@@ -373,6 +375,7 @@ case_cost() {
 }
 
 queue_case() {
+	[[ "$2" =~ $CASE_FILTER ]] || return
 	local command cost
 	printf -v command '%q ' "$@"
 	case_commands[case_count]=$command
@@ -1209,7 +1212,7 @@ run_layer_case() {
 }
 
 # run_depth_case LABEL OFF_BASELINE_LABEL LEVEL REQUIRE "$@" -- depth shadows, stage 2.
-# tools/check_depth_shadows.sh runs the scenario with Depth off, low and high: the
+# tools/check_depth_shadows.sh runs the scenario with Depth off and on: the
 # state/RNG streams must be identical (the shadows are display-only), the Off frames
 # must equal OFF_BASELINE_LABEL when one is given ("-" for none), the LEVEL frames
 # must equal this case's own committed baseline test/regress/LABEL.txt (written by
@@ -1238,9 +1241,8 @@ run_depth_case() {
 # run_held_case LABEL REQUIRE "$@" -- depth shadows and bloom/lighting on held in-level
 # frames (the pause screen, the in-game menu, the in-game help).
 # tools/check_depth_held.sh runs the scenario (which opens the screen on its last
-# frame through --regress-menu) with every effect off, lighting alone, Depth Low and
-# Depth High: the state/RNG streams must be identical, the held frame must change
-# with the lighting and again with the shadows, the Low frames must equal this case's
+# frame through --regress-menu) with every effect off, lighting alone, Depth On: the state/RNG streams must be identical, the held frame must change
+# with the lighting and again with the shadows, the On frames must equal this case's
 # own committed baseline test/regress/LABEL.txt (written by --update), and the log
 # must carry the REQUIRE assertions on the "Depth held:", "Light held:" and
 # "Held check:" lines, so the case proves the held frame really got shadows and light
@@ -1295,58 +1297,69 @@ run_smooth_effects_case() {
 	echo "PASS $label: $(grep -oE 'Smooth effects check: .*' "$log" | tail -n 1)"
 }
 
-# Depth shadows own committed baselines (their Low/High frame hashes), so unlike the
+# Depth shadows own committed baselines (their On frame hashes), so unlike the
 # check-only cases below they also run under --update.
 if [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -eq 0 ] && [ "$PARALLAX_CHECK" -eq 0 ]; then
 	M4="--regress-detail=$MODERN_DETAIL --regress-modern"
 	# --- depth shadows (modern depth, stage 2) ----------------------------------
 	#
-	# Each case runs Depth off, low and high.  The three state/RNG streams must
+	# Each case runs Depth off and on.  The two state/RNG streams must
 	# match, Off must reproduce the existing baseline of the same scenario, and the
-	# Low or High frames are pinned by the case's own baseline.  The REQUIRE list
+	# On frames are pinned by the case's own baseline.  The REQUIRE list
 	# names the casters and paths that must really have run ("identical" = the
 	# case must not shadow at all).
-	run_depth_case "depth-wide-demo1-low-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" low \
+	run_depth_case "depth-wide-demo1-on-d$MODERN_DETAIL" "modern-wide-demo1-d$MODERN_DETAIL" on \
 		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 sidekick>0 bg3>0 top>0 blend>0 space_frames=0" \
 		--regress-demo=1 $M4 --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-wide-demo5-high-d$MODERN_DETAIL" - high \
+	run_depth_case "depth-wide-demo5-on-d$MODERN_DETAIL" - on \
 		"frames>0 shadowed_px>0 bg2>0 blend=0 ground>0 sky>0 player>0 sidekick>0 bg3>0 space_frames=0" \
 		--regress-demo=5 $M4 --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-e1-level16-bg3-low-d$MODERN_DETAIL" - low \
+	run_depth_case "depth-e1-level16-bg3-on-d$MODERN_DETAIL" - on \
 		"frames>0 shadowed_px>0 bg3>0 top>0 sky>0 player>0 space_frames=0" \
 		--regress-level=1:16 $M4 --regress-frames=1200 --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-e1-level16-2p-high-d$MODERN_DETAIL" - high \
+	run_depth_case "depth-e1-level16-2p-on-d$MODERN_DETAIL" - on \
 		"frames>0 shadowed_px>0 player>0 sidekick>0 bg3>0 space_frames=0" \
 		--regress-level=1:16 $M4 --regress-frames=1200 --regress-players=2 --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-scenario-water-high-d$MODERN_DETAIL" - high \
+	run_depth_case "depth-scenario-water-on-d$MODERN_DETAIL" - on \
 		"frames>0 shadowed_px>0 sky>0 player>0 blend>0 space_frames=0" \
 		--regress-level=4:9 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-scenario-flip-low-d$MODERN_DETAIL" - low \
+	run_depth_case "depth-scenario-flip-on-d$MODERN_DETAIL" - on \
 		"frames>0 shadowed_px>0 bg2>0 sky>0 top>0 player>0 flipped>0 space_frames=0" \
 		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-demo4-space-low-d$MODERN_DETAIL" - low \
+	run_depth_case "depth-demo4-space-on-d$MODERN_DETAIL" - on \
 		"identical frames>0 shadowed_px=0 space_frames>0 bg3=0 top=0 sky=0 player=0" \
 		--regress-demo=4 $M4 --regress-aspect=16:9
 	pairs=$((pairs + 1))
-	run_depth_case "depth-e1-level1-space-high-d$MODERN_DETAIL" - high \
+	run_depth_case "depth-e1-level1-space-on-d$MODERN_DETAIL" - on \
 		"identical frames>0 shadowed_px=0 space_frames>0" \
 		--regress-level=1:1 $M4 --regress-frames=1200 --regress-fire --regress-aspect=16:9
 	pairs=$((pairs + 1))
 	# Modern 4:3: no side panels, the playfield sits at the canvas's own offset.
-	run_depth_case "depth-demo1-4x3-low-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" low \
+	run_depth_case "depth-demo1-4x3-on-d$MODERN_DETAIL" "modern-demo1-d$MODERN_DETAIL" on \
 		"frames>0 shadowed_px>0 bg2>0 ground>0 sky>0 player>0 bg3>0 top>0 space_frames=0" \
 		--regress-demo=1 $M4
 	pairs=$((pairs + 1))
 	# 16:9 with smooth motion: the presented frames are the interpolated ones.
-	run_depth_case "depth-smooth-wide-flip-high-d$MODERN_DETAIL" - high \
+	run_depth_case "depth-smooth-wide-flip-on-d$MODERN_DETAIL" - on \
 		"frames>0 shadowed_px>0 bg2>0 sky>0 player>0 interpolated>0 flipped>0 space_frames=0" \
 		--regress-level=4:12 $M4 --regress-frames=3600 --regress-fire --regress-aspect=16:9 --regress-interp-alpha=0.5
+	pairs=$((pairs + 1))
+
+	# HOLES (physical 11, script section 28): floating land on BG3 above BG1.
+	run_depth_case "depth-holes-on-d$MODERN_DETAIL" - on \
+		"frames>0 shadowed_px>0 bg3>0 bg2>0 blend>0 player>0 space_frames=0" \
+		--regress-level=1:11 $M4 --regress-frames=1200 --regress-aspect=16:9
+	pairs=$((pairs + 1))
+	# TYRIAN is physical 9, section 3, the first Full Game level (not physical 1).
+	run_depth_case "depth-tyrian-on-d$MODERN_DETAIL" - on \
+		"frames>0 shadowed_px>0 bg2>0 blend>0 ground>0 player>0 space_frames=0" \
+		--regress-level=1:9 $M4 --regress-frames=1200 --regress-aspect=16:9
 	pairs=$((pairs + 1))
 
 	# --- held in-level screens: shadows and light kept on the frozen playfield ---
@@ -1357,34 +1370,34 @@ if [ "$REPLAY_CHECK" -eq 0 ] && [ "$INTERP_CHECK" -eq 0 ] && [ "$SMOOTH_CHECK" -
 	# lit pixels, an overlay that stayed untouched, and a held frame that matches
 	# the last live frame to within the fringe of what sits under the overlay.
 	H4="--regress-script=1:3 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern"
-	run_held_case "held-pause-wide-d$MODERN_DETAIL" \
+	run_held_case "depth-held-pause-wide-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 compared_px>40000 mismatch_max_dist<12" \
 		$H4 --regress-frames=350 --regress-menu=pause --regress-aspect=16:9
-	run_held_case "held-ingame-wide-d$MODERN_DETAIL" \
+	run_held_case "depth-held-ingame-wide-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 compared_px>10000 mismatch_max_dist<20" \
 		$H4 --regress-frames=1050 --regress-menu=ingame --regress-aspect=16:9
-	run_held_case "held-help-wide-d$MODERN_DETAIL" \
-		"frames=1 shadowed_px=0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
+	run_held_case "depth-held-help-wide-d$MODERN_DETAIL" \
+		"frames=1 shadowed_px>0 overlay_px>40000 overlay_changed_px=0 lit_px>0 mismatch_max_dist<4" \
 		$H4 --regress-frames=350 --regress-menu=help --regress-aspect=16:9
 	# Modern 4:3 (no side panels): the playfield sits at x = 0.
-	run_held_case "held-pause-4x3-d$MODERN_DETAIL" \
+	run_held_case "depth-held-pause-4x3-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
 		$H4 --regress-frames=350 --regress-menu=pause
-	run_held_case "held-ingame-21x9-d$MODERN_DETAIL" \
+	run_held_case "depth-held-ingame-21x9-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<20" \
 		$H4 --regress-frames=350 --regress-menu=ingame --regress-aspect=21:9
 	# A starfield level: no shadow on a held frame either, but the held light stays.
-	run_held_case "held-pause-space-d$MODERN_DETAIL" \
+	run_held_case "depth-held-pause-space-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px=0 space_frames=1 lit_px>5000 overlay_px>0 overlay_changed_px=0 mismatch_px=0" \
 		--regress-script=1:5 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern \
 		--regress-frames=300 --regress-menu=pause --regress-aspect=16:9
 	# Lava level with a big explosion under the PAUSED text.
-	run_held_case "held-ingame-lava-d$MODERN_DETAIL" \
+	run_held_case "depth-held-ingame-lava-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px>0 emitter_px>0 lit_px>10000 overlay_px>20000 overlay_changed_px=0 mismatch_max_dist<40" \
 		--regress-script=4:12 --regress-seed=32402394 --regress-detail=$MODERN_DETAIL --regress-modern \
 		--regress-frames=2400 --regress-menu=ingame --regress-aspect=16:9
 	# Smooth motion: the last live frame came from the interpolated renderer.
-	run_held_case "held-pause-smooth-d$MODERN_DETAIL" \
+	run_held_case "depth-held-pause-smooth-d$MODERN_DETAIL" \
 		"frames=1 shadowed_px>0 emitter_px>0 lit_px>40000 overlay_px>0 overlay_changed_px=0 mismatch_max_dist<12" \
 		$H4 --regress-frames=350 --regress-menu=pause --regress-aspect=16:9 --regress-interp-alpha=0.5
 fi
@@ -1681,8 +1694,8 @@ run_queued_cases
 
 total=$(awk "BEGIN { printf \"%.1f\", $(now) - $total_start }")
 
-if [ "$UPDATE" -eq 1 ]; then
-	echo "Baselines updated in $BASELINE_DIR ($pairs cases, ${total}s total)"
+if [ "$UPDATE" -eq 1 ] && [ "$failures" -eq 0 ]; then
+	echo "Baselines updated in $BASELINE_DIR ($case_count selected cases, ${total}s total)"
 	exit 0
 fi
 
